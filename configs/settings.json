@@ -1,0 +1,367 @@
+{
+  "SYMBOLS_WHITELIST": [
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "USDCAD",
+    "AUDUSD",
+    "USDCHF",
+    "NZDUSD",
+    "EURJPY",
+    "GBPJPY",
+    "EURGBP",
+    "AUDJPY",
+    "XAUUSD",
+    "XAGUSD",
+    "EURCHF",
+    "CADJPY",
+    "AUDNZD",
+    "GBPAUD",
+    "BITCOIN"
+  ],
+  "web_dashboard": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8000
+  },
+  "FEATURES_TO_USE": [
+    "close",
+    "tick_volume",
+    "ATR_14",
+    "RSI_14",
+    "BB_WIDTH",
+    "STOCHk_14_3_3",
+    "MACD_12_26_9",
+    "EMA_50",
+    "EMA_200",
+    "ADX_14",
+    "ATR_NORM",
+    "DIST_EMA_50",
+    "DIST_EMA_200",
+    "SKEW_60",
+    "KURT_60",
+    "VOLA_60",
+    "hour_sin",
+    "hour_cos",
+    "day_of_week_sin",
+    "day_of_week_cos",
+    "KG_CB_SENTIMENT",
+    "KG_INFLATION_SURPRISE"
+  ],
+  "INTER_MARKET_SYMBOLS": [
+    "DXY",
+    "VIX"
+  ],
+  "INTER_MARKET_SYMBOL_ALIASES": {
+    "DXY": [
+      "USDX",
+      "U.S.DOLLAR_INDEX",
+      "DX-Y.NYB"
+    ],
+    "VIX": [
+      "VOLX",
+      "FEAR-INDEX"
+    ]
+  },
+  "IGNORE_HISTORICAL_DRAWDOWN_ON_START": true,
+  "TOP_N_SYMBOLS": 17,
+  "screener_volatility": {
+    "ideal_min_percent": 0.05,
+    "ideal_max_percent": 0.5
+  },
+  "screener_trend": {
+    "adx_threshold": 15
+  },
+  "screener_liquidity": {
+    "ideal_max_spread_pips": 5.0
+  },
+  "screener_weights": {
+    "volatility": 0.6,
+    "trend": 0.3,
+    "liquidity": 0.1
+  },
+  "INPUT_LAYER_SIZE": 60,
+  "TRAINING_DATA_POINTS": 2000,
+  "PREDICTION_DATA_POINTS": 1000,
+  "GP_POPULATION_SIZE": 50,
+  "GP_GENERATIONS": 20,
+  "GP_MUTATION_RATE": 0.2,
+  "GP_CROSSOVER_RATE": 0.7,
+  "GP_ELITISM_SIZE": 2,
+  "GP_TOURNAMENT_SIZE": 5,
+  "ENTRY_THRESHOLD": 1e-05,
+  "CONSENSUS_THRESHOLD": 0.4,
+  "SENTIMENT_THRESHOLD": 0.05,
+  "DIVERGENCE_BLOCK_MINUTES": 15,
+  "GP_TRIGGER_WIN_RATE": 0.99,
+  "GP_MIN_TRADES_SAMPLE": 10,
+  "RISK_PERCENTAGE": 5.0,
+  "DYNAMIC_RISK_MIN_PERCENT": 0.5,
+  "STOP_LOSS_ATR_MULTIPLIER": 2.5,
+  "RISK_REWARD_RATIO": 2.05,
+  "MAX_DAILY_DRAWDOWN_PERCENT": 10.0,
+  "MAX_PORTFOLIO_VAR_PERCENT": 5.0,
+  "MAX_OPEN_POSITIONS": 18,
+  "CORRELATION_THRESHOLD": 0.85,
+  "PORTFOLIO_VOLATILITY_THRESHOLD": 0.05,
+  "IMPORTANT_NEWS_ENTITIES": [
+    "FED",
+    "ECB",
+    "POWELL",
+    "LAGARDE",
+    "ФРС",
+    "ЕЦБ",
+    "RATE",
+    "INFLATION"
+  ],
+  "STRATEGY_REGIME_MAPPING": {
+    "Default": "AI_Model",
+    "High Volatility Range": "BreakoutStrategy",
+    "Low Volatility Range": "MeanReversionStrategy",
+    "Strong Trend": "MovingAverageCrossoverStrategy",
+    "Weak Trend": "AI_Model"
+  },
+  "STRATEGY_WEIGHTS": {
+    "BreakoutStrategy": 1.0,
+    "MovingAverageCrossoverStrategy": 0.8,
+    "MeanReversionStrategy": 0.9,
+    "AdaptiveStrategy": 0.5
+  },
+  "strategies": {
+    "breakout": {
+      "window": 20
+    },
+    "mean_reversion": {
+      "window": 50,
+      "std_dev_multiplier": 2.0,
+      "confirmation_buffer_std_dev_fraction": 0.05
+    },
+    "ma_crossover": {
+      "timeframe_params": {
+        "default": {
+          "short_window": 10,
+          "long_window": 25
+        },
+        "low": {
+          "short_window": 10,
+          "long_window": 25
+        },
+        "high": {
+          "short_window": 50,
+          "long_window": 200
+        }
+      }
+    }
+  },
+  "optimizer": {
+    "ideal_volatility": 0.005,
+    "timeframes_to_check": {
+      "M1": 1,
+      "M5": 5,
+      "M15": 15,
+      "H1": 16385,
+      "H4": 16388,
+      "D1": 16408
+    },
+    "MAX_OPEN_POSITIONS": 10,
+    "MAX_HOLD_BARS": 24,
+    "CORRELATION_THRESHOLD": 0.7
+  },
+  "trading_sessions": {
+    "FOREX": [
+      "00:05",
+      "23:55"
+    ],
+    "NYSE": [
+      "13:30",
+      "20:00"
+    ],
+    "CRYPTO": [
+      "00:00",
+      "23:59"
+    ]
+  },
+  "asset_types": {
+    "EURUSD": "FOREX",
+    "GBPUSD": "FOREX",
+    "USDJPY": "FOREX",
+    "XAUUSD": "FOREX",
+    "USDCAD": "FOREX",
+    "AUDUSD": "FOREX",
+    "BTCUSD": "CRYPTO"
+  },
+  "NEWS_CACHE_DURATION_MINUTES": 120,
+  "telegram_channels": [],
+  "twitter_influencers": [],
+  "rss_feeds": [
+    "https://ru.investing.com/rss/news.rss",
+    "https://www.dailyfx.com/rss.xml",
+    "https://www.forexlive.com/feed",
+    "https://www.fxstreet.com/rss/news",
+    "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"
+  ],
+  "news_api_queries": [
+    "(forex OR currency OR inflation OR interest rate OR ECB OR Fed) AND (EUR OR USD OR GBP OR JPY OR Gold)"
+  ],
+  "source_weights": {},
+  "economic_calendar": {
+    "min_impact_level": 2,
+    "lookahead_hours": 24,
+    "lookahead_hours_for_impact": 3
+  },
+  "DATABASE_FOLDER": "F:\\Enjen",
+  "DATABASE_NAME": "trading_system.db",
+  "TRADE_INTERVAL_SECONDS": 15,
+  "TRAINING_INTERVAL_SECONDS": 300,
+  "EXCLUDED_SYMBOLS": [
+    "USDRUB",
+    "EURRUB"
+  ],
+  "rd_cycle_config": {
+    "sharpe_ratio_threshold": 1.2,
+    "max_drawdown_threshold": 15.0,
+    "performance_check_trades_min": 20,
+    "profit_factor_threshold": 1.1,
+    "model_candidates": [
+      {
+        "type": "LSTM_PyTorch",
+        "k": 10
+      },
+      {
+        "type": "LightGBM",
+        "k": "all"
+      }
+    ]
+  },
+  "online_learning": {
+    "enabled": false,
+    "learning_rate": 0.0001,
+    "adjustment_factor": 0.1,
+    "max_expected_profit": 100.0
+  },
+  "anomaly_detector": {
+    "enabled": true,
+    "training_data_bars": 5000,
+    "features": [
+      "ATR_NORM",
+      "SKEW_60",
+      "KURT_60",
+      "VOLA_60",
+      "DIST_EMA_50"
+    ],
+    "threshold_std_multiplier": 3.0,
+    "risk_off_duration_hours": 4,
+    "epochs": 50,
+    "batch_size": 32
+  },
+  "market_regime": {
+    "adx_threshold": 25.0,
+    "volatility_high_percentile": 0.8,
+    "volatility_low_percentile": 0.2,
+    "ema_slope_threshold": 0.0001,
+    "volatility_rank_window": 252
+  },
+  "graph_database": {
+    "enabled": true,
+    "db_name": "genesis_world_model"
+  },
+  "EVENT_BLOCK_WINDOW_HOURS": 0,
+  "ALLOW_WEEKEND_TRADING": true,
+  "backtester_initial_balance": 10000.0,
+  "system": {
+    "initial_history_sync_days": 90,
+    "history_sync_margin_minutes": 5
+  },
+  "orchestrator": {
+    "decision_interval_seconds": 14400,
+    "training_interval_seconds": 604800
+  },
+  "risk": {
+    "confidence_risk_map": {
+      "low": 0.5,
+      "medium": 1.0,
+      "high": 1.5
+    },
+    "recent_trades_for_dynamic_risk": 20,
+    "drawdown_sensitivity_threshold": 2.0,
+    "portfolio_var_confidence_level": 0.99,
+    "toxic_regime_update_interval_sec": 3600,
+    "toxic_regime_risk_multiplier": 0.5,
+    "hedge_risk_reduction_factor": 0.5,
+    "pre_mortem": {
+      "enabled": true,
+      "num_simulations": 1000,
+      "simulation_horizon_bars": 20,
+      "tail_risk_multiplier": 2.0,
+      "tail_risk_probability_threshold": 0.05
+    },
+    "trailing_profit": {
+      "enabled": true,
+      "activation_threshold_percent": 0.3,
+      "pullback_percent": 0.5
+    }
+  },
+  "rl_manager": {
+    "training_timesteps_per_trade": 2000,
+    "rewards": {
+      "hold_reward_multiplier": 0.01,
+      "partial_close_multiplier": 0.5,
+      "move_sl_to_be_reward": 0.25,
+      "move_sl_to_be_penalty": -0.1,
+      "sl_hit_penalty": -1.0,
+      "tp_hit_reward": 1.0
+    }
+  },
+  "HF_MODELS_CACHE_DIR": "F:\\ai_models",
+  "vector_db": {
+    "enabled": true,
+    "path": "database/vector_db",
+    "collection_name": "news_and_events",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "cleanup_enabled": true,
+    "max_age_days": 90,
+    "cleanup_interval_hours": 24
+  },
+  "MT5_LOGIN": "52565344",
+  "MT5_PASSWORD": "*u5qCsTe",
+  "MT5_SERVER": "Alpari-MT5-Demo",
+  "MT5_PATH": "C:/Program Files/Alpari MT5/terminal64.exe",
+  "FINNHUB_API_KEY": "d3jic09r01qkv9jvr6v0d3jic09r01qkv9jvr6vg",
+  "ALPHA_VANTAGE_API_KEY": "I84WCWH95ARB7L2J",
+  "NEWS_API_KEY": "a756084feb7c477db832ae56bcd0b830",
+  "POLYGON_API_KEY": "0x2Wo4m9g8_zsziNwwVwlAvTj7MtNGSY",
+  "TWELVE_DATA_API_KEY": "6b7adfde649b4b61847feaf93eaa1786",
+  "FCS_API_KEY": "vE7d7hiDqRld7liIisuVC4",
+  "TELEGRAM_API_ID": "",
+  "TELEGRAM_API_HASH": "",
+  "TWITTER_BEARER_TOKEN": "",
+  "SANTIMENT_API_KEY": "ldzov3x47l6f76yw_xsstqjmgi7xrsdzv",
+  "NEO4J_URI": "bolt://localhost:7687",
+  "NEO4J_USER": "neo4j",
+  "NEO4J_PASSWORD": "your_neo4j_password",
+  "FRED_API_KEY": "05d652018b9088612ff28a0b3ac0189a",
+  "STRATEGY_MIN_WIN_RATE_THRESHOLD": 0.2,
+  "orchestrator_settings": {
+    "decision_interval_seconds": 14400,
+    "training_interval_seconds": 604800
+  },
+  "ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION": true,
+  "concept_drift": {
+    "enabled": true,
+    "adwin_delta": 0.002,
+    "min_window_size": 30
+  },
+  "CONSENSUS_WEIGHTS": {
+    "ai_forecast": 0.4,
+    "classic_strategies": 0.3,
+    "sentiment_kg": 0.2,
+    "on_chain_data": 0.1
+  },
+  "auto_retraining": {
+    "enabled": true,
+    "schedule_time": "02:00",
+    "interval_hours": 24,
+    "max_symbols": 30,
+    "max_workers": 3
+  }
+}

@@ -1,0 +1,249 @@
+:root {
+    --bg-color: #282a36;
+    --card-bg-color: #44475a;
+    --border-color: #6272a4;
+    --text-color: #f8f8f2;
+    --label-color: #bd93f9;
+    --green: #50fa7b;
+    --red: #ff5555;
+    --orange: #ffb86c;
+}
+
+
+body {
+    font-family: Segoe UI, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 10px;
+}
+
+header h1 {
+    margin: 0;
+    color: var(--green);
+}
+
+.status-indicator {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: var(--red);
+    box-shadow: 0 0 10px var(--red);
+    transition: all 0.3s ease;
+}
+
+.status-indicator.connected {
+    background-color: var(--green);
+    box-shadow: 0 0 10px var(--green);
+}
+
+main {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.card {
+    background-color: var(--card-bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.card h2 {
+    margin-top: 0;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
+    color: var(--label-color);
+}
+
+.kpi-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.kpi-label {
+    font-size: 0.9em;
+    color: #ccc;
+}
+
+.kpi-value {
+    font-size: 1.2em;
+    font-weight: bold;
+    display: block;
+}
+
+.placeholder {
+    opacity: 0.5;
+    text-align: center;
+    padding-top: 50px;
+    padding-bottom: 50px;
+}
+
+/* Стили для таблицы позиций */
+.table-container {
+    max-height: 400px; /* Ограничиваем высоту, чтобы таблица не была слишком длинной */
+    overflow-y: auto;
+}
+
+#positions-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#positions-table th, #positions-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+#positions-table th {
+    color: var(--label-color);
+    font-size: 0.9em;
+}
+
+#positions-table tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.profit-positive {
+    color: var(--green);
+}
+
+.profit-negative {
+    color: var(--red);
+}
+
+/* Стили для блока управления */
+.control-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.control-btn {
+    padding: 12px;
+    border: none;
+    border-radius: 5px;
+    font-size: 1.1em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-color);
+}
+
+.control-btn:hover {
+    opacity: 0.9;
+}
+
+.control-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.btn-green { background-color: #50fa7b; color: #282a36; }
+.btn-orange { background-color: #ffb86c; color: #282a36; }
+.btn-red { background-color: #ff5555; }
+
+/* Grid Layout */
+main.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+}
+.card-large { grid-column: span 2; }
+.card-xlarge { grid-column: span 2; }
+
+@media (min-width: 1200px) {
+    .dashboard-grid { grid-template-columns: repeat(4, 1fr); }
+    .card-large { grid-column: span 2; }
+    .card-xlarge { grid-column: span 4; }
+}
+
+/* Control Center */
+.control-grid { display: flex; flex-direction: column; gap: 15px; }
+.control-row { display: flex; gap: 10px; }
+.control-row > .control-btn { flex: 1; }
+.observer-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background-color: rgba(0,0,0,0.2);
+    border-radius: 5px;
+}
+
+/* Toggle Switch */
+.switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #6272a4; transition: .4s; }
+.slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; }
+input:checked + .slider { background-color: var(--green); }
+input:checked + .slider:before { transform: translateX(22px); }
+.slider.round { border-radius: 28px; }
+.slider.round:before { border-radius: 50%; }
+
+/* Buttons */
+.control-btn {
+    padding: 10px; border: none; border-radius: 5px; font-size: 1em; font-weight: bold;
+    cursor: pointer; transition: all 0.2s ease; color: var(--text-color);
+}
+.control-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+.btn-red-outline {
+    background-color: transparent;
+    border: 1px solid var(--red);
+    color: var(--red);
+    margin-top: 10px;
+}
+.btn-close-pos {
+    background-color: var(--red);
+    border: none;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8em;
+}
+.btn-close-pos:hover { background-color: #ff7b7b; }
+
+/* Charts */
+.chart-container { position: relative; height: 250px; }
+.orchestrator-info { margin-bottom: 15px; }
+
+/* Log Feed */
+.log-feed {
+    height: 300px;
+    overflow-y: auto;
+    background-color: #282a36;
+    padding: 10px;
+    border-radius: 5px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+}
+.log-entry { display: flex; gap: 15px; margin-bottom: 5px; }
+.log-time { color: var(--label-color); }
+.log-message { color: #f8f8f2; }
+
+/* Table */
+.empty-table { text-align: center; padding: 20px; color: #999; }
+#positions-table th:last-child, #positions-table td:last-child { text-align: center; }
+
+.status-running { color: #50fa7b; }
+.status-stopped { color: #ff5555; }
+.mode-trade { color: #ffb86c; }
+.mode-observer { color: #8be9fd; }

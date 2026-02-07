@@ -1,0 +1,96 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-selfcheck.json
+
+# IDE / Editor specific
+.idea/
+.vscode/
+.qoder/
+
+# База данных и сгенерированные файлы
+database/
+vector_db/
+data/generated_strategies/
+*.pkl
+*.keras
+*.sqlite
+*.db
+
+# Файлы сессий и кэша
+*telegram_session*
+*/cpython-cache/
+
+# Конфигурационные файлы с секретами
+configs/.env
+
+# Логи
+*.log
+
+# Специфичные для Windows
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+main_pyside.build/
+main_pyside.dist/
+main_pyside.onefile-build/
+
+# Скомпилированные файлы и библиотеки
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+*.o
+*.obj
+
+# Cache и временные файлы
+.cache/
+.tmp/
+temp/
+*.tmp
+
+# Large files
+*.pkg
+*.pyz
+*.bin
+*.payload-*
+project_backup.zip
+
+# ML models and data
+*.h5
+*.onnx
+*.pt
+*.pth
+*.joblib
+
+# System files
+.DS_Store
+Desktop.ini
+
+# Large text files
+full_project_code.txt
+
+# Utility files
+bfg.jar
+
+# Plugin directories
+plugins/
+
+# TensorBoard logs
+rl_tensorboard/
+
+# Trader storage
+trader_storage/
+
+# Test directories
+tests/

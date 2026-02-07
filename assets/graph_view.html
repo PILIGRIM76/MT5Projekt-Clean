@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Genesis Knowledge Graph</title>
+    <style type="text/css">
+        html, body {
+            width: 100%; height: 100%; margin: 0; padding: 0;
+            overflow: hidden;
+            background-color: #282a36;
+            color: #f8f8f2;
+            font-family: Segoe UI, sans-serif;
+        }
+        #mynetwork { width: 100%; height: 100%; }
+        #status-overlay {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #6272a4;
+            pointer-events: none;
+            z-index: 1000;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        button {
+            pointer-events: auto !important;
+            background: #6272a4; color: white; border: none; padding: 5px 10px; cursor: pointer; margin-top: 5px;
+        }
+    </style>
+    <!-- Подключаем только vis.js -->
+    <script src="vis-network.min.js"></script>
+</head>
+<body>
+
+<div id="status-overlay">
+    <span id="status-text">Загрузка...</span>
+    <br>
+    <button onclick="location.reload()">Перезагрузить</button>
+</div>
+
+<!-- --- НОВЫЙ БЛОК УПРАВЛЕНИЯ (WEB.2) --- -->
+<div id="control-panel" style="position: absolute; top: 10px; right: 10px; background: rgba(0, 0, 0, 0.8); padding: 10px; border-radius: 4px; border: 1px solid #6272a4; z-index: 1000;">
+    <label for="filter-type" style="color: #f8f8f2;">Фильтр:</label>
+    <select id="filter-type" style="margin-right: 5px; padding: 3px; border-radius: 3px; border: 1px solid #6272a4; background: #44475a; color: #f8f8f2;">
+        <option value="none">Все связи</option>
+        <option value="source">По Источнику</option>
+        <option value="target">По Цели</option>
+        <option value="relation">По Типу Связи</option>
+    </select>
+    <input type="text" id="filter-value" placeholder="Введите значение" style="margin-right: 5px; padding: 3px; border-radius: 3px; border: 1px solid #6272a4; background: #44475a; color: #f8f8f2;">
+    <button id="apply-filter-btn" style="background: #bd93f9; color: #282a36; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px;">Применить</button>
+</div>
+<!-- --------------------------------------- -->
+
+<div id="mynetwork"></div>
+
+<!-- === ВСТРОЕННАЯ БИБЛИОТЕКА QWEBCHANNEL (НЕ УДАЛЯТЬ) === -->
+<script type="text/javascript">
+    "use strict";
+    var QWebChannel=function(t,e){if("object"!=typeof t||"function"!=typeof t.send)return console.error("QWebChannel: transport object is required and must have a send method!"),void 0;var n=this;this.transport=t,this.send=function(e){"string"!=typeof e&&(e=JSON.stringify(e)),n.transport.send(e)},this.transport.onmessage=function(t){var e=t.data;"string"==typeof e&&(e=JSON.parse(e));switch(e.type){case 0:if(e.data)for(var i in e.data)n.objects[i]=new QObject(i,e.data[i],n);e.data&&e.data.backend&&(window.backend=n.objects.backend),n.execCallbacks[e.id]&&(n.execCallbacks[e.id](e.data),delete n.execCallbacks[e.id]),e.data&&e.data.backend&&e&&e(n);break;case 1:n.objects[e.object]&&n.objects[e.object].signalEmitted(e.signal,e.args);break;case 2:n.execCallbacks[e.id]&&(n.execCallbacks[e.id](e.data),delete n.execCallbacks[e.id]);break;case 3:n.objects[e.object]&&n.objects[e.object].propertyUpdate(e.signals,e.properties);break}},this.exec=function(t,e){e&&(n.execCallbacks[t.id]=e),n.send(t)},this.execCallbacks={},n.objects={},n.exec({type:0},function(t){for(var i in t)n.objects[i]=new QObject(i,t[i],n);e&&e(n)})};function QObject(t,e,n){this.__id__=t,this.webChannel=n,this.signals={},this.properties={};var i=this;for(var o in e.properties)!function(t){var n=e.properties[t];i.properties[t]=n,i.__defineGetter__(t,function(){return i.properties[t]}),i.__defineSetter__(t,function(e){i.properties[t]!==e&&(i.properties[t]=e,i.webChannel.exec({type:4,object:i.__id__,property:t,value:e}))})}(o);for(var s in e.signals)!function(t){var n=e.signals[t];i.signals[t]=[],i[t]={connect:function(e){"function"==typeof e&&i.signals[t].push(e)},disconnect:function(e){var n=i.signals[t].indexOf(e);n>-1&&i.signals[t].splice(n,1)}},i.signalEmitted=function(t,e){var n=i.signals[t];if(n)for(var o=0;o<n.length;o++)n[o].apply(i,e)}}(s);for(var r in e.methods)!function(t){i[t]=function(){var e=[],n=arguments[arguments.length-1];for(var o=0;o<arguments.length;o++)"function"!=typeof arguments[o]&&e.push(arguments[o]);i.webChannel.exec({type:5,object:i.__id__,method:t,args:e},n)}}(r)}
+</script>
+<!-- ======================================================= -->
+
+<script type="text/javascript">
+    const statusText = document.getElementById('status-text');
+    const overlay = document.getElementById('status-overlay');
+    let network = null;
+    const nodes = new vis.DataSet([]);
+    const edges = new vis.DataSet([]);
+
+    function log(msg, color='#f8f8f2') {
+        statusText.innerHTML = msg;
+        statusText.style.color = color;
+    }
+
+    function initGraph() {
+        const container = document.getElementById('mynetwork');
+        const data = { nodes: nodes, edges: edges };
+        const options = {
+            nodes: { shape: 'dot', size: 20, font: { color: '#f8f8f2' }, borderWidth: 2, color: { background: '#44475a', border: '#bd93f9' } },
+            edges: { width: 1, color: { color: '#6272a4' }, arrows: 'to' },
+            physics: { stabilization: false }
+        };
+        network = new vis.Network(container, data, options);
+    }
+
+    function updateGraph(graphData) {
+        overlay.style.display = 'none';
+        try {
+            // --- WEB.2: Логика фильтрации на стороне клиента ---
+            const filterType = document.getElementById('filter-type').value;
+            const filterValue = document.getElementById('filter-value').value.trim().toLowerCase();
+
+            let filteredNodes = graphData.nodes;
+            let filteredEdges = graphData.edges;
+
+            if (filterType !== 'none' && filterValue !== '') {
+                const activeNodeIds = new Set();
+
+                filteredEdges = graphData.edges.filter(edge => {
+                    // Находим узлы по ID, чтобы получить их метки
+                    const fromNode = graphData.nodes.find(n => n.id === edge.from);
+                    const toNode = graphData.nodes.find(n => n.id === edge.to);
+
+                    let match = false;
+                    if (filterType === 'source' && fromNode && fromNode.label.toLowerCase().includes(filterValue)) {
+                        match = true;
+                    } else if (filterType === 'target' && toNode && toNode.label.toLowerCase().includes(filterValue)) {
+                        match = true;
+                    } else if (filterType === 'relation' && edge.label.toLowerCase().includes(filterValue)) {
+                        match = true;
+                    }
+
+                    if (match) {
+                        activeNodeIds.add(edge.from);
+                        activeNodeIds.add(edge.to);
+                    }
+                    return match;
+                });
+
+                // Оставляем только те узлы, которые связаны с отфильтрованными ребрами
+                filteredNodes = graphData.nodes.filter(node => activeNodeIds.has(node.id));
+            }
+            // ----------------------------------------------------
+
+            nodes.clear(); edges.clear();
+            // Используем ОТФИЛЬТРОВАННЫЕ данные
+            if (filteredNodes) nodes.add(filteredNodes);
+            if (filteredEdges) edges.add(filteredEdges);
+            if (nodes.length < 50) network.fit();
+        } catch (e) {
+            overlay.style.display = 'block';
+            log("Ошибка данных: " + e.message, '#ff5555');
+        }
+    }
+
+    function initChannel() {
+        if (typeof qt !== 'undefined' && qt.webChannelTransport) {
+            log("Транспорт найден. Подключение...", '#8be9fd');
+
+            try {
+                new QWebChannel(qt.webChannelTransport, function (channel) {
+                    window.backend = channel.objects.backend;
+                    if (window.backend) {
+                        backend.graphDataUpdated.connect(updateGraph);
+                        backend.jsReady();
+                        log("Готов. Ожидание данных.", '#50fa7b');
+
+                        // --- WEB.2: Привязка кнопки фильтрации ---
+                        document.getElementById('apply-filter-btn').onclick = function() {
+                            const type = document.getElementById('filter-type').value;
+                            const value = document.getElementById('filter-value').value;
+
+                            // Вызываем новый слот в PySide
+                            if (window.backend.requestFilteredGraph) {
+                                window.backend.requestFilteredGraph(type, value.trim());
+                                log(`Запрос данных для фильтрации: ${type} = ${value.trim()}`, '#8be9fd');
+                            } else {
+                                log("Ошибка: Слот requestFilteredGraph не найден в PySide.", '#ff5555');
+                            }
+                        };
+                        // ------------------------------------------
+
+                    } else {
+                        log("Ошибка: объект 'backend' не найден.", '#ff5555');
+                    }
+                });
+            } catch (e) {
+                log("Ошибка канала: " + e.message, '#ff5555');
+            }
+        } else {
+            log("Ожидание Qt транспорта...", '#f1fa8c');
+            setTimeout(initChannel, 100);
+        }
+    }
+
+    initGraph();
+    window.onload = initChannel;
+</script>
+</body>
+</html>

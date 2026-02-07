@@ -1,0 +1,11 @@
+{
+    "BreakoutStrategy": {
+        "some_config_key": "some_config_value"
+    },
+    "MeanReversionStrategy": {
+        "some_config_key": "some_config_value"
+    },
+    "MovingAverageCrossoverStrategy": {
+        "some_config_key": "some_config_value"
+    }
+}

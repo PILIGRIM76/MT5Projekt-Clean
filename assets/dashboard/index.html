@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Genesis Reflex Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Подключаем библиотеки для графиков -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Genesis Reflex Dashboard</h1>
+            <div class="status-indicator" id="connection-status" title="Соединение с сервером"></div>
+        </header>
+
+        <main class="dashboard-grid">
+            <!-- Блок 1: Состояние Системы -->
+            <div class="card">
+                <h2>Состояние Системы</h2>
+                <div class="kpi-grid">
+                    <div><span class="kpi-label">Статус</span><span class="kpi-value" id="system-status">--</span></div>
+                    <div><span class="kpi-label">Режим</span><span class="kpi-value" id="system-mode">--</span></div>
+                    <div><span class="kpi-label">Время работы</span><span class="kpi-value" id="system-uptime">--</span></div>
+                    <div><span class="kpi-label">Баланс</span><span class="kpi-value" id="system-balance">--</span></div>
+                    <div><span class="kpi-label">Эквити</span><span class="kpi-value" id="system-equity">--</span></div>
+                    <div><span class="kpi-label">Просадка</span><span class="kpi-value" id="system-drawdown">--</span></div>
+                </div>
+            </div>
+
+            <!-- Блок 2: Центр Управления -->
+            <div class="card">
+                <h2>Центр Управления</h2>
+                <div class="control-grid">
+                    <div class="control-row">
+                        <button class="control-btn btn-green" id="start-btn">Запуск</button>
+                        <button class="control-btn btn-orange" id="stop-btn">Остановка</button>
+                    </div>
+                    <div class="control-row observer-row">
+                        <label for="observer-mode-switch">Режим Наблюдателя</label>
+                        <label class="switch">
+                            <input type="checkbox" id="observer-mode-switch">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <button class="control-btn btn-red" id="close-all-emergency-btn">Закрыть все и остановить</button>
+                </div>
+            </div>
+
+            <!-- Блок 3: Кривая доходности -->
+            <div class="card card-large">
+                <h2>Кривая доходности (P&L)</h2>
+                <div class="chart-container">
+                    <canvas id="pnl-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Блок 4: Панель Оркестратора -->
+            <div class="card card-large">
+                <h2>Панель Оркестратора</h2>
+                <div class="orchestrator-info">
+                    <span class="kpi-label">Текущий рыночный режим:</span>
+                    <span class="kpi-value" id="market-regime">--</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="orchestrator-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Блок 5: Активные Позиции -->
+            <div class="card card-xlarge">
+                <h2>Активные Позиции (<span id="positions-count">0</span>)</h2>
+                <div class="table-container">
+                    <table id="positions-table">
+                        <thead>
+                            <tr>
+                                <th>Тикет</th>
+                                <th>Символ</th>
+                                <th>Стратегия</th>
+                                <th>Тип</th>
+                                <th>Объем</th>
+                                <th>Профит</th>
+
+                                <th>Баров</th>
+                                <th>ТФ</th>
+
+                                <th>Управление</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Строки будут добавляться динамически -->
+                        </tbody>
+                    </table>
+                </div>
+                 <button class="control-btn btn-red-outline" id="close-all-btn">Закрыть все позиции</button>
+            </div>
+
+            <!-- Блок 6: Журнал Событий -->
+            <div class="card card-xlarge">
+                <h2>Журнал Событий</h2>
+                <div class="log-feed" id="log-feed">
+                    <!-- Сообщения лога будут добавляться сюда -->
+                </div>
+            </div>
+
+            <!-- Блок 7: Мониторинг AI (WEB.3) -->
+            <div class="card card-xlarge">
+                <h2>Мониторинг AI (Ошибка Прогноза и Дрейф)</h2>
+                <div class="chart-container">
+                    <canvas id="drift-chart"></canvas>
+                </div>
+            </div>
+
+        </main>
+    </div>
+    <script src="main.js"></script>
+</body>
+</html>

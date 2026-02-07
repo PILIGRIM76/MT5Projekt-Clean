@@ -1,0 +1,57 @@
+# requirements.txt
+# Сгенерировано на основе pyproject.toml
+
+# Основа и GUI
+PySide6==6.5.2
+pyqtgraph
+pydantic
+python-dotenv
+numba==0.59.1
+llvmlite==0.42.0
+#river
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+websockets>=10.0
+jinja2
+schedule
+
+# Данные и Аналитика
+numpy==1.26.4
+pandas
+scikit-learn
+matplotlib
+
+# Торговля и Финансы
+MetaTrader5
+arch
+
+# Машинное обучение
+torch==2.2.2
+torchvision
+torchaudio
+lightgbm
+stable-baselines3
+gymnasium
+shap
+optuna
+optuna-integration[shap]
+accelerate
+
+# NLP
+transformers==4.39.3
+sentence-transformers==2.2.2
+huggingface-hub==0.19.4
+sentencepiece==0.2.0
+nltk
+
+# Базы данных
+SQLAlchemy
+faiss-cpu
+neo4j
+
+# Веб и API
+httpx
+feedparser
+ntscraper
+newsapi-python
+telethon

@@ -1,0 +1,13 @@
+{
+    "BreakoutStrategy": {
+        "window": 68
+    },
+    "MeanReversionStrategy": {
+        "window": 163,
+        "std_dev_multiplier": 2.4989950774715775
+    },
+    "MovingAverageCrossoverStrategy": {
+        "short_window": 18,
+        "long_window": 56
+    }
+}

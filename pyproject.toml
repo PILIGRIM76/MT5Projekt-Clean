@@ -1,0 +1,96 @@
+# pyproject.toml (Финальная версия с гибким PyTorch и оптимизацией)
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genesis-trading-system"
+version = "13.0.0"
+description = "Саморазвивающаяся торговая экосистема Genesis"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name="Genesis Developer", email="dev@example.com" }
+]
+classifiers=[
+    "Programming Language :: Python :: 3.10",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    # Основа и GUI
+    "PySide6==6.5.2",
+    "pyqtgraph",
+    "pydantic",
+    "python-dotenv",
+    "numba==0.59.1",
+    "llvmlite==0.42.0",
+
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.20.0",
+    "websockets>=10.0",
+    "jinja2",
+
+
+    # Данные и Аналитика
+    "numpy==1.26.4",
+    "pandas",
+    "scikit-learn",
+    "matplotlib",
+
+    # Торговля и Финансы
+    "MetaTrader5",
+    "arch",
+
+    # Машинное обучение (Гибкие требования для совместимости с CUDA)
+    "torch>=2.5.1",          # <-- ГИБКОЕ ТРЕБОВАНИЕ
+    "torchvision>=0.18.0",   # <-- Обновлено для совместимости с torch>=2.5
+    "torchaudio>=2.5.0",     # <-- Обновлено для совместимости с torch>=2.5
+    "lightgbm",
+    "stable-baselines3",
+    "gymnasium",
+    "shap",
+    "optuna",
+    "optuna-integration[shap]",
+
+    "accelerate",            # <-- Для GPU и квантизации
+    'bitsandbytes',          # <-- Для 8-битной квантизации (оптимизация памяти)
+
+    # NLP (с зафиксированными версиями)
+    "sentence-transformers>=2.7.0",
+    "huggingface-hub>=0.20.0,<1.0",
+    "sentencepiece==0.2.0",
+    "nltk",
+    "transformers==4.39.3",
+
+    # Базы данных
+    "SQLAlchemy",
+    "faiss-cpu",
+    "neo4j",
+
+    # Веб и API
+    "httpx",
+    "feedparser",
+    "ntscraper",
+    "newsapi-python",
+    "telethon",
+
+    # Ускорение вычислений
+    "numba==0.59.1",
+    "llvmlite==0.42.0",
+]
+
+[project.gui-scripts]
+# Создаем точку входа для запуска GUI
+genesis-trader = "main_pyside:main"
+
+[tool.setuptools]
+# Указываем, что исходный код пакетов находится в папке 'src'
+package-dir = {"" = "src"}
+# Автоматически находим все пакеты (папки с __init__.py) внутри 'src'
+packages = { find = { where = ["src"] } }
+# Включаем в пакет не-Python файлы, указанные в MANIFEST.in
+include-package-data = true
