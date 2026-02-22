@@ -78,6 +78,9 @@ os.environ['QT_WEBENGINE_DISABLE_SANDBOX'] = '1'
 #os.environ['QTWEBENGINE_REMOTE_DEBUGGING'] = '9223'
 #os.environ['NUMBA_DISABLE_INTEL_SVML'] = '1'
 
+# Флаг для выбора интерфейса
+USE_MODERN_UI = True  # Установите в False для использования старого интерфейса
+
 import logging
 import threading
 import time
@@ -90,7 +93,6 @@ import subprocess
 import pyqtgraph as pg
 import multiprocessing
 import queue
-import threading
 import json
 from pathlib import Path
 import MetaTrader5 as mt5
@@ -118,7 +120,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QMessageBox, QComboBox, QDateEdit, QMenu, QDialog, QLineEdit, QSpinBox, QDialogButtonBox,
                                QGridLayout, QDoubleSpinBox, QGroupBox, QTableWidgetItem, QTableWidget)
 from PySide6.QtCore import QThreadPool, QTimer
-from PySide6.QtCore import Qt, Signal, QObject, QAbstractTableModel, QRectF, QUrl, QDate
+from PySide6.QtCore import Qt, Signal, QObject, QAbstractTableModel, QRectF, QUrl, QDate, QEvent, QPointF
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from src.utils.worker import Worker
 
@@ -134,19 +136,18 @@ from src.gui.log_utils import ColorFormatter, QtLogHandler, setup_qt_logging
 from src.gui.settings_window import SettingsWindow
 from src.gui.styles import LIGHT_STYLE, DARK_STYLE
 from src.gui.sound_manager import SoundManager
+from src.gui.control_center_widget import ControlCenterWidget
 from src._version import __version__
 from src.strategies.strategy_loader import StrategyLoader
 from src.data.data_provider import DataProvider
 from src.core.config_models import Settings
-from src.gui.control_center_widget import ControlCenterWidget
+from src.gui.modern_main_window import ModernMainWindow
 from src.utils.scheduler_manager import SchedulerManager
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtCore import Slot, QObject, Signal, QUrl
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
 from src.analysis.system_backtester import SystemBacktester
 from src.analysis.event_driven_backtester import EventDrivenBacktester
-import multiprocessing
-import time as standard_time
 
 logger = logging.getLogger(__name__)
 
@@ -341,60 +342,72 @@ class DictTableModel(QAbstractTableModel):
 class CustomCandlestickItem(pg.GraphicsObject):
     def __init__(self):
         pg.GraphicsObject.__init__(self)
-        self.data = []  # Инициализируем пустым списком
-        self.picture = QPainterPath()
+        self.data = None
 
     def setData(self, data):
         self.data = data
-        self.generatePicture()
+        self.prepareGeometryChange()
         self.informViewBoundsChanged()
         self.update()
-
-    def generatePicture(self):
-        self.picture = QPainterPath()
-        if self.data is None or len(self.data) == 0:  # Проверка на пустоту
-            return
-
-        w = (self.data[1][0] - self.data[0][0]) * 0.4 if len(self.data) > 1 else 0.4
-        for t, o, h, l, c in self.data:
-            body_top = max(o, c)
-            body_bottom = min(o, c)
-            # Верхняя тень
-            self.picture.moveTo(t, h)
-            self.picture.lineTo(t, body_top)
-            # Нижняя тень
-            self.picture.moveTo(t, l)
-            self.picture.lineTo(t, body_bottom)
-            # Тело
-            self.picture.addRect(QRectF(t - w, o, w * 2, c - o))
 
     def paint(self, p, *args):
         if self.data is None or len(self.data) < 2:
             return
-        brushes = [pg.mkBrush('g') if o < c else pg.mkBrush('r') for _, o, _, _, c in self.data]
-        pens = [pg.mkPen('g') if o < c else pg.mkPen('r') for _, o, _, _, c in self.data]
-        w = (self.data[1][0] - self.data[0][0]) * 0.4 if len(self.data) > 1 else 0.4
+        
+        # Вычисляем ширину свечи
+        w = (self.data[1][0] - self.data[0][0]) * 0.4
 
-        for i, (t, o, h, l, c) in enumerate(self.data):
-            p.setPen(pens[i])
-            p.setBrush(brushes[i])
+        for t, o, h, l, c in self.data:
+            # Определяем цвет свечи
+            if c >= o:  # Зеленая свеча (рост)
+                pen = pg.mkPen('g', width=1)
+                brush = pg.mkBrush('g')
+            else:  # Красная свеча (падение)
+                pen = pg.mkPen('r', width=1)
+                brush = pg.mkBrush('r')
+            
+            p.setPen(pen)
+            p.setBrush(brush)
 
             body_top = max(o, c)
             body_bottom = min(o, c)
+            body_height = body_top - body_bottom
 
             # Рисуем верхнюю тень (от high до верха тела)
-            p.drawLine(t, h, t, body_top)
+            p.drawLine(QPointF(t, h), QPointF(t, body_top))
             # Рисуем нижнюю тень (от low до низа тела)
-            p.drawLine(t, l, t, body_bottom)
+            p.drawLine(QPointF(t, l), QPointF(t, body_bottom))
+            
             # Рисуем тело
-            p.drawRect(QRectF(t - w, o, w * 2, c - o))
-
-
+            if body_height > 0:
+                p.drawRect(QRectF(t - w, body_bottom, w * 2, body_height))
+            else:
+                # Если open == close, рисуем горизонтальную линию
+                p.drawLine(QPointF(t - w, o), QPointF(t + w, o))
 
     def boundingRect(self):
-        if self.data is None:
+        if self.data is None or len(self.data) == 0:
             return QRectF()
-        return self.picture.boundingRect()
+        
+        # Находим границы данных
+        times = [d[0] for d in self.data]
+        highs = [d[2] for d in self.data]
+        lows = [d[3] for d in self.data]
+        
+        min_time = min(times)
+        max_time = max(times)
+        min_price = min(lows)
+        max_price = max(highs)
+        
+        # Добавляем небольшой отступ
+        w = (self.data[1][0] - self.data[0][0]) * 0.4 if len(self.data) > 1 else 0.4
+        
+        return QRectF(
+            min_time - w,
+            min_price,
+            max_time - min_time + 2 * w,
+            max_price - min_price
+        )
 
 
 class Bridge(QObject):
@@ -437,11 +450,11 @@ class PySideTradingSystem(QObject):
         super().__init__()
         self.config = config
         self.bridge = bridge
-        #self.core_system = TradingSystem(config=config, gui=self, sound_manager=sound_manager, bridge=bridge)
         self.core_system = TradingSystem(config=config, gui=self, sound_manager=sound_manager, bridge=bridge)
         # --- ПРАВИЛЬНЫЕ ПОДКЛЮЧЕНИЯ (core_system -> bridge) ---
         self.core_system.rd_progress_updated.connect(self.bridge.rd_progress_updated)
         self.core_system.market_scan_updated.connect(self.bridge.market_scan_updated)
+        self.core_system.trading_signals_updated.connect(self.bridge.trading_signals_updated)
         self.core_system.uptime_updated.connect(self.bridge.uptime_updated)
         self.core_system.all_positions_closed.connect(self.bridge.all_positions_closed)
         self.core_system.directives_updated.connect(self.bridge.directives_updated)
@@ -488,7 +501,9 @@ class PySideTradingSystem(QObject):
         """Проксирует вызов к ядру системы."""
         self.core_system.force_rd_cycle()
 
-
+    def stop(self):
+        """Проксирует вызов к ядру системы для остановки торговли."""
+        self.core_system.initiate_graceful_shutdown()
 
     def get_all_models(self) -> List[Dict]:
         """Проксирует вызов к db_manager для получения списка моделей."""
@@ -500,11 +515,25 @@ class PySideTradingSystem(QObject):
 
     def search_vector_db(self, query_text: str):
         """Проксирует вызов к core_system для поиска в VectorDB."""
+        logger.info(f"[VectorDB-Proxy] Получен запрос на поиск: '{query_text}'")
+        
+        if not self.core_system:
+            logger.error("[VectorDB-Proxy] core_system не инициализирован")
+            self.bridge.vector_db_search_results.emit([{"error": "Торговая система не запущена"}])
+            return
+        
+        if not hasattr(self.core_system, 'search_vector_db'):
+            logger.error("[VectorDB-Proxy] Метод search_vector_db не найден в core_system")
+            self.bridge.vector_db_search_results.emit([{"error": "Метод поиска не найден"}])
+            return
+        
         # --- ИСПРАВЛЕНИЕ: Используем QThreadPool для I/O-bound задачи ---
         # Запускаем синхронный метод в отдельном потоке, чтобы не блокировать GUI
+        logger.info(f"[VectorDB-Proxy] Запуск Worker для поиска")
         worker = Worker(self.core_system.search_vector_db, query_text)
         # Результат будет отправлен через сигнал core_system.vector_db_search_results
         QThreadPool.globalInstance().start(worker)
+        logger.info(f"[VectorDB-Proxy] Worker запущен")
 
 
     def connect_to_terminal_adapter(self) -> tuple[bool, str]:
@@ -592,6 +621,11 @@ class GenericTableModel(QAbstractTableModel):
         Обновляет данные модели
         :param new_data: новые данные для таблицы
         """
+        # ОТЛАДКА: Логируем каждое обновление
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[GenericTableModel] update_data вызван с {len(new_data)} строками")
+        
         self.layoutAboutToBeChanged.emit()
         self._data = new_data
         self.layoutChanged.emit()
@@ -615,7 +649,7 @@ class RDTableModel(GenericTableModel):
         row_data = [
             new_row_dict.get('generation', 'N/A'),
             f"{new_row_dict.get('best_fitness', 0.0):.4f}",
-            new_row_dict.get('strategy_str', 'N/A')
+            new_row_dict.get('config', new_row_dict.get('strategy_str', 'N/A'))  # Поддержка обоих ключей
         ]
         self._data.append(row_data)
         self.endInsertRows()
@@ -692,6 +726,8 @@ class MainWindow(QMainWindow):
     def __init__(self, trading_system_adapter: PySideTradingSystem, config: Settings):
         super().__init__()
         self.setWindowTitle("Genesis v24.0: Reflexive Core")
+        
+        logger.info("=== НАЧАЛО ИНИЦИАЛИЗАЦИИ MainWindow ===")
 
         # 1. Инициализация QThreadPool для управления фоновыми задачами
         self.threadpool = QThreadPool()
@@ -918,10 +954,13 @@ class MainWindow(QMainWindow):
 
     def _refresh_vector_db_stats(self):
         """Запрашивает статистику у ядра."""
+        logger.info("[VectorDB-GUI] Запрос статистики VectorDB")
         if hasattr(self.trading_system, 'get_vector_db_stats'):
             stats = self.trading_system.get_vector_db_stats()
             count = stats.get('count', 0)
             ready = stats.get('is_ready', False)
+
+            logger.info(f"[VectorDB-GUI] Статистика получена: готов={ready}, документов={count}")
 
             self.vdb_count_label.setText(f"Документов в индексе: {count}")
 
@@ -985,49 +1024,108 @@ class MainWindow(QMainWindow):
         query = self.vdb_query_edit.text().strip()
         if not query:
             QMessageBox.warning(self, "Внимание", "Введите поисковый запрос.")
+            # Убедимся, что кнопка в нормальном состоянии
+            self.vdb_search_button.setEnabled(True)
+            self.vdb_search_button.setText("Найти похожие новости")
             return
 
+        logger.info(f"[VectorDB-GUI] Запуск поиска: '{query}'")
+        
+        # Проверяем, что система инициализирована
+        if not hasattr(self.trading_system, 'search_vector_db'):
+            logger.error("[VectorDB-GUI] Метод search_vector_db не найден в trading_system")
+            QMessageBox.critical(self, "Ошибка", "Система VectorDB не инициализирована")
+            return
+        
+        if not hasattr(self.trading_system, 'core_system'):
+            logger.error("[VectorDB-GUI] core_system не найден в trading_system")
+            QMessageBox.critical(self, "Ошибка", "Торговая система не запущена. Нажмите 'Запустить торговлю'")
+            return
+        
         self.vdb_search_button.setEnabled(False)
         self.vdb_search_button.setText("Поиск...")
         self.vdb_results_table.setRowCount(0)
 
         # --- ИСПРАВЛЕНИЕ: Вызываем прокси-метод, который использует QThreadPool ---
-        self.trading_system.search_vector_db(query)
+        try:
+            logger.info(f"[VectorDB-GUI] Вызов trading_system.search_vector_db('{query}')")
+            self.trading_system.search_vector_db(query)
+            logger.info(f"[VectorDB-GUI] Метод search_vector_db вызван успешно")
+        except Exception as e:
+            logger.error(f"[VectorDB-GUI] Ошибка при вызове search_vector_db: {e}", exc_info=True)
+            self.vdb_search_button.setEnabled(True)
+            self.vdb_search_button.setText("Найти похожие новости")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка при запуске поиска: {e}")
+            return
+        
+        # Таймаут на случай, если результаты не придут (защита от зависания кнопки)
+        QTimer.singleShot(10000, self._restore_search_button)  # 10 секунд таймаут
+    
+    def _restore_search_button(self):
+        """Восстанавливает кнопку поиска (защита от зависания)"""
+        if not self.vdb_search_button.isEnabled():
+            logger.warning("[VectorDB-GUI] Таймаут поиска - восстановление кнопки")
+            self.vdb_search_button.setEnabled(True)
+            self.vdb_search_button.setText("Найти похожие новости")
 
     @Slot(list)
     def _display_vector_db_results(self, results: list):
-        self.vdb_search_button.setEnabled(True)
-        self.vdb_search_button.setText("Найти похожие новости")
+        """Отображает результаты поиска в VectorDB"""
+        try:
+            logger.info(f"[VectorDB-GUI] ===== _display_vector_db_results ВЫЗВАН с {len(results) if results else 0} результатами =====")
+            
+            # Всегда восстанавливаем кнопку в начале
+            self.vdb_search_button.setEnabled(True)
+            self.vdb_search_button.setText("Найти похожие новости")
+            logger.info(f"[VectorDB-GUI] Кнопка восстановлена")
 
-        if not results:
-            return
+            if not results:
+                logger.warning("[VectorDB-GUI] Результаты пустые")
+                QMessageBox.information(self, "Результат", "Результаты не получены.")
+                return
 
-        if "error" in results[0]:
-            QMessageBox.critical(self, "Ошибка поиска", results[0]["error"])
-            return
+            if "error" in results[0]:
+                logger.error(f"[VectorDB-GUI] Получена ошибка: {results[0]['error']}")
+                QMessageBox.critical(self, "Ошибка поиска", results[0]["error"])
+                return
 
-        if "message" in results[0]:
-            QMessageBox.information(self, "Результат", results[0]["message"])
-            return
+            if "message" in results[0]:
+                logger.info(f"[VectorDB-GUI] Получено сообщение: {results[0]['message']}")
+                QMessageBox.information(self, "Результат", results[0]["message"])
+                return
 
-        self.vdb_results_table.setRowCount(len(results))
-        for i, res in enumerate(results):
-            # Сходство (чем меньше дистанция, тем лучше, для L2)
-            # Для отображения можно инвертировать или просто показать дистанцию
-            dist_val = float(res.get('distance', 0))
-            similarity_str = f"{dist_val:.4f}"
+            logger.info(f"[VectorDB-GUI] Заполнение таблицы {len(results)} результатами")
+            self.vdb_results_table.setRowCount(len(results))
+            for i, res in enumerate(results):
+                # Логируем первый результат для отладки
+                if i == 0:
+                    logger.info(f"[VectorDB-GUI] Пример результата: {res}")
+                
+                # Сходство (чем меньше дистанция, тем лучше, для L2)
+                # Для отображения можно инвертировать или просто показать дистанцию
+                dist_val = float(res.get('distance', 0))
+                similarity_str = f"{dist_val:.4f}"
 
-            self.vdb_results_table.setItem(i, 0, QTableWidgetItem(similarity_str))
-            self.vdb_results_table.setItem(i, 1, QTableWidgetItem(res.get('source', 'N/A')))
+                self.vdb_results_table.setItem(i, 0, QTableWidgetItem(similarity_str))
+                self.vdb_results_table.setItem(i, 1, QTableWidgetItem(res.get('source', 'N/A')))
 
-            ts = res.get('timestamp', 'N/A')
-            if 'T' in ts: ts = ts.split('T')[0]
-            self.vdb_results_table.setItem(i, 2, QTableWidgetItem(ts))
+                ts = res.get('timestamp', 'N/A')
+                if 'T' in ts: ts = ts.split('T')[0]
+                self.vdb_results_table.setItem(i, 2, QTableWidgetItem(ts))
 
-            snippet = res.get('snippet', '')
-            item_text = QTableWidgetItem(snippet)
-            item_text.setToolTip(res.get('full_text', snippet))  # Полный текст в подсказке
-            self.vdb_results_table.setItem(i, 3, item_text)
+                snippet = res.get('snippet', 'Нет текста')
+                item_text = QTableWidgetItem(snippet)
+                item_text.setToolTip(res.get('full_text', snippet))  # Полный текст в подсказке
+                self.vdb_results_table.setItem(i, 3, item_text)
+            
+            logger.info(f"[VectorDB-GUI] Таблица успешно заполнена")
+        
+        except Exception as e:
+            logger.error(f"[VectorDB-GUI] Ошибка при отображении результатов: {e}", exc_info=True)
+            # Убедимся, что кнопка восстановлена даже при ошибке
+            self.vdb_search_button.setEnabled(True)
+            self.vdb_search_button.setText("Найти похожие новости")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка при отображении результатов: {e}")
 
 
 
@@ -1404,6 +1502,10 @@ class MainWindow(QMainWindow):
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         tab_widget = QTabWidget()
+        
+        # Добавляем обработчик переключения вкладок левой панели
+        tab_widget.currentChanged.connect(lambda idx: self.on_left_tab_changed(idx, tab_widget))
+        logger.info("[GUI-Init] Инициализация левой панели")
 
         # --- ВКЛАДКА "ОТКРЫТЫЕ ПОЗИЦИИ" (без изменений) ---
         positions_tab_widget = QWidget()
@@ -1579,7 +1681,8 @@ class MainWindow(QMainWindow):
                     self.crosshair_label.setText(f"{time_str}, {price:.5f}")
                     view_range = self.price_plot.vb.viewRange()
                     self.crosshair_label.setPos(view_range[0][0], view_range[1][1])
-                except (OSError, ValueError): pass
+                except (OSError, ValueError) as e:
+                    logger.debug(f"Ошибка при обновлении позиции crosshair: {e}")
         self.proxy = pg.SignalProxy(self.price_plot.scene().sigMouseMoved, rateLimit=60, slot=mouse_moved)
 
         # --- ВКЛАДКА "ЦЕНТР УПРАВЛЕНИЯ" ---
@@ -1690,13 +1793,25 @@ class MainWindow(QMainWindow):
         self.scanner_table = QTableView()
         self.scanner_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.scanner_table.customContextMenuRequested.connect(self.show_scanner_context_menu)
+        
+        # Улучшенная настройка таблицы
+        self.scanner_table.setAlternatingRowColors(True)
+        self.scanner_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.scanner_table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.scanner_table.verticalHeader().setVisible(False)
+        
         scanner_layout.addWidget(self.scanner_table)
 
         self.scanner_headers = ["Ранг", "Символ", "Итоговая Оценка", "Оценка Вол.", "Норм. ATR (%)", "Тренд", "Ликвидность", "Спред (пипсы)"]
 
         self.scanner_model = GenericTableModel([], self.scanner_headers)
         self.scanner_table.setModel(self.scanner_model)
-        self.scanner_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        
+        # ИСПРАВЛЕНИЕ: Используем ResizeToContents вместо Stretch для лучшей читаемости
+        header = self.scanner_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(True)
+        
         right_widget.addTab(scanner_widget, "Сканер Рынка")
 
         # --- ВКЛАДКА "ПАНЕЛЬ ОРКЕСТРАТОРА" ---
@@ -1829,8 +1944,9 @@ class MainWindow(QMainWindow):
 
         right_widget.addTab(knowledge_graph_tab, "Граф Знаний")
 
-        # Если у вас есть переменная vector_db_tab, раскомментируйте строку ниже:
-        # right_widget.addTab(vector_db_tab, "Векторная БД (RAG)")
+        # --- ВКЛАДКА "ВЕКТОРНАЯ БД (RAG)" ---
+        vector_db_tab = self._create_vector_db_tab()
+        right_widget.addTab(vector_db_tab, "Векторная БД (RAG)")
 
         # --- ВКЛАДКА "АНАЛИЗ СДЕЛКИ (XAI)" ---
         xai_tab_widget = QWidget()
@@ -1915,7 +2031,49 @@ class MainWindow(QMainWindow):
         backtester_layout.addWidget(results_splitter)
         right_widget.addTab(backtester_tab, "Бэктестер")
 
+        # Добавляем обработчик переключения вкладок для логирования
+        right_widget.currentChanged.connect(self.on_tab_changed)
+        logger.info("[GUI-Init] Все вкладки правой панели инициализированы")
+
         return right_widget
+
+    def on_tab_changed(self, index):
+        """Обработчик переключения вкладок правой панели с логированием"""
+        tab_widget = self.sender()
+        tab_name = tab_widget.tabText(index)
+        logger.info(f"[GUI-Tab-Right] Переключение на вкладку: '{tab_name}' (индекс {index})")
+        
+        # Проверяем, что вкладка корректно отображается
+        try:
+            current_widget = tab_widget.widget(index)
+            if current_widget:
+                logger.debug(f"[GUI-Tab-Right] Виджет вкладки '{tab_name}' загружен: {type(current_widget).__name__}")
+            else:
+                logger.warning(f"[GUI-Tab-Right] Виджет вкладки '{tab_name}' не найден!")
+        except Exception as e:
+            logger.error(f"[GUI-Tab-Right] Ошибка при переключении на вкладку '{tab_name}': {e}", exc_info=True)
+    
+    def on_left_tab_changed(self, index, tab_widget):
+        """Обработчик переключения вкладок левой панели с логированием"""
+        tab_name = tab_widget.tabText(index)
+        logger.info(f"[GUI-Tab-Left] Переключение на вкладку: '{tab_name}' (индекс {index})")
+        
+        try:
+            current_widget = tab_widget.widget(index)
+            if current_widget:
+                logger.debug(f"[GUI-Tab-Left] Виджет вкладки '{tab_name}' загружен: {type(current_widget).__name__}")
+                
+                # Логируем количество строк в таблицах
+                if "Позиции" in tab_name and hasattr(self, 'positions_model'):
+                    row_count = self.positions_model.rowCount(None)
+                    logger.info(f"[GUI-Tab-Left] Таблица позиций содержит {row_count} строк")
+                elif "История" in tab_name and hasattr(self, 'history_model'):
+                    row_count = self.history_model.rowCount(None)
+                    logger.info(f"[GUI-Tab-Left] Таблица истории содержит {row_count} строк")
+            else:
+                logger.warning(f"[GUI-Tab-Left] Виджет вкладки '{tab_name}' не найден!")
+        except Exception as e:
+            logger.error(f"[GUI-Tab-Left] Ошибка при переключении на вкладку '{tab_name}': {e}", exc_info=True)
 
     def connect_signals(self):
         self.start_button.clicked.connect(self.start_trading)
@@ -1937,6 +2095,7 @@ class MainWindow(QMainWindow):
         self.bridge.candle_chart_updated.connect(self.update_candle_chart)
         self.bridge.pnl_updated.connect(self.update_pnl_chart)
         self.bridge.market_scan_updated.connect(self.update_market_scanner_view)
+        logger.info("[GUI] Сигнал market_scan_updated подключен к update_market_scanner_view")
         self.bridge.uptime_updated.connect(self.update_uptime)
         self.bridge.rd_progress_updated.connect(self.update_rd_view)
         self.history_table.clicked.connect(self.on_history_trade_clicked)
@@ -1977,9 +2136,10 @@ class MainWindow(QMainWindow):
 
         self.bridge.pnl_kpis_updated.connect(self.update_pnl_kpis)
 
-        # Подключаем оба сканера к соответствующим сигналам
-        self.bridge.market_scan_updated.connect(self.update_market_scanner_view)
-        self.bridge.market_scan_updated.connect(self.control_center_tab.update_market_table)
+        # ИСПРАВЛЕНИЕ: Удалена дублирующая связь market_scan_updated -> control_center_tab.update_market_table
+        # Эта связь уже установлена в control_center_widget.py:47 через _connect_signals()
+        # Дублирование вызывало конфликты и исчезновение данных из таблицы сканера
+        
         # Подключаем торговые сигналы к отдельному методу в ControlCenterWidget
         if hasattr(self.bridge, 'trading_signals_updated'):
             self.bridge.trading_signals_updated.connect(self.control_center_tab.update_trading_signals_table)
@@ -2045,32 +2205,44 @@ class MainWindow(QMainWindow):
             self.trading_system.core_system.restart_system()
 
     def update_times(self, pc_time_str: str, server_time_str: str):
+        # Убрано избыточное логирование (каждые несколько секунд)
         self.pc_time_label.setText(f"PC Время: {pc_time_str}")
         self.server_time_label.setText(f"Время сервера: {server_time_str}")
 
     def update_directives_table(self, directives: list):
-        table_data = []
-        for d in directives:
-            table_data.append([
-                d.get('type', 'N/A'),
-                d.get('value', 'N/A'),
-                d.get('reason', 'N/A'),
-                d.get('expires_at', 'N/A')
-            ])
-        self.directives_model = GenericTableModel(table_data, self.directives_headers)
-        self.directives_table.setModel(self.directives_model)
+        logger.info(f"[GUI-Directives] Обновление таблицы директив: {len(directives)} директив")
+        try:
+            table_data = []
+            for d in directives:
+                table_data.append([
+                    d.get('type', 'N/A'),
+                    d.get('value', 'N/A'),
+                    d.get('reason', 'N/A'),
+                    d.get('expires_at', 'N/A')
+                ])
+            self.directives_model = GenericTableModel(table_data, self.directives_headers)
+            self.directives_table.setModel(self.directives_model)
+            logger.debug(f"[GUI-Directives] Таблица директив успешно обновлена")
+        except Exception as e:
+            logger.error(f"[GUI-Directives] Ошибка при обновлении таблицы директив: {e}", exc_info=True)
 
     def open_create_directive_dialog(self):
+        logger.info("[GUI-Dialog] Открытие диалога создания директивы")
         dialog = DirectiveDialog(self)
-        if dialog.exec():
-            data = dialog.get_data()
-            logger.info(f"GUI: Создание ручной директивы: {data}")
-            self.trading_system.add_directive(
-                directive_type=data['type'],
-                reason=data['reason'],
-                duration_hours=data['duration_hours'],
-                value=data['value']
-            )
+        try:
+            if dialog.exec():
+                data = dialog.get_data()
+                logger.info(f"[GUI-Dialog] Создание директивы: тип={data['type']}, значение={data.get('value', 'N/A')}")
+                self.trading_system.add_directive(
+                    directive_type=data['type'],
+                    reason=data['reason'],
+                    duration_hours=data['duration_hours'],
+                    value=data['value']
+                )
+            else:
+                logger.info("[GUI-Dialog] Диалог создания директивы закрыт без сохранения")
+        except Exception as e:
+            logger.error(f"[GUI-Dialog] Ошибка при создании директивы: {e}", exc_info=True)
 
     def show_scanner_context_menu(self, position):
         index = self.scanner_table.indexAt(position)
@@ -2103,16 +2275,20 @@ class MainWindow(QMainWindow):
         self.bridge.model_list_updated.emit(models)
 
     def update_models_table(self, models: list):
-        table_data = []
-        for model in models:
-            table_data.append([
-                model.get('id'), model.get('symbol'), model.get('type'),
-                model.get('version'), model.get('status'), model.get('sharpe'),
-                model.get('profit_factor'), model.get('date')
-            ])
-        self.models_model = GenericTableModel(table_data, self.models_headers)
-        self.models_table.setModel(self.models_model)
-        logger.info(f"Таблица моделей в GUI обновлена. Загружено {len(models)} моделей.")
+        logger.info(f"[GUI-Models] Обновление таблицы моделей: {len(models)} моделей")
+        try:
+            table_data = []
+            for model in models:
+                table_data.append([
+                    model.get('id'), model.get('symbol'), model.get('type'),
+                    model.get('version'), model.get('status'), model.get('sharpe'),
+                    model.get('profit_factor'), model.get('date')
+                ])
+            self.models_model = GenericTableModel(table_data, self.models_headers)
+            self.models_table.setModel(self.models_model)
+            logger.debug(f"[GUI-Models] Таблица моделей успешно обновлена, загружено {len(models)} моделей")
+        except Exception as e:
+            logger.error(f"[GUI-Models] Ошибка при обновлении таблицы моделей: {e}", exc_info=True)
 
     def demote_selected_model(self):
         selected_indexes = self.models_table.selectionModel().selectedRows()
@@ -2290,17 +2466,23 @@ class MainWindow(QMainWindow):
 
     def start_trading(self):
         """Запускает процесс инициализации торговой системы."""
-        if self.trading_system.core_system.running:
-            return
+        logger.info("[GUI-Action] Пользователь нажал кнопку 'Запустить торговлю'")
+        try:
+            if self.trading_system.core_system.running:
+                logger.warning("[GUI-Action] Система уже запущена, игнорируем повторный запуск")
+                return
 
-        # Здесь больше нет диалогового окна
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(False)
-        self.status_label.setText("Подключение к торговому терминалу и запуск системы...")
-        QApplication.processEvents()
+            # Здесь больше нет диалогового окна
+            self.start_button.setEnabled(False)
+            self.stop_button.setEnabled(False)
+            self.status_label.setText("Подключение к торговому терминалу и запуск системы...")
+            QApplication.processEvents()
 
-        # Запускаем start_all_threads в фоновом потоке, чтобы не блокировать GUI
-        threading.Thread(target=self.trading_system.start_all_threads, daemon=True).start()
+            # Запускаем start_all_threads в фоновом потоке, чтобы не блокировать GUI
+            threading.Thread(target=self.trading_system.start_all_threads, daemon=True).start()
+            logger.info("[GUI-Action] Торговая система запускается в фоновом потоке")
+        except Exception as e:
+            logger.error(f"[GUI-Action] Ошибка при запуске торговли: {e}", exc_info=True)
 
     def on_initialization_successful(self, symbols: list):
         logger.info(f"Инициализация успешна. Получено {len(symbols)} символов для бэктестера.")
@@ -2334,28 +2516,40 @@ class MainWindow(QMainWindow):
             self.bridge.initialization_failed.emit()
 
     def stop_trading(self):
-        logger.info("Остановка торговой системы через GUI...")
-        if self.trading_system.core_system.running:
-            self.sound_manager.play("system_stop")
-            self.trading_system.stop()
-            self.update_status("Команда на остановку отправлена...", is_error=False)
+        logger.info("[GUI-Action] Пользователь нажал кнопку 'Остановить торговлю'")
+        try:
+            if self.trading_system.core_system.running:
+                self.sound_manager.play("system_stop")
+                self.trading_system.stop()
+                self.update_status("Команда на остановку отправлена...", is_error=False)
+                logger.info("[GUI-Action] Команда на остановку торговой системы отправлена")
+            else:
+                logger.warning("[GUI-Action] Система уже остановлена")
 
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
 
-        self.uptime_label.setText("Время работы: остановлено")
+            self.uptime_label.setText("Время работы: остановлено")
+        except Exception as e:
+            logger.error(f"[GUI-Action] Ошибка при остановке торговли: {e}", exc_info=True)
 
     def close_all_positions(self):
-        reply = QMessageBox.question(self, 'Подтверждение',
-                                     f"Вы уверены, что хотите закрыть ВСЕ открытые позиции по рынку?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            logger.warning("Отправка команды на закрытие ВСЕХ позиций из GUI.")
-            self.sound_manager.play("error")
-            self.trading_system.emergency_close_all_positions()
-            self.close_pos_button.setEnabled(False)
-            self.close_all_pos_button.setEnabled(False)
-            self.bridge.status_updated.emit("Команда на закрытие всех позиций отправлена...", False)
+        logger.info("[GUI-Action] Пользователь нажал кнопку 'Закрыть все позиции'")
+        try:
+            reply = QMessageBox.question(self, 'Подтверждение',
+                                        f"Вы уверены, что хотите закрыть ВСЕ открытые позиции по рынку?",
+                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                logger.warning("[GUI-Action] Подтверждено закрытие ВСЕХ позиций")
+                self.sound_manager.play("error")
+                self.trading_system.emergency_close_all_positions()
+                self.close_pos_button.setEnabled(False)
+                self.close_all_pos_button.setEnabled(False)
+                self.bridge.status_updated.emit("Команда на закрытие всех позиций отправлена...", False)
+            else:
+                logger.info("[GUI-Action] Закрытие всех позиций отменено пользователем")
+        except Exception as e:
+            logger.error(f"[GUI-Action] Ошибка при закрытии всех позиций: {e}", exc_info=True)
 
     def on_all_positions_closed(self):
         self.close_pos_button.setEnabled(True)
@@ -2363,30 +2557,40 @@ class MainWindow(QMainWindow):
         self.bridge.status_updated.emit("Все позиции закрыты.", False)
 
     def update_rd_view(self, progress_data: dict):
+        logger.info(f"[GUI-RD] Обновление R&D: {progress_data}")
         self.rd_model.update_data(progress_data)
         self.rd_table.scrollToBottom()
 
     def close_selected_position(self):
-        selected_indexes = self.positions_table.selectionModel().selectedRows()
-        if not selected_indexes:
-            QMessageBox.warning(self, "Внимание", "Не выбрана ни одна позиция.");
-            return
-        ticket_item = self.positions_model.index(selected_indexes[0].row(), 0)
-        ticket = int(self.positions_model.data(ticket_item, Qt.DisplayRole))
-        reply = QMessageBox.question(self, 'Подтверждение', f"Закрыть позицию #{ticket} по рынку?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            logger.info(f"Отправка команды на закрытие позиции #{ticket} из GUI.")
-            self.trading_system.emergency_close_position(ticket)
+        logger.info("[GUI-Action] Пользователь нажал кнопку 'Закрыть выбранную позицию'")
+        try:
+            selected_indexes = self.positions_table.selectionModel().selectedRows()
+            if not selected_indexes:
+                logger.warning("[GUI-Action] Не выбрана ни одна позиция для закрытия")
+                QMessageBox.warning(self, "Внимание", "Не выбрана ни одна позиция.");
+                return
+            ticket_item = self.positions_model.index(selected_indexes[0].row(), 0)
+            ticket = int(self.positions_model.data(ticket_item, Qt.DisplayRole))
+            reply = QMessageBox.question(self, 'Подтверждение', f"Закрыть позицию #{ticket} по рынку?",
+                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                logger.info(f"[GUI-Action] Подтверждено закрытие позиции #{ticket}")
+                self.trading_system.emergency_close_position(ticket)
+            else:
+                logger.info(f"[GUI-Action] Закрытие позиции #{ticket} отменено пользователем")
+        except Exception as e:
+            logger.error(f"[GUI-Action] Ошибка при закрытии выбранной позиции: {e}", exc_info=True)
 
     def toggle_observer_mode(self):
         self.trading_system.toggle_observer_mode()
 
     def update_status(self, message, is_error):
+        logger.info(f"[GUI-Status] Обновление статуса: '{message}', ошибка={is_error}")
         self.status_label.setText(message)
         self.status_label.setStyleSheet("color: red;" if is_error else "")
 
     def update_balance(self, balance, equity):
+        # Убрано избыточное логирование (каждые 3 секунды)
         self.balance_label.setText(f"Баланс: {balance:.2f}")
         self.equity_label.setText(f"Эквити: {equity:.2f}")
 
@@ -2404,109 +2608,142 @@ class MainWindow(QMainWindow):
         """
         Обновляет таблицу открытых позиций данными, полученными от Core.
         """
-        table_data = []
+        try:
+            table_data = []
 
-        for pos_dict in positions:
-            ticket = pos_dict.get('ticket')
-            # 0 - это ORDER_TYPE_BUY в MT5
-            pos_type = "BUY" if pos_dict.get('type') == 0 else "SELL"
+            for pos_dict in positions:
+                ticket = pos_dict.get('ticket')
+                # 0 - это ORDER_TYPE_BUY в MT5
+                pos_type = "BUY" if pos_dict.get('type') == 0 else "SELL"
 
-            # Получаем уже готовые строки, которые мы подготовили в trading_system.py
-            # Метод .get(ключ, 'значение_по_умолчанию') защищает от ошибок, если данных нет
-            strategy_name = pos_dict.get('strategy_display', 'Загрузка...')
-            timeframe_str = pos_dict.get('timeframe_display', 'N/A')
-            bars_in_trade = pos_dict.get('bars_in_trade_display', '-')
+                # Получаем уже готовые строки, которые мы подготовили в trading_system.py
+                # Метод .get(ключ, 'значение_по_умолчанию') защищает от ошибок, если данных нет
+                strategy_name = pos_dict.get('strategy_display', 'Загрузка...')
+                timeframe_str = pos_dict.get('timeframe_display', 'N/A')
+                bars_in_trade = pos_dict.get('bars_in_trade_display', '-')
 
-            profit = float(pos_dict.get('profit', 0.0))
+                profit = float(pos_dict.get('profit', 0.0))
 
-            # Собираем строку для таблицы. ПОРЯДОК ДОЛЖЕН СОВПАДАТЬ С ЗАГОЛОВКАМИ из Шага 3
-            row_data = [
-                ticket,  # Тикет
-                pos_dict.get('symbol'),  # Символ
-                strategy_name,  # Стратегия
-                pos_type,  # Тип
-                pos_dict.get('volume'),  # Объем
-                f"{pos_dict.get('price_open', 0):.5f}",  # Цена откр.
-                f"{profit:.2f}",  # Прибыль
-                bars_in_trade,  # Баров
-                timeframe_str  # ТФ
-            ]
+                # Собираем строку для таблицы. ПОРЯДОК ДОЛЖЕН СОВПАДАТЬ С ЗАГОЛОВКАМИ из Шага 3
+                row_data = [
+                    ticket,  # Тикет
+                    pos_dict.get('symbol'),  # Символ
+                    strategy_name,  # Стратегия
+                    pos_type,  # Тип
+                    pos_dict.get('volume'),  # Объем
+                    f"{pos_dict.get('price_open', 0):.5f}",  # Цена откр.
+                    f"{profit:.2f}",  # Прибыль
+                    bars_in_trade,  # Баров
+                    timeframe_str  # ТФ
+                ]
 
-            table_data.append(row_data)
+                table_data.append(row_data)
 
-        # Обновляем модель таблицы
-        self.positions_model = GenericTableModel(table_data, self.positions_headers)
-        self.positions_table.setModel(self.positions_model)
+            # Обновляем модель таблицы
+            self.positions_model = GenericTableModel(table_data, self.positions_headers)
+            self.positions_table.setModel(self.positions_model)
+            # Убрано избыточное логирование
+        except Exception as e:
+            logger.error(f"[GUI-Positions] Ошибка при обновлении таблицы позиций: {e}", exc_info=True)
 
     def update_history_table(self, deals: list):
-        table_data = []
-        for deal in deals:
-            time_str = deal.time_close.strftime('%Y-%m-%d %H:%M')
-            timeframe_display = deal.timeframe.replace('TIMEFRAME_', '') if deal.timeframe else "N/A"
+        logger.info(f"[GUI-History] Обновление истории сделок: {len(deals)} сделок")
+        try:
+            table_data = []
+            for deal in deals:
+                time_str = deal.time_close.strftime('%Y-%m-%d %H:%M')
+                timeframe_display = deal.timeframe.replace('TIMEFRAME_', '') if deal.timeframe else "N/A"
 
-            # +++ НАЧАЛО ИЗМЕНЕНИЙ: Приводим порядок данных в соответствие с заголовками +++
-            table_data.append([
-                deal.ticket,
-                deal.symbol,
-                deal.strategy,  # Сначала Стратегия
-                deal.trade_type,  # Потом Тип
-                deal.volume,
-                f"{deal.price_close:.5f}",
-                time_str,
-                f"{deal.profit:.2f}",
-                timeframe_display
-            ])
-            # +++ КОНЕЦ ИЗМЕНЕНИЙ +++
+                # +++ НАЧАЛО ИЗМЕНЕНИЙ: Приводим порядок данных в соответствие с заголовками +++
+                table_data.append([
+                    deal.ticket,
+                    deal.symbol,
+                    deal.strategy,  # Сначала Стратегия
+                    deal.trade_type,  # Потом Тип
+                    deal.volume,
+                    f"{deal.price_close:.5f}",
+                    time_str,
+                    f"{deal.profit:.2f}",
+                    timeframe_display
+                ])
+                # +++ КОНЕЦ ИЗМЕНЕНИЙ +++
 
-        self.history_model = GenericTableModel(table_data, self.history_headers)
-        self.history_table.setModel(self.history_model)
-        self.chart_trade_history = deals
-        current_symbol = self.price_plot.titleLabel.text.replace("График ", "")
-        if current_symbol:
-            self.update_trade_arrows(current_symbol)
+            self.history_model = GenericTableModel(table_data, self.history_headers)
+            self.history_table.setModel(self.history_model)
+            self.chart_trade_history = deals
+            current_symbol = self.price_plot.titleLabel.text.replace("График ", "")
+            if current_symbol:
+                self.update_trade_arrows(current_symbol)
+            logger.debug(f"[GUI-History] Таблица истории успешно обновлена, строк: {len(table_data)}")
+        except Exception as e:
+            logger.error(f"[GUI-History] Ошибка при обновлении таблицы истории: {e}", exc_info=True)
 
     def update_market_scanner_view(self, ranked_list: list):
-        # Оптимизация: ограничиваем количество отображаемых элементов
-        if len(ranked_list) > 100:
-            ranked_list = ranked_list[:100]
+        # ОТЛАДКА: Логируем КАЖДЫЙ вызов
+        print(f"[DEBUG] update_market_scanner_view ВЫЗВАН с {len(ranked_list) if ranked_list else 0} элементами", flush=True)
+        # Убрано избыточное логирование
+        
+        # КРИТИЧНО: Не обновляем таблицу пустыми данными
+        if not ranked_list or len(ranked_list) == 0:
+            return
             
-        table_data = []
-        for item in ranked_list:
-            table_data.append([
-                item.get('rank', '-'),
-                item.get('symbol', 'N/A'),
-                f"{item.get('total_score', 0):.3f}",
-                f"{item.get('volatility_score', 0):.3f}",
-                f"{item.get('normalized_atr_percent', 0):.3f}%",  # <-- Новое поле
-                f"{item.get('trend_score', 0):.3f}",
-                f"{item.get('liquidity_score', 0):.3f}",
-                f"{item.get('spread_pips', -1.0):.1f}"
-            ])
+        logger.info(f"[GUI-Scanner] Обновление сканера: {len(ranked_list)} символов")
+        
+        try:
+            # Оптимизация: ограничиваем количество отображаемых элементов
+            if len(ranked_list) > 100:
+                ranked_list = ranked_list[:100]
+                
+            table_data = []
+            for item in ranked_list:
+                # ИСПРАВЛЕНИЕ: Конвертируем numpy типы в Python типы для корректного отображения
+                row = [
+                    int(item.get('rank', 0)) if item.get('rank') else '-',
+                    str(item.get('symbol', 'N/A')),
+                    f"{float(item.get('total_score', 0)):.3f}",
+                    f"{float(item.get('volatility_score', 0)):.3f}",
+                    f"{float(item.get('normalized_atr_percent', 0)):.3f}%",
+                    f"{float(item.get('trend_score', 0)):.3f}",
+                    f"{float(item.get('liquidity_score', 0)):.3f}",
+                    f"{float(item.get('spread_pips', -1.0)):.1f}"
+                ]
+                table_data.append(row)
             
-        # Оптимизация: обновляем только данные модели, не создавая новую
-        if not hasattr(self, 'scanner_model') or self.scanner_model is None:
-            self.scanner_model = GenericTableModel(table_data, self.scanner_headers)
-            self.scanner_table.setModel(self.scanner_model)
-        else:
-            self.scanner_model.update_data(table_data)
-            
-        # Оптимизация: устанавливаем размер столбцов только при первой инициализации
-        if not hasattr(self, '_scanner_columns_resized'):
-            header = self.scanner_table.horizontalHeader()
-            for i in range(len(self.scanner_headers)):
-                header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-            self._scanner_columns_resized = True
+            # Убрано избыточное логирование
+                
+            # Оптимизация: обновляем только данные модели, не создавая новую
+            if not hasattr(self, 'scanner_model') or self.scanner_model is None:
+                self.scanner_model = GenericTableModel(table_data, self.scanner_headers)
+                self.scanner_table.setModel(self.scanner_model)
+            else:
+                self.scanner_model.update_data(table_data)
+                
+            # Оптимизация: устанавливаем размер столбцов только при первой инициализации
+            if not hasattr(self, '_scanner_columns_resized'):
+                header = self.scanner_table.horizontalHeader()
+                for i in range(len(self.scanner_headers)):
+                    header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+                self._scanner_columns_resized = True
+        except Exception as e:
+            logger.error(f"[GUI-Scanner] Ошибка при обновлении сканера: {e}", exc_info=True)
 
     def update_uptime(self, uptime_str: str):
+        # Убрано избыточное логирование
         self.uptime_label.setText(f"Время работы: {uptime_str}")
 
     def open_settings_window(self):
+        logger.info("[GUI-Dialog] Открытие окна настроек")
         dialog = self.settings_window
         dialog.settings_saved.connect(self.on_settings_saved)
-        if dialog.exec():
-            logger.info("Окно настроек закрыто, применяем изменения...")
-            new_config = load_config()
-            self.trading_system.update_configuration(new_config)
+        try:
+            if dialog.exec():
+                logger.info("[GUI-Dialog] Окно настроек закрыто с сохранением, применяем изменения...")
+                new_config = load_config()
+                self.trading_system.update_configuration(new_config)
+            else:
+                logger.info("[GUI-Dialog] Окно настроек закрыто без сохранения")
+        except Exception as e:
+            logger.error(f"[GUI-Dialog] Ошибка при работе с окном настроек: {e}", exc_info=True)
 
     def update_observer_pnl_chart(self, pnl_history: list):
         if not pnl_history:
@@ -2523,14 +2760,17 @@ class MainWindow(QMainWindow):
             logger.error(f"Ошибка при построении графика P&L наблюдателя: {e}")
 
     def update_pnl_chart(self, trade_history: list):
+        logger.info(f"[GUI-PnL] Обновление графика P&L: {len(trade_history)} сделок")
         if not trade_history:
             self.pnl_curve.setData([], [])
+            logger.debug("[GUI-PnL] История сделок пуста, график очищен")
             return
         try:
             # Оптимизация: используем только необходимые поля и ограничиваем количество точек
             if len(trade_history) > 1000:  # Ограничение количества точек для производительности
                 step = len(trade_history) // 1000
                 trade_history = trade_history[::step]
+                logger.debug(f"[GUI-PnL] История обрезана для производительности, шаг={step}")
             
             # Создаем DataFrame более эффективно
             data = []
@@ -2538,7 +2778,9 @@ class MainWindow(QMainWindow):
                 data.append({'profit': deal.profit, 'time_close': deal.time_close.timestamp()})
             
             df = pd.DataFrame(data)
-            if df.empty or 'profit' not in df.columns or 'time_close' not in df.columns: return
+            if df.empty or 'profit' not in df.columns or 'time_close' not in df.columns:
+                logger.warning("[GUI-PnL] DataFrame пуст или не содержит необходимых колонок")
+                return
             
             df = df.sort_values(by='time_close')
             df['cumulative_profit'] = df['profit'].cumsum()
@@ -2548,24 +2790,36 @@ class MainWindow(QMainWindow):
             
             self.pnl_curve.setData(x=timestamps, y=cumulative_profit)
             self.pnl_plot.setTitle(f"Кривая доходности (P&L: {cumulative_profit[-1]:.2f})")
+            logger.debug(f"[GUI-PnL] График успешно обновлен, итоговый P&L: {cumulative_profit[-1]:.2f}")
         except Exception as e:
-            logger.error(f"Ошибка при построении графика P&L: {e}")
+            logger.error(f"[GUI-PnL] Ошибка при построении графика P&L: {e}", exc_info=True)
 
     def update_training_chart(self, history_object):
-        history_dict = history_object.history
-        if 'loss' in history_dict and history_dict['loss']:
-            loss_values = history_dict['loss']
-            self.loss_curve.setData(y=loss_values, x=list(range(len(loss_values))))
-            self.loss_plot.setTitle(f"Прогресс обучения (Loss: {loss_values[-1]:.4f})")
+        logger.info(f"[GUI-Training] Обновление графика обучения")
+        try:
+            history_dict = history_object.history
+            if 'loss' in history_dict and history_dict['loss']:
+                loss_values = history_dict['loss']
+                self.loss_curve.setData(y=loss_values, x=list(range(len(loss_values))))
+                self.loss_plot.setTitle(f"Прогресс обучения (Loss: {loss_values[-1]:.4f})")
+                logger.debug(f"[GUI-Training] График обновлен, эпох: {len(loss_values)}, финальный loss: {loss_values[-1]:.4f}")
+            else:
+                logger.warning("[GUI-Training] История обучения не содержит данных о loss")
+        except Exception as e:
+            logger.error(f"[GUI-Training] Ошибка при обновлении графика обучения: {e}", exc_info=True)
 
     def update_candle_chart(self, df: pd.DataFrame, symbol: str):
+        logger.info(f"[GUI-Chart] update_candle_chart вызван: symbol={symbol}, df is None={df is None}, df.empty={df.empty if df is not None else 'N/A'}, len={len(df) if df is not None else 0}")
         if df is None or df.empty or len(df) < 2:
+            logger.warning(f"[GUI-Chart] Данные недостаточны для отображения графика {symbol}")
             return
         try:
+            logger.info(f"[GUI-Chart] Обновление графика для {symbol}, баров: {len(df)}")
             self.price_plot.setTitle(f"График {symbol}")
             # Оптимизация: используем последние 200 баров без копирования лишних данных
             if len(df) > 200:
                 df_chart = df.tail(200)
+                logger.debug(f"[GUI-Chart] График обрезан до 200 баров из {len(df)}")
             else:
                 df_chart = df
             
@@ -2578,12 +2832,14 @@ class MainWindow(QMainWindow):
             
             candlestick_data = np.column_stack((timestamps, open_vals, high_vals, low_vals, close_vals))
             self.candlestick_item.setData(candlestick_data)
+            logger.debug(f"[GUI-Chart] Данные свечей установлены: {len(candlestick_data)} баров")
             
             # Обновление объема
             volume_vals = df_chart['tick_volume'].values
             self.volume_item.setOpts(x=timestamps, height=volume_vals)
+            logger.info(f"[GUI-Chart] График {symbol} успешно обновлен, {len(candlestick_data)} баров отображено")
         except Exception as e:
-            logger.error(f"Ошибка при обновлении графика {symbol}: {e}", exc_info=True)
+            logger.error(f"[GUI-Chart] Ошибка при обновлении графика {symbol}: {e}", exc_info=True)
 
     def update_trade_arrows(self, symbol: str):
         trade_points = []
@@ -2660,6 +2916,20 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         logger.info("Получена команда на закрытие окна GUI.")
 
+        # --- ЗАЩИТА ОТ СЛУЧАЙНОГО ЗАКРЫТИЯ ---
+        reply = QMessageBox.question(
+            self, 
+            'Подтверждение закрытия',
+            'Вы действительно хотите закрыть торговую систему?\n\nВсе активные сделки будут сохранены, но мониторинг остановится.',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.No:
+            logger.info("Закрытие окна отменено пользователем.")
+            event.ignore()
+            return
+
         # --- 1. Проверка, запущена ли система ---
         if self.trading_system.core_system.running:
             # Инициируем штатную остановку (отправляет сигнал stop_event)
@@ -2707,24 +2977,46 @@ class MainWindow(QMainWindow):
             else:
                 logger.info("Все фоновые потоки остановлены. Закрываем приложение.")
 
+        logger.info("=== ЗАКРЫТИЕ GUI ПОДТВЕРЖДЕНО ===")
         event.accept()
+    
+    def event(self, e):
+        """Перехватываем все события для отладки"""
+        # Логируем только критичные события
+        if e.type() == QEvent.Close:
+            logger.warning(f"=== QEvent.Close ПОЛУЧЕН ===")
+        elif e.type() == QEvent.Quit:
+            logger.warning(f"=== QEvent.Quit ПОЛУЧЕН ===")
+        elif e.type() == QEvent.Hide:
+            logger.warning(f"=== QEvent.Hide ПОЛУЧЕН ===")
+        
+        return super().event(e)
 
 
 
     def force_training(self):
-        logger.info("Принудительный запуск цикла обучения из GUI...")
-        # Теперь вызываем прокси-метод
-        self.trading_system.force_training_cycle()
-        QMessageBox.information(self, "Запрос отправлен",
-                                "Команда на запуск цикла обучения отправлена в фоновый поток.")
+        logger.info("[GUI-Action] Пользователь нажал кнопку 'Запустить цикл обучения'")
+        try:
+            # Теперь вызываем прокси-метод
+            self.trading_system.force_training_cycle()
+            QMessageBox.information(self, "Запрос отправлен",
+                                    "Команда на запуск цикла обучения отправлена в фоновый поток.")
+            logger.info("[GUI-Action] Команда на запуск цикла обучения отправлена")
+        except Exception as e:
+            logger.error(f"[GUI-Action] Ошибка при запуске цикла обучения: {e}", exc_info=True)
 
     def force_rd(self):
-        logger.info("Принудительный запуск R&D цикла из GUI...")
-        # Теперь вызываем прокси-метод
-        self.trading_system.force_rd_cycle()
-        QMessageBox.information(self, "Запрос отправлен", "Команда на запуск R&D цикла отправлена в фоновый поток.")
+        logger.info("[GUI-Action] Пользователь нажал кнопку 'Запустить R&D цикл'")
+        try:
+            # Теперь вызываем прокси-метод
+            self.trading_system.force_rd_cycle()
+            QMessageBox.information(self, "Запрос отправлен", "Команда на запуск R&D цикла отправлена в фоновый поток.")
+            logger.info("[GUI-Action] Команда на запуск R&D цикла отправлена")
+        except Exception as e:
+            logger.error(f"[GUI-Action] Ошибка при запуске R&D цикла: {e}", exc_info=True)
 
     def update_orchestrator_panel(self, allocation_data: dict):
+        logger.info(f"[GUI-Orchestrator] Обновление панели оркестратора: {len(allocation_data)} режимов")
         try:
             labels = list(allocation_data.keys())
             values = [v * 100 for v in allocation_data.values()]
@@ -2732,8 +3024,9 @@ class MainWindow(QMainWindow):
             self.orchestrator_bar_item.setOpts(x=x, height=values)
             ticks = [(i, label) for i, label in enumerate(labels)]
             self.orchestrator_chart_widget.getAxis('bottom').setTicks([ticks])
+            logger.debug(f"[GUI-Orchestrator] Панель обновлена: {dict(zip(labels, values))}")
         except Exception as e:
-            logger.error(f"Ошибка при обновлении панели Оркестратора: {e}")
+            logger.error(f"[GUI-Orchestrator] Ошибка при обновлении панели Оркестратора: {e}", exc_info=True)
 
     @Slot(str)
     def update_knowledge_graph(self, graph_json: str):
@@ -2884,31 +3177,58 @@ def run_core_process(config_dict):
         logger.critical("--- CORE PROCESS SHUTDOWN ---")
 
 
+def qt_exception_hook(exctype, value, traceback_obj):
+    """Глобальный обработчик необработанных исключений Qt"""
+    import traceback
+    tb_lines = traceback.format_exception(exctype, value, traceback_obj)
+    tb_text = ''.join(tb_lines)
+    logger.critical(f"=== НЕОБРАБОТАННОЕ ИСКЛЮЧЕНИЕ В QT ===\n{tb_text}")
+    logger.critical(f"Exception type: {exctype}")
+    logger.critical(f"Exception value: {value}")
+    # Не вызываем sys.exit, чтобы дать возможность Qt обработать
+
+
 def main():
     """Основная функция для запуска приложения."""
+    # Установка глобального обработчика исключений
+    sys.excepthook = qt_exception_hook
+    
     os.environ['QT_WEBENGINE_DISABLE_SANDBOX'] = '1'
     app = QApplication(sys.argv)
 
-    # --- НОВАЯ, НАДЕЖНАЯ НАСТРОЙКА ЛОГИРОВАНИЯ ---
-    app_config = load_config()
+    try:
+        # --- НОВАЯ, НАДЕЖНАЯ НАСТРОЙКА ЛОГИРОВАНИЯ ---
+        app_config = load_config()
 
-    bridge = Bridge()
+        bridge = Bridge()
 
-    # 1. Создание SoundManager
-    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-    sound_manager = SoundManager(project_root=PROJECT_ROOT)
+        # 1. Создание SoundManager
+        PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+        sound_manager = SoundManager(project_root=PROJECT_ROOT)
 
-    # 2. Вызываем нашу новую функцию ОДИН РАЗ, передав ей нужный сигнал и конфиг
-    setup_qt_logging(bridge.log_message_added, app_config)
+        # 2. Вызываем нашу новую функцию ОДИН РАЗ, передав ей нужный сигнал и конфиг
+        setup_qt_logging(bridge.log_message_added, app_config)
 
-    # 3. ЕДИНСТВЕННАЯ ИНИЦИАЛИЗАЦИЯ
-    # TradingSystem.__init__ теперь не требует db_manager/vector_db_manager
-    trading_system_adapter = PySideTradingSystem(config=app_config, bridge=bridge, sound_manager=sound_manager)
+        # 3. ЕДИНСТВЕННАЯ ИНИЦИАЛИЗАЦИЯ
+        # TradingSystem.__init__ теперь не требует db_manager/vector_db_manager
+        trading_system_adapter = PySideTradingSystem(config=app_config, bridge=bridge, sound_manager=sound_manager)
 
-    window = MainWindow(trading_system_adapter, app_config)
-    window.show()
+        window = MainWindow(trading_system_adapter, app_config)
+        
+        # Добавляем обработчик aboutToQuit
+        app.aboutToQuit.connect(lambda: logger.info("=== QApplication.aboutToQuit СИГНАЛ ПОЛУЧЕН ==="))
+        
+        window.show()
+        logger.info("=== ОКНО ПОКАЗАНО, РАЗМЕР: {}x{} ===".format(window.width(), window.height()))
 
-    sys.exit(app.exec())
+        logger.info("=== GUI ЗАПУЩЕН УСПЕШНО, ВХОД В EVENT LOOP ===")
+        exit_code = app.exec()
+        logger.info(f"=== GUI EVENT LOOP ЗАВЕРШЕН, КОД: {exit_code} ===")
+        sys.exit(exit_code)
+        
+    except Exception as e:
+        logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА В MAIN GUI: {e}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()

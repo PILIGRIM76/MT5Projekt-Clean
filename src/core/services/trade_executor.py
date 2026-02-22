@@ -35,6 +35,89 @@ class TradeExecutor:
         self.limit_wait_seconds = 30
         self.min_lot_for_twap = 5.0  # [TZ 1.3] Порог для TWAP/VWAP
 
+    def _is_market_open(self, symbol: str, symbol_info: Any) -> bool:
+        """
+        Проверяет, открыт ли рынок для торговли.
+        
+        Проверки:
+        1. Режим торговли (trade_mode)
+        2. День недели (выходные для Forex, но не для крипты)
+        3. Время последнего тика (свежесть данных)
+        
+        Returns:
+            True если рынок открыт, False если закрыт
+        """
+        # datetime уже импортирован глобально
+        
+        # Проверка 1: Режим торговли
+        # trade_mode: 0 = disabled, 1 = longonly, 2 = shortonly, 3 = closeonly, 4 = full
+        if symbol_info.trade_mode == 0:
+            logger.debug(f"[{symbol}] Торговля отключена (trade_mode=0)")
+            return False
+        
+        if symbol_info.trade_mode == 3:  # Close only
+            logger.debug(f"[{symbol}] Только закрытие позиций (trade_mode=3)")
+            return False
+        
+        # Проверка 2: Определяем тип инструмента
+        # Криптовалюты и некоторые другие инструменты торгуются 24/7
+        symbol_upper = symbol.upper()
+        
+        # Список инструментов, которые торгуются 24/7
+        is_24_7_instrument = any([
+            'BTC' in symbol_upper,
+            'BITCOIN' in symbol_upper,
+            'ETH' in symbol_upper,
+            'ETHEREUM' in symbol_upper,
+            'CRYPTO' in symbol_upper,
+            'USDT' in symbol_upper,
+            # Добавьте другие криптовалюты по необходимости
+        ])
+        
+        # Для инструментов 24/7 пропускаем проверку выходных
+        if not is_24_7_instrument:
+            # Для Forex и других инструментов проверяем выходные
+            current_time = datetime.now()
+            weekday = current_time.weekday()  # 0=Monday, 6=Sunday
+            
+            # Суббота (5) - рынок закрыт
+            if weekday == 5:
+                logger.debug(f"[{symbol}] Выходной день (суббота). Forex рынок закрыт.")
+                return False
+            
+            # Воскресенье (6) до 23:00 - рынок закрыт
+            if weekday == 6 and current_time.hour < 23:
+                logger.debug(f"[{symbol}] Выходной день (воскресенье до 23:00). Forex рынок закрыт.")
+                return False
+            
+            # Пятница после 23:00 - рынок закрывается
+            if weekday == 4 and current_time.hour >= 23:
+                logger.debug(f"[{symbol}] Конец недели (пятница после 23:00). Forex рынок закрыт.")
+                return False
+        else:
+            logger.debug(f"[{symbol}] Инструмент 24/7 (криптовалюта). Проверка выходных пропущена.")
+        
+        # Проверка 3: Свежесть тика (последнее обновление цены)
+        try:
+            tick = mt5.symbol_info_tick(symbol)
+            if tick:
+                tick_time = datetime.fromtimestamp(tick.time)
+                time_diff = (datetime.now() - tick_time).total_seconds()
+                
+                # Если последний тик старше 5 минут - рынок вероятно закрыт
+                if time_diff > 300:  # 5 минут
+                    logger.debug(f"[{symbol}] Последний тик {time_diff:.0f} сек назад. Рынок вероятно закрыт.")
+                    return False
+            else:
+                logger.debug(f"[{symbol}] Не удалось получить тик. Рынок вероятно закрыт.")
+                return False
+        except Exception as e:
+            logger.warning(f"[{symbol}] Ошибка проверки тика: {e}")
+            return False
+        
+        # Все проверки пройдены - рынок открыт
+        return True
+
     def _calculate_fair_value_spread(self, df: pd.DataFrame, symbol_info: Any) -> float:
         """
         [TZ 1.2] Рассчитывает справедливый спред (в цене) как функцию от средней волатильности (ATR).
@@ -61,17 +144,22 @@ class TradeExecutor:
         connector = self.risk_engine.trading_system.terminal_connector
 
         # --- БЛОК 1: Получение общих параметров (вне цикла) ---
+        # ОПТИМИЗАЦИЯ: Минимизируем время удержания lock
+        symbol_info = None
         with self.mt5_lock:
             if not connector.initialize(path=self.config.MT5_PATH): return None
-            symbol_info = connector.symbol_info(symbol)
-            connector.shutdown()
-            if not symbol_info: return None
-            volume_step = symbol_info.volume_step
-            digits = symbol_info.digits
-
-            # Корректное получение STOP_LEVEL в цене
-            stop_level_points = symbol_info.trade_stops_level
-            min_distance_price = max(stop_level_points * symbol_info.point, 1 * symbol_info.point)
+            try:
+                symbol_info = connector.symbol_info(symbol)
+            finally:
+                connector.shutdown()
+        
+        if not symbol_info: return None
+        
+        # Расчеты вне блокировки
+        volume_step = symbol_info.volume_step
+        digits = symbol_info.digits
+        stop_level_points = symbol_info.trade_stops_level
+        min_distance_price = max(stop_level_points * symbol_info.point, 1 * symbol_info.point)
         # ----------------------------------------------------------
 
         # ... (логика расчета part_lot без изменений) ...
@@ -170,6 +258,11 @@ class TradeExecutor:
                 symbol_info = connector.symbol_info(symbol)
                 if not tick or not symbol_info: return None
 
+                # НОВАЯ ПРОВЕРКА: Проверяем, открыт ли рынок для торговли
+                if not self._is_market_open(symbol, symbol_info):
+                    logger.debug(f"[{symbol}] Рынок закрыт. Ордер не отправляется.")
+                    return None
+
                 # --- ИСПРАВЛЕНИЕ 4: Корректное получение STOP_LEVEL в цене ---
                 stop_level_points = symbol_info.trade_stops_level
                 min_distance_price = max(stop_level_points * symbol_info.point, 1 * symbol_info.point)
@@ -199,9 +292,27 @@ class TradeExecutor:
 
                 request = self._build_request(symbol, lot_size, signal_type, price, sl, tp, timeframe, strategy_name,
                                               symbol_info.digits)
+                
+                # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ПЕРЕД ОТПРАВКОЙ
+                logger.info(f"[{symbol}] Отправка Market ордера:")
+                logger.info(f"  - Type: {'BUY' if signal_type == SignalType.BUY else 'SELL'}")
+                logger.info(f"  - Lot: {lot_size}")
+                logger.info(f"  - Price: {price}")
+                logger.info(f"  - SL: {sl}, TP: {tp}")
+                logger.info(f"  - Symbol info: visible={symbol_info.visible}, trade_mode={symbol_info.trade_mode}")
+                logger.info(f"  - Tick: ask={tick.ask}, bid={tick.bid}")
+                
                 result = connector.order_send(request)
 
-                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ РЕЗУЛЬТАТА
+                if result is None:
+                    last_error = mt5.last_error()
+                    logger.error(f"[{symbol}] MT5 order_send вернул None!")
+                    logger.error(f"  - Last error: {last_error}")
+                    logger.error(f"  - Request: {request}")
+                    return None
+                
+                if result.retcode == mt5.TRADE_RETCODE_DONE:
                     position_ticket = result.deal
                     logger.critical(f"MARKET ОРДЕР ИСПОЛНЕН: {result.comment}. Ticket: {position_ticket}")
                     self.risk_engine.trading_system.sound_manager.play("trade_open")
@@ -209,7 +320,14 @@ class TradeExecutor:
                                              entry_price_for_learning, df.index[-1], timeframe, df)
                     return position_ticket
                 else:
-                    logger.error(f"Ошибка Market ордера {symbol}: {result.comment if result else 'None'}")
+                    # УЛУЧШЕННАЯ ОБРАБОТКА ОШИБОК: Не логируем как ERROR, если рынок закрыт
+                    if result.retcode == 10018:  # Market closed
+                        logger.debug(f"[{symbol}] Рынок закрыт (retcode 10018). Ордер не исполнен.")
+                    else:
+                        logger.error(f"[{symbol}] Ошибка Market ордера:")
+                        logger.error(f"  - Retcode: {result.retcode}")
+                        logger.error(f"  - Comment: {result.comment}")
+                        logger.error(f"  - Request: {request}")
                     return None
             finally:
                 connector.shutdown()
@@ -269,13 +387,19 @@ class TradeExecutor:
             # ... (логика режима наблюдателя) ...
             return int(standard_time.time() * 1000)
 
+        # ОПТИМИЗАЦИЯ: Минимизируем время удержания lock
         connector = self.risk_engine.trading_system.terminal_connector
+        symbol_info = None
+        tick = None
         with self.mt5_lock:
             if not connector.initialize(path=self.config.MT5_PATH): return None
-            symbol_info = connector.symbol_info(symbol)
-            tick = connector.symbol_info_tick(symbol)
-            connector.shutdown()
-            if not symbol_info or not tick: return None
+            try:
+                symbol_info = connector.symbol_info(symbol)
+                tick = connector.symbol_info_tick(symbol)
+            finally:
+                connector.shutdown()
+        
+        if not symbol_info or not tick: return None
 
         if tick.ask == 0.0 or tick.bid == 0.0 or tick.ask == tick.bid:
             logger.critical(f"[{symbol}] СДЕЛКА ЗАБЛОКИРОВАНА: Рынок, вероятно, ЗАКРЫТ (Ask/Bid = 0 или Ask=Bid).")
@@ -529,14 +653,21 @@ class TradeExecutor:
 
     def _build_request(self, symbol, lot, signal_type, price, sl, tp, timeframe, strategy_name, digits):
         type_map = {SignalType.BUY: mt5.ORDER_TYPE_BUY, SignalType.SELL: mt5.ORDER_TYPE_SELL}
+        # Конвертируем numpy типы в Python float для MT5
         return {
-            "action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": lot,
-            "type": type_map[signal_type], "price": round(price, digits), "sl": round(sl, digits),
-            "tp": round(tp, digits),
+            "action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": float(lot),
+            "type": type_map[signal_type], "price": float(round(price, digits)), "sl": float(round(sl, digits)),
+            "tp": float(round(tp, digits)),
             "deviation": 20, "magic": 202407, "comment": "GNS-Market", "type_time": mt5.ORDER_TIME_GTC,
         }
 
     def _persist_entry_data(self, pos_id, symbol, strategy, sl, xai, pred_in, entry_price, entry_time, timeframe, df, predicted_price=None):
+        # Конвертируем entry_time в datetime если это pandas Timestamp
+        if hasattr(entry_time, 'to_pydatetime'):
+            entry_time = entry_time.to_pydatetime()
+        
+        logger.info(f"[{symbol}] Сохранение данных входа: ticket={pos_id}, entry_time={entry_time}, timeframe={timeframe}")
+        
         market_context = {
             'market_regime': self.risk_engine.trading_system.market_regime_manager.get_regime(df),
             'news_sentiment': self.risk_engine.trading_system.news_cache.aggregated_sentiment if self.risk_engine.trading_system.news_cache else None,

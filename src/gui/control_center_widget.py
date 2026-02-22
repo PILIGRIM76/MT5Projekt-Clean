@@ -138,14 +138,6 @@ class ControlCenterWidget(QWidget):
         self.market_radio.toggled.connect(self.on_display_mode_changed)
         self.signals_radio.toggled.connect(self.on_display_mode_changed)
 
-        # Лог
-        layout.addWidget(QLabel("Системный Лог:"))
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        self.log_output.setStyleSheet(
-            "background-color: #282a36; color: #f8f8f2; font-family: Consolas; font-size: 12px;")
-        layout.addWidget(self.log_output)
-
     def _init_controls_tab(self, parent_widget):
         layout = QVBoxLayout(parent_widget)
         layout.setAlignment(Qt.AlignTop)
@@ -206,7 +198,15 @@ class ControlCenterWidget(QWidget):
     @Slot(list)
     def update_market_table(self, data: list):
         """Обновляет таблицу сканера."""
-        if not data: return
+        # Убрано избыточное логирование
+        
+        if not data:
+            return
+
+        # ИСПРАВЛЕНИЕ: Игнорируем данные с малым количеством элементов (торговые сигналы)
+        # Торговые сигналы приходят по 1 элементу, данные сканера - списком из 10+ элементов
+        if len(data) < 5:
+            return
 
         # Сохраняем последние данные для возможного переключения режимов
         self._last_market_data = data
@@ -217,12 +217,16 @@ class ControlCenterWidget(QWidget):
             self.update_trading_signals_table(data)
             return
         
+        # Убрано избыточное логирование
+        
         # Подготавливаем данные для ControlCenterWidget
         processed_data = self.prepare_control_center_data(data)
+        # Убрано избыточное логирование
 
         # Отключаем сортировку для производительности
         self.market_table.setSortingEnabled(False)
         self.market_table.setRowCount(len(processed_data))
+        # Убрано избыточное логирование
 
         for row_idx, item in enumerate(processed_data):
             # 1. Подготовка данных
@@ -368,8 +372,8 @@ class ControlCenterWidget(QWidget):
 
     @Slot(str, QColor)
     def append_log(self, message: str, color: QColor):
-        self.log_output.setTextColor(color)
-        self.log_output.append(message)
+        # Системный лог удален из интерфейса
+        pass
 
     @Slot(str, bool)
     def update_status(self, text, is_important):

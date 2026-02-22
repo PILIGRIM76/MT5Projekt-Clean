@@ -82,10 +82,16 @@ class TradingLifecycleEnv(gym.Env):
         return self._get_obs(), {}
 
     def step(self, action):
-        # --- ИЗВЛЕЧЕНИЕ ATR ---
-        current_atr = self.df['ATR_14'].iloc[self.current_step] if 'ATR_14' in self.df.columns else 0.0
+        # --- ИЗВЛЕЧЕНИЕ ATR с защитой от ошибок ---
+        current_atr = 0.0
+        if 'ATR_14' in self.df.columns:
+            atr_value = self.df['ATR_14'].iloc[self.current_step]
+            if pd.notna(atr_value) and atr_value > 0:
+                current_atr = atr_value
+            else:
+                logger.warning(f"ATR_14 недействителен на шаге {self.current_step}: {atr_value}, используется 0.0")
         # ----------------------
-
+        
         self.current_step += 1
         done = self.current_step >= len(self.df) - 1
         reward = 0
@@ -94,9 +100,9 @@ class TradingLifecycleEnv(gym.Env):
         # --- Расчет PnL и PnL_Norm для использования в наградах/штрафах ---
         unrealized_pnl_pct = 0
         if self.position == 1:  # Long
-            unrealized_pnl_pct = (current_price - self.entry_price) / self.entry_price
+            unrealized_pnl_pct = (current_price - self.entry_price) / self.entry_price if self.entry_price != 0 else 0
         elif self.position == -1:  # Short
-            unrealized_pnl_pct = (self.entry_price - current_price) / self.entry_price
+            unrealized_pnl_pct = (self.entry_price - current_price) / self.entry_price if self.entry_price != 0 else 0
 
         pnl_norm = unrealized_pnl_pct * 100
         # ------------------------------------------------------------------

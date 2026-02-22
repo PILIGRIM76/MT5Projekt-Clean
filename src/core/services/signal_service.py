@@ -207,10 +207,13 @@ class SignalService:
             return None, None, None
 
         champion_committee = self.models.get(symbol, {})
-        x_scaler = self.x_scalers.get(symbol)
-        y_scaler = self.y_scalers.get(symbol)
+        
+        # ИСПРАВЛЕНИЕ: НЕ берем scalers из глобального хранилища сразу
+        # Сначала проверим совместимость моделей, потом возьмем правильные scalers
+        x_scaler = None
+        y_scaler = None
 
-        if not champion_committee or not x_scaler or not y_scaler:
+        if not champion_committee:
             return None, None, None
 
         # 1. Динамически получаем список признаков ИЗ МОДЕЛИ
@@ -225,15 +228,88 @@ class SignalService:
         main_model_data = next(iter(champion_committee.values()), {})
         features_to_use = main_model_data.get('features', self.config.FEATURES_TO_USE)
         
+        # ВРЕМЕННО: НЕ удаляем дубликаты для совместимости со старыми моделями
+        # TODO: Удалить после переобучения всех моделей
+        # features_to_use = list(dict.fromkeys(features_to_use))
+        
         # Проверяем согласованность признаков между моделями
-        inconsistent_features = []
+        inconsistent_models = []
         for model_type, features in model_features.items():
             if set(features) != set(features_to_use):
-                inconsistent_features.append(model_type)
+                inconsistent_models.append(model_type)
                 logger.warning(f"[{symbol}] Несогласованность признаков: {model_type} использует {features}, основная модель использует {features_to_use}")
         
-        if inconsistent_features:
-            logger.error(f"[{symbol}] КРИТИЧЕСКАЯ ОШИБКА: Несогласованность признаков между моделями: {inconsistent_features}")
+        # ИСПРАВЛЕНИЕ: Удаляем несовместимые модели из комитета вместо отклонения всего сигнала
+        if inconsistent_models:
+            logger.warning(f"[{symbol}] Удаление несовместимых моделей из комитета: {inconsistent_models}")
+            for model_type in inconsistent_models:
+                if model_type in champion_committee:
+                    del champion_committee[model_type]
+            
+            # Если не осталось моделей, возвращаем None
+            if not champion_committee:
+                logger.error(f"[{symbol}] Все модели несовместимы. Сигнал отклонен.")
+                return None, None, None
+            
+            # Обновляем features_to_use на основе оставшихся моделей
+            main_model_data = next(iter(champion_committee.values()), {})
+            features_to_use = main_model_data.get('features', self.config.FEATURES_TO_USE)
+        
+        # КРИТИЧНО: Пытаемся взять scalers из model_data, если нет - из глобального хранилища
+        main_model_data = next(iter(champion_committee.values()), {})
+        x_scaler = main_model_data.get('x_scaler') or self.x_scalers.get(symbol)
+        y_scaler = main_model_data.get('y_scaler') or self.y_scalers.get(symbol)
+        
+        # Проверяем наличие scalers
+        if not x_scaler or not y_scaler:
+            logger.error(f"[{symbol}] Отсутствуют scalers (ни в model_data, ни в глобальном хранилище)")
+            return None, None, None
+        
+        # КРИТИЧЕСКАЯ ПРОВЕРКА: Размерность scaler должна совпадать с features_to_use
+        expected_features = x_scaler.n_features_in_ if hasattr(x_scaler, 'n_features_in_') else len(features_to_use)
+        if expected_features != len(features_to_use):
+            logger.warning(f"[{symbol}] Размерность scaler ({expected_features}) не совпадает с features_to_use ({len(features_to_use)})")
+            
+            # Шаг 1: Удаляем дубликаты из features_to_use
+            unique_features = list(dict.fromkeys(features_to_use))
+            
+            if expected_features == len(unique_features):
+                logger.info(f"[{symbol}] Используем уникальные признаки ({len(unique_features)}) вместо дубликатов ({len(features_to_use)})")
+                features_to_use = unique_features
+            elif expected_features < len(unique_features):
+                # Шаг 2: Если все еще не совпадает, удаляем KG-признаки (старые модели без них)
+                features_without_kg = [f for f in unique_features if not f.startswith('KG_')]
+                if expected_features == len(features_without_kg):
+                    logger.info(f"[{symbol}] Используем признаки без KG ({len(features_without_kg)}) для совместимости со старой моделью")
+                    features_to_use = features_without_kg
+                else:
+                    logger.error(f"[{symbol}] Невозможно согласовать размерности: scaler={expected_features}, unique={len(unique_features)}, no_kg={len(features_without_kg)}. Пропуск.")
+                    return None, None, None
+            else:
+                logger.error(f"[{symbol}] Scaler ожидает больше признаков ({expected_features}) чем доступно ({len(unique_features)}). Пропуск.")
+                return None, None, None
+        
+        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Удаляем модели, несовместимые с финальным набором признаков
+        # ВАЖНО: Проверяем совместимость по КОЛИЧЕСТВУ признаков, а не по составу
+        models_to_remove = []
+        for model_type, model_data in champion_committee.items():
+            model_features = model_data.get('features', [])
+            
+            # Проверяем, совпадает ли количество признаков
+            if len(model_features) != len(features_to_use):
+                models_to_remove.append(model_type)
+                logger.warning(f"[{symbol}] Модель {model_type} несовместима: ожидает {len(model_features)} признаков, доступно {len(features_to_use)}")
+        
+        # НЕ удаляем модели, если это приведет к пустому комитету
+        if models_to_remove and len(models_to_remove) < len(champion_committee):
+            for model_type in models_to_remove:
+                del champion_committee[model_type]
+            logger.info(f"[{symbol}] Удалены несовместимые модели: {models_to_remove}. Осталось моделей: {len(champion_committee)}")
+        elif models_to_remove:
+            logger.warning(f"[{symbol}] Все модели несовместимы, но оставляем их для попытки прогноза")
+        
+        if not champion_committee:
+            logger.error(f"[{symbol}] Комитет моделей пуст. Пропуск.")
             return None, None, None
         # ----------------------------------------------------------------------
 
@@ -259,7 +335,17 @@ class SignalService:
             return None, None, None
 
         # 3. Создаем последовательность, используя ТОЧНО тот же порядок признаков
-        last_sequence_raw = df_processed[features_to_use].tail(self.n_steps).values
+        # ИСПРАВЛЕНИЕ: Обрабатываем дубликаты признаков для совместимости со старыми моделями
+        unique_features = list(dict.fromkeys(features_to_use))  # Уникальные признаки
+        last_sequence_df = df_processed[unique_features].tail(self.n_steps)
+        
+        # Если есть дубликаты, создаем массив с повторениями
+        if len(features_to_use) != len(unique_features):
+            # Создаем маппинг индексов
+            feature_indices = [unique_features.index(feat) for feat in features_to_use]
+            last_sequence_raw = last_sequence_df.values[:, feature_indices]
+        else:
+            last_sequence_raw = last_sequence_df.values
 
         if last_sequence_raw.shape[0] < self.n_steps:
             return None, None, None
@@ -362,6 +448,9 @@ class SignalService:
         main_model_data = champion_committee[main_model_key]
         main_model = main_model_data.get('model')
         features_to_use = main_model_data.get('features', [])
+        # ВРЕМЕННО: НЕ удаляем дубликаты для совместимости со старыми моделями
+        # features_to_use = list(dict.fromkeys(features_to_use))
+
 
         # --- Получаем устройство из TradingSystem ---
         device = self.trading_system.device if hasattr(self.trading_system, 'device') else torch.device("cpu")

@@ -5,7 +5,6 @@ import subprocess
 import sys
 from dataclasses import Field
 
-import pkg_resources
 from dotenv import dotenv_values, set_key
 from pathlib import Path
 import logging

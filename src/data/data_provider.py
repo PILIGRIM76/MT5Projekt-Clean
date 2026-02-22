@@ -250,12 +250,19 @@ class DataProvider:
 
                     # Небольшая пауза для подгрузки
                     if attempt == 0:
-                        time.sleep(0.1)
+                        time.sleep(0.2)
                     # -----------------------------------------------
 
+                    # Повторная попыка получить symbol_info с задержкой
                     symbol_info = mt5.symbol_info(symbol)
                     if symbol_info is None:
-                        logger.warning(f"[{symbol}] symbol_info is None.")
+                        logger.warning(f"[{symbol}] symbol_info is None (попытка 1). Повторная попыка...")
+                        time.sleep(0.3)
+                        symbol_info = mt5.symbol_info(symbol)
+                        if symbol_info is None:
+                            logger.warning(f"[{symbol}] symbol_info is None (попытка 2). Пропуск.")
+                        else:
+                            rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_bars + 200)
                     else:
                         rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_bars + 200)
                 finally:
@@ -332,17 +339,21 @@ class DataProvider:
         if symbol in self.excluded_symbols:
             return None
 
+        # ОПТИМИЗАЦИЯ: Кэшируем symbol_info, чтобы не запрашивать каждый раз
+        symbol_info = None
         with self.mt5_lock:
             if not mt5.initialize(path=self.config.MT5_PATH):
                 logger.error(f"[{symbol}] Не удалось инициализировать MT5 для проверки символа.")
                 return None
             try:
                 symbol_info = mt5.symbol_info(symbol)
-                if symbol_info is None or not symbol_info.visible:
-                    logger.warning(f"[{symbol}] Символ не найден или не виден в MT5. Пропуск.")
-                    return None
             finally:
                 mt5.shutdown()
+        
+        # Проверка вне блокировки
+        if symbol_info is None or not symbol_info.visible:
+            logger.warning(f"[{symbol}] Символ не найден или не виден в MT5. Пропуск.")
+            return None
 
         df = self._fetch_mt5_data_with_retry(symbol, tf, num_bars)
         source = "MT5"
@@ -354,6 +365,7 @@ class DataProvider:
 
         logger.debug(f"[{symbol}] Данные ({len(df)} баров) успешно получены из источника: {source}.")
 
+        # ОПТИМИЗАЦИЯ: Обработка признаков вне блокировки MT5
         df_with_features = self._add_features(df)
 
         if not df_with_features.empty:
@@ -365,12 +377,13 @@ class DataProvider:
         pd.DataFrame]:
         logger.debug(f"Запрос исторических данных для {symbol} с {start_date} по {end_date}.")
         try:
-            if not mt5.initialize(path=self.config.MT5_PATH):
-                logger.error(f"get_historical_data: initialize() failed, error code = {mt5.last_error()}")
+            with self.mt5_lock:
+                if not mt5.initialize(path=self.config.MT5_PATH):
+                    logger.error(f"get_historical_data: initialize() failed, error code = {mt5.last_error()}")
+                    mt5.shutdown()
+                    return None
+                rates = mt5.copy_rates_range(symbol, timeframe, start_date, end_date)
                 mt5.shutdown()
-                return None
-            rates = mt5.copy_rates_range(symbol, timeframe, start_date, end_date)
-            mt5.shutdown()
             if rates is None or len(rates) == 0:
                 return None
             df = pd.DataFrame(rates)
@@ -445,3 +458,32 @@ class DataProvider:
             self.last_news_timestamp = max_timestamp_in_batch
 
         return news_items
+    
+    def get_minimum_lot_size(self, symbol: str) -> Optional[float]:
+        """
+        Получает минимальный размер лота для символа из MT5.
+        """
+        with self.mt5_lock:
+            if not mt5.initialize(path=self.config.MT5_PATH):
+                logger.error(f"[get_minimum_lot_size] Не удалось инициализировать MT5 для {symbol}.")
+                return None
+            
+            try:
+                symbol_info = mt5.symbol_info(symbol)
+                if symbol_info is None:
+                    logger.warning(f"[get_minimum_lot_size] Символ {symbol} не найден в терминале.")
+                    return None
+                
+                # Возвращаем минимальный лот, если он больше 0
+                min_lot = symbol_info.volume_min
+                if min_lot > 0:
+                    return float(min_lot)
+                else:
+                    # Если минимальный объем 0 или отрицательный, используем стандартный минимальный лот
+                    return 0.01
+                    
+            except Exception as e:
+                logger.error(f"[get_minimum_lot_size] Ошибка при получении информации о символе {symbol}: {e}")
+                return None
+            finally:
+                mt5.shutdown()

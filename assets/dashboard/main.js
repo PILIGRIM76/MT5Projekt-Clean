@@ -62,25 +62,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- График P&L ---
     function updatePnlChart(history) {
-        if (!pnlChart || !history || !Array.isArray(history)) return;
+        if (!pnlChart) return;
 
+        // Check if history is valid
+        if (!history || (!Array.isArray(history) && typeof history !== 'object')) {
+            console.warn('Invalid history data:', history);
+            return;
+        }
+
+        // Handle both array format and object format
+        let historyArray = [];
+        if (Array.isArray(history)) {
+            historyArray = history;
+        } else if (typeof history === 'object' && history.data) {
+            // If history contains a 'data' property, use that
+            historyArray = history.data || [];
+        } else {
+            // If it's an object but not in expected format, try to convert
+            historyArray = [history];
+        }
+
+        // Filter out invalid entries
+        historyArray = historyArray.filter(item => 
+            item && item.profit !== undefined && item.time_close !== undefined
+        );
+
+        if (historyArray.length === 0) {
+            // Set a single point at current time with initial balance
+            pnlChart.data.datasets[0].data = [{ x: Date.now(), y: 10000 }];
+            pnlChart.update();
+            return;
+        }
+
+        // Sort by time
+        const sortedHistory = historyArray.sort((a, b) => new Date(a.time_close) - new Date(b.time_close));
+        
         const initialBalance = 10000;
         let cumulativeProfit = 0;
 
-        // Сортировка
-        const sortedHistory = history.sort((a, b) => new Date(a.time_close) - new Date(b.time_close));
-
         const chartData = sortedHistory.map(trade => {
-            cumulativeProfit += trade.profit;
-            return { x: new Date(trade.time_close).getTime(), y: initialBalance + cumulativeProfit };
+            cumulativeProfit += parseFloat(trade.profit) || 0;
+            return { 
+                x: new Date(trade.time_close).getTime(), 
+                y: initialBalance + cumulativeProfit 
+            };
         });
 
-        // Добавляем стартовую точку
+        // Add initial point
         if (chartData.length > 0) {
-             const firstTime = chartData[0].x - 3600000;
-             chartData.unshift({ x: firstTime, y: initialBalance });
-        } else {
-             chartData.push({ x: Date.now(), y: initialBalance });
+            const firstTime = chartData[0].x - 3600000;
+            chartData.unshift({ x: firstTime, y: initialBalance });
         }
 
         pnlChart.data.datasets[0].data = chartData;

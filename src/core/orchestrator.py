@@ -178,8 +178,17 @@ class Orchestrator:
             # Продолжаем цикл, чтобы применить новое распределение капитала
         # -------------------------------------------------
 
+        # 3. Проверка существования агента перед вызовом
+        if not hasattr(self, 'agent') or self.agent is None:
+            logger.error("[Orchestrator] Агент не инициализирован, пропуск цикла.")
+            return
+            
         # 3. Агент предсказывает матрицу распределения (N_regimes x N_strategies)
-        action_matrix, _ = self.agent.predict(self.last_obs, deterministic=True)
+        try:
+            action_matrix, _ = self.agent.predict(self.last_obs, deterministic=True)
+        except Exception as e:
+            logger.error(f"[Orchestrator] Ошибка при предсказании агента: {e}")
+            return
 
         # 4. Выполняем шаг. apply_orchestrator_action вызывается внутри env.step.
         new_obs, reward, terminated, truncated, info = self.env.step(action_matrix)

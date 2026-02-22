@@ -33,11 +33,21 @@ class TrainingScheduler:
         self.training_in_progress = False
         
         # Настройки из конфигурации или значения по умолчанию
-        self.enabled = getattr(config, 'AUTO_RETRAIN_ENABLED', True)
-        self.schedule_time = getattr(config, 'AUTO_RETRAIN_TIME', "02:00")  # Время в формате "HH:MM"
-        self.max_symbols = getattr(config, 'AUTO_RETRAIN_MAX_SYMBOLS', 30)
-        self.max_workers = getattr(config, 'AUTO_RETRAIN_MAX_WORKERS', 3)
-        self.interval_hours = getattr(config, 'AUTO_RETRAIN_INTERVAL_HOURS', 24)  # Интервал в часах
+        # ИСПРАВЛЕНИЕ: Читаем из вложенного объекта auto_retraining
+        auto_retrain_config = getattr(config, 'auto_retraining', None)
+        if auto_retrain_config:
+            self.enabled = getattr(auto_retrain_config, 'enabled', True)
+            self.schedule_time = getattr(auto_retrain_config, 'schedule_time', "02:00")
+            self.max_symbols = getattr(auto_retrain_config, 'max_symbols_per_run', 30)
+            self.max_workers = getattr(auto_retrain_config, 'max_workers', 3)
+            self.interval_hours = getattr(auto_retrain_config, 'interval_hours', 24)
+        else:
+            # Fallback на старые атрибуты
+            self.enabled = getattr(config, 'AUTO_RETRAIN_ENABLED', True)
+            self.schedule_time = getattr(config, 'AUTO_RETRAIN_TIME', "02:00")
+            self.max_symbols = getattr(config, 'AUTO_RETRAIN_MAX_SYMBOLS', 30)
+            self.max_workers = getattr(config, 'AUTO_RETRAIN_MAX_WORKERS', 3)
+            self.interval_hours = getattr(config, 'AUTO_RETRAIN_INTERVAL_HOURS', 24)
         
         logger.info(f"TrainingScheduler инициализирован:")
         logger.info(f"  - Включен: {self.enabled}")

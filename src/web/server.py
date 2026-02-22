@@ -201,6 +201,9 @@ class WebServer:
     def broadcast_positions_update(self, positions_list: List[Dict[str, Any]]):
         self._put_to_queue_threadsafe({"type": "positions_update", "payload": positions_list})
 
+    def broadcast_history_update(self, history_data: List[Dict[str, Any]]):
+        self._put_to_queue_threadsafe({"type": "history_update", "payload": history_data})
+
     def broadcast_orchestrator_update(self, allocation: Dict[str, float]):
         self._put_to_queue_threadsafe({"type": "orchestrator_update", "payload": allocation})
 
@@ -307,6 +310,9 @@ class WebServer:
                         ).model_dump_json()) for d in history_deals
                     ]
                     await websocket.send_json({"type": "history_update", "payload": history_payload})
+                else:
+                    # Отправляем пустой массив, чтобы инициализировать график
+                    await websocket.send_json({"type": "history_update", "payload": []})
 
                 # Оптимизация: Избегайте постоянного ожидания текста
                 while True:

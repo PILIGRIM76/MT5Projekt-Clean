@@ -3,6 +3,7 @@ import logging
 from typing import Optional
 import pandas as pd
 from src.data_models import TradeSignal, SignalType
+from src.core.config_models import Settings
 from .StrategyInterface import BaseStrategy
 from .breakout import BreakoutStrategy
 from .mean_reversion import MeanReversionStrategy
@@ -10,7 +11,7 @@ from .mean_reversion import MeanReversionStrategy
 logger = logging.getLogger(__name__)
 
 class AdaptiveStrategy(BaseStrategy):
-    def __init__(self, config: dict):
+    def __init__(self, config: Settings):
         super().__init__(config)
         self.strategies = {
             'breakout': BreakoutStrategy(config),

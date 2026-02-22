@@ -10,7 +10,7 @@ import operator
 import numpy as np
 import pandas as pd
 
-from transformers.models import mt5
+from transformers.models import mt5 as transformers_mt5
 
 from src.data_models import TradeSignal, SignalType
 from src.strategies.StrategyInterface import BaseStrategy
@@ -200,10 +200,20 @@ class GeneticProgrammingCore:
             report = backtester.run()
 
             total_trades = report.get('total_trades', 0)
+            
+            # Проверка на деление на ноль для метрик
             sharpe_ratio = report.get('sharpe_ratio', 0.0)
+            if pd.isna(sharpe_ratio) or np.isinf(sharpe_ratio):
+                sharpe_ratio = 0.0
+                
             profit_factor = report.get('profit_factor', 0.0)
+            if pd.isna(profit_factor) or np.isinf(profit_factor) or profit_factor < 0:
+                profit_factor = 0.0
+                
             # MaxDrawdown возвращается как десятичная дробь (например, 0.15)
             max_drawdown = report.get('max_drawdown', 1.0)
+            if pd.isna(max_drawdown) or np.isinf(max_drawdown) or max_drawdown < 0:
+                max_drawdown = 1.0
 
             # [TZ 1.1] Применение композитной формулы приспособленности
             if total_trades < self.config.GP_MIN_TRADES_SAMPLE or profit_factor < 1.0:

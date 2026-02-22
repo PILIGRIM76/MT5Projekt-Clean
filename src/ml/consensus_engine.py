@@ -169,16 +169,22 @@ class ConsensusEngine:
         # --- TZ 2.3: Анализ Причинности KG ---
         # Проверка: Если KG_Sentiment сильный (>$0.5$), но исторический PnL по сделкам с этим сентиментом отрицательный,
         # снизить вес KG-фактора до 0.05.
-
+        
         if abs(kg_score) > 0.5:
-            # 1. Запрос исторического PnL для данного сентимента
-            # (Эмуляция: в реальном коде здесь был бы запрос к БД)
-            historical_pnl_for_sentiment = self.db_manager.get_historical_pnl_for_kg_sentiment(kg_score)
-
-            if historical_pnl_for_sentiment < 0:
-                logger.critical(
-                    f"[KG-CAUSALITY] СИЛЬНЫЙ СЕНТИМЕНТ ({kg_score:.2f}) исторически убыточен. Снижение веса KG.")
-                weights.sentiment_kg = 0.05  # Снижаем вес
+            try:
+                # 1. Запрос исторического PnL для данного сентимента
+                historical_pnl_for_sentiment = self.db_manager.get_historical_pnl_for_kg_sentiment(kg_score)
+                
+                # Проверка, что возвращаемое значение действительное число
+                if historical_pnl_for_sentiment is not None and isinstance(historical_pnl_for_sentiment, (int, float)):
+                    if historical_pnl_for_sentiment < 0:
+                        logger.critical(
+                            f"[KG-CAUSALITY] СИЛЬНЫЙ СЕНТИМЕНТ ({kg_score:.2f}) исторически убыточен. Снижение веса KG.")
+                        weights.sentiment_kg = 0.05  # Снижаем вес
+                else:
+                    logger.warning(f"[KG-CAUSALITY] Недействительное значение исторического PnL: {historical_pnl_for_sentiment}")
+            except Exception as e:
+                logger.error(f"[KG-CAUSALITY] Ошибка при получении исторического PnL: {e}")
         # -------------------------------------
 
         # 1.1. AI-прогноз
@@ -216,16 +222,16 @@ class ConsensusEngine:
         if total_weight > 0:
             weighted_sum /= total_weight
 
-            # --- TZ 4.2: Анализ Тональности (Uncertainty Penalty) ---
-            # Имитация: Получаем текст последней новости (для простоты)
+        # --- TZ 4.2: Анализ Тональности (Uncertainty Penalty) ---
+        # Снижен penalty с 10% до 5% для более мягкого влияния
         latest_news_text = "The market is facing high uncertainty due to unpredictable FED decisions."
         uncertainty_score = self._get_uncertainty_score(latest_news_text)
 
         if uncertainty_score > 0.7:
-            penalty_factor = 1.0 - 0.10  # Снижение на 10%
+            penalty_factor = 1.0 - 0.05  # Снижение на 5% (было 10%)
             weighted_sum *= penalty_factor
             logger.warning(
-                f"[Tone Analysis] Высокая неопределенность ({uncertainty_score:.2f}). Consensus Score снижен на 10%.")
+                f"[Tone Analysis] Высокая неопределенность ({uncertainty_score:.2f}). Consensus Score снижен на 5%.")
 
         # 3. Финальное решение
         final_signal_type = SignalType.HOLD

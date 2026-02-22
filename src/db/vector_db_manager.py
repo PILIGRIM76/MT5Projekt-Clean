@@ -147,6 +147,12 @@ class VectorDBManager:
         self.metadatas = []
         self.ids = []
         self._id_to_idx = {}
+        
+        # ОПТИМИЗАЦИЯ: Счётчики для уменьшения частоты сохранения
+        self._unsaved_changes = 0
+        self._last_save_time = datetime.now()
+        self._save_threshold = 50  # Сохранять каждые 50 документов
+        self._save_interval_seconds = 300  # Или каждые 5 минут
         # ------------------------------------------------------
 
         if not self.config.enabled:
@@ -211,6 +217,18 @@ class VectorDBManager:
                 # --- КРИТИЧЕСКИЙ ЛОГ ОШИБКИ ЗАПИСИ ---
                 logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА ПРИ СОХРАНЕНИИ ИНДЕКСА FAISS: {e}")
                 logger.critical(f"Проверьте права доступа к папке: {self.db_path}")
+    
+    def force_save(self):
+        """
+        ОПТИМИЗАЦИЯ: Принудительное сохранение индекса (вызывается при остановке системы).
+        """
+        if self._unsaved_changes > 0:
+            logger.info(f"[VectorDB] Принудительное сохранение {self._unsaved_changes} несохранённых изменений...")
+            self._save()
+            self._unsaved_changes = 0
+            self._last_save_time = datetime.now()
+        else:
+            logger.debug("[VectorDB] Нет несохранённых изменений для принудительного сохранения")
 
     def add_documents(self, ids: List[str], embeddings: List[List[float]], metadatas: List[Dict[str, Any]],
                       documents: List[str]):
@@ -222,10 +240,10 @@ class VectorDBManager:
             self.dimension = len(embeddings[0])
             # IndexFlatL2 - простой индекс, который не требует обучения
             self.index = faiss.IndexFlatL2(self.dimension)
-            logger.info(f"Создан новый индекс FAISS с размерностью {self.dimension}.")
+            logger.info(f"[VectorDB] Создан новый индекс FAISS с размерностью {self.dimension}.")
 
         if self.index is None:
-            logger.error("FAISS Index is None. Cannot add documents.")
+            logger.error("[VectorDB] FAISS Index is None. Cannot add documents.")
             return
         # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
@@ -234,6 +252,7 @@ class VectorDBManager:
         # FAISS требует нормализации для косинусного сходства
         faiss.normalize_L2(embeddings_np)
 
+        added_count = 0
         for i, doc_id in enumerate(ids):
             if doc_id in self._id_to_idx:
                 continue
@@ -243,11 +262,34 @@ class VectorDBManager:
             self.metadatas.append(metadatas[i])
             self.ids.append(doc_id)
             self._id_to_idx[doc_id] = len(self.ids) - 1
+            added_count += 1
 
-        self._save()
+        if added_count > 0:
+            logger.info(f"[VectorDB] Добавлено {added_count} новых документов. Всего: {self.index.ntotal}")
+            self._unsaved_changes += added_count
+            
+            # ОПТИМИЗАЦИЯ: Сохраняем только если накопилось достаточно изменений ИЛИ прошло достаточно времени
+            now = datetime.now()
+            time_since_last_save = (now - self._last_save_time).total_seconds()
+            
+            should_save = (
+                self._unsaved_changes >= self._save_threshold or
+                time_since_last_save >= self._save_interval_seconds
+            )
+            
+            if should_save:
+                logger.info(f"[VectorDB] Сохранение: {self._unsaved_changes} несохранённых изменений, {time_since_last_save:.0f}с с последнего сохранения")
+                self._save()
+                self._unsaved_changes = 0
+                self._last_save_time = now
+            else:
+                logger.debug(f"[VectorDB] Отложено сохранение: {self._unsaved_changes}/{self._save_threshold} изменений, {time_since_last_save:.0f}/{self._save_interval_seconds}с")
+        else:
+            logger.debug(f"[VectorDB] Все {len(ids)} документов уже существуют в индексе")
 
     def query_similar(self, query_embedding: List[float], n_results: int = 5) -> Optional[Dict[str, Any]]:
         if not self.is_ready() or self.index.ntotal == 0:
+            logger.debug(f"[VectorDB] Поиск невозможен: готов={self.is_ready()}, документов={self.index.ntotal if self.index else 0}")
             return None
 
         query_np = np.array([query_embedding], dtype='float32')
@@ -271,7 +313,8 @@ class VectorDBManager:
                         results['metadatas'][0].append(self.metadatas[idx])
                         results['distances'][0].append(distances[0][i])
 
+            logger.debug(f"[VectorDB] Найдено {len(results['ids'][0])} результатов")
             return results
         except Exception as e:
-            logger.error(f"Ошибка при поиске в FAISS: {e}", exc_info=True)
+            logger.error(f"[VectorDB] Ошибка при поиске в FAISS: {e}", exc_info=True)
             return None

@@ -233,6 +233,21 @@ class FeatureEngineer:
 
             logger.info(
                 f"Инжиниринг признаков завершен. Добавлено {len(df_out.columns) - len(df.columns)} новых признаков. Удалено {initial_rows - final_rows} строк с NaN/Inf.")
+            
+            # CRITICAL: Удаление дубликатов колонок
+            if df_out.columns.duplicated().any():
+                duplicated_cols = df_out.columns[df_out.columns.duplicated()].tolist()
+                logger.warning(f"Обнаружены дубликаты колонок: {duplicated_cols}. Удаление...")
+                df_out = df_out.loc[:, ~df_out.columns.duplicated()]
+            
+            # CRITICAL: Проверка KG признаков на надёжность
+            kg_features = ['KG_CB_SENTIMENT', 'KG_INFLATION_SURPRISE']
+            for feat in kg_features:
+                if feat in df_out.columns:
+                    zero_ratio = (df_out[feat] == 0).sum() / len(df_out) if len(df_out) > 0 else 0
+                    if zero_ratio > 0.8:
+                        logger.warning(f"KG feature {feat} is {zero_ratio:.1%} zeros (unreliable) - removing")
+                        df_out = df_out.drop(columns=[feat])
 
         except Exception as e:
             logger.error(f"Ошибка в процессе инжиниринга признаков: {e}", exc_info=True)

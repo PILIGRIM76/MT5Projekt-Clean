@@ -27,8 +27,7 @@ class Worker(QRunnable):
         self.args = args
         self.kwargs = kwargs
 
-
-def run(self):
+    def run(self):
         """
         Основная логика выполнения задачи.
         """

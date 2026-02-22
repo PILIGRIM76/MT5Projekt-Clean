@@ -14,12 +14,17 @@ import sys
 import os
 import optuna
 import gc
-from optuna.integration import TFKerasPruningCallback
+import functools
+import traceback
+try:
+    from optuna.integration import TFKerasPruningCallback
+except ImportError:
+    # Fallback if tfkeras integration is not available
+    TFKerasPruningCallback = None
 import MetaTrader5 as mt5
 import numpy as np
 import pandas as pd
 from pathlib import Path as SyncPath, Path
-
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import train_test_split
 from PySide6.QtCore import QObject, Signal, QThreadPool
@@ -64,6 +69,20 @@ from src.web.data_models import SystemStatus, Position
 logger = logging.getLogger(__name__)
 
 
+def exception_handler(default_return_value=None):
+    """Декоратор для обработки исключений в методах"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"Ошибка в методе {func.__name__}: {str(e)}")
+                logger.error(f"Трассировка ошибки: {traceback.format_exc()}")
+                return default_return_value
+        return wrapper
+    return decorator
+
 class TradingSystem(QObject):
     # Сигналы для связи с GUI (через Bridge)
     rd_progress_updated = Signal(dict)
@@ -83,7 +102,8 @@ class TradingSystem(QObject):
         self.bridge = bridge
         self.config = config
         self.gui = gui
-        self._safe_gui_update = self.gui._safe_gui_update if self.gui else lambda *args, **kwargs: None
+        # УДАЛЕНО: self._safe_gui_update = self.gui._safe_gui_update if self.gui else lambda *args, **kwargs: None
+        # Используем собственный метод _safe_gui_update из этого класса
         self.sound_manager = sound_manager
         self.version = "v24.0"
 
@@ -113,6 +133,7 @@ class TradingSystem(QObject):
         self._last_known_balance = 0.0
         self._last_known_equity = 0.0
         self._last_known_uptime = "0:00:00"
+        self._last_positions_cache = []  # Кэш позиций для легкого обновления прибыли
 
         self.latest_full_ranked_list: List[dict] = []
         self.last_model_load_time = 0
@@ -162,6 +183,7 @@ class TradingSystem(QObject):
         self.orchestrator = None
         self.web_server: Optional[WebServer] = None
         self.training_scheduler = None  # Планировщик автоматического переобучения
+        self.safety_monitor = None  # CRITICAL: Safety Monitor для защиты капитала
 
         self.models: Dict[str, Any] = {}
         self.x_scalers: Dict[str, StandardScaler] = {}
@@ -189,6 +211,7 @@ class TradingSystem(QObject):
         logger.critical("INIT STEP 2/8: Initializing DB and VectorDB...")
         self.db_manager = DatabaseManager(self.config, self.db_write_queue)
         vector_db_full_path = SyncPath(self.config.DATABASE_FOLDER) / self.config.vector_db.path
+        logger.info(f"[VectorDB] Инициализация по пути: {vector_db_full_path}")
         self.vector_db_manager = VectorDBManager(self.config.vector_db, db_root_path=vector_db_full_path)
         logger.critical("INIT STEP 2/8: DB and VectorDB initialized.")
 
@@ -283,6 +306,12 @@ class TradingSystem(QObject):
         self.training_scheduler = TrainingScheduler(self.config, self._auto_retrain_callback)
         
         logger.critical("INIT STEP 7/8: Core Services initialized.")
+        
+        # CRITICAL: Инициализация Safety Monitor
+        logger.critical("INIT STEP 8/8: Initializing Safety Monitor...")
+        from src.core.safety_monitor import SafetyMonitor
+        self.safety_monitor = SafetyMonitor(self.config, self)
+        logger.critical("INIT STEP 8/8: Safety Monitor object created.")
 
         # Оптимизация: освобождаем память после инициализации
         import gc
@@ -308,6 +337,11 @@ class TradingSystem(QObject):
         if self.training_scheduler:
             self.training_scheduler.start()
             self.thread_status_updated.emit("Training Scheduler", "RUNNING")
+        
+        # CRITICAL: Инициализация Safety Monitor
+        if self.safety_monitor:
+            self.safety_monitor.initialize()
+            logger.critical("[SAFETY] Safety Monitor активирован и готов к работе")
 
         # Создание потоков
         self.history_sync_thread = threading.Thread(target=self._sync_initial_history, daemon=True,
@@ -442,6 +476,11 @@ class TradingSystem(QObject):
         Одна итерация торгового цикла.
         Здесь происходит сканирование, анализ и отправка данных в GUI.
         """
+        # CRITICAL: Check safety before each cycle
+        if self.safety_monitor and not self.safety_monitor.check_safety_conditions():
+            logger.critical("⛔ Trading stopped by Safety Monitor")
+            return
+        
         # Проверки перед запуском
         if self.stop_event.is_set() or not self.is_heavy_init_complete or self.update_pending:
             return
@@ -533,20 +572,44 @@ class TradingSystem(QObject):
             
             self.end_performance_timer("get_market_data")
 
-            # Обработка новостей в фоне (если есть новые)
-            if news_result_tuple and not isinstance(news_result_tuple, Exception):
-                all_items, _, _ = news_result_tuple
-                if all_items:
-                    self.start_performance_timer("process_news")
-                    await self._process_news_background(all_items)
-                    self.end_performance_timer("process_news")
+            # Обработка новостей для VectorDB (с максимальной защитой от крашей)
+            try:
+                if news_result_tuple and not isinstance(news_result_tuple, Exception):
+                    all_items, _, _ = news_result_tuple
+                    if all_items and self.vector_db_manager and self.vector_db_manager.is_ready():
+                        logger.info(f"[VectorDB] Получено {len(all_items)} новостей для обработки")
+                        
+                        # Ограничиваем количество новостей для обработки (защита от перегрузки)
+                        max_news_per_cycle = 5
+                        if len(all_items) > max_news_per_cycle:
+                            logger.warning(f"[VectorDB] Ограничение: обработка только {max_news_per_cycle} из {len(all_items)} новостей")
+                            all_items = all_items[:max_news_per_cycle]
+                        
+                        # Запускаем фоновую обработку новостей с защитой от ошибок
+                        try:
+                            asyncio.create_task(self._process_news_background(all_items))
+                            logger.info(f"[VectorDB] Фоновая обработка {len(all_items)} новостей запущена")
+                        except Exception as news_error:
+                            logger.error(f"[VectorDB] Ошибка при запуске фоновой обработки: {news_error}", exc_info=True)
+                    else:
+                        if not all_items:
+                            logger.debug("[VectorDB] Новостей для обработки нет")
+                        elif not self.vector_db_manager or not self.vector_db_manager.is_ready():
+                            logger.debug("[VectorDB] VectorDB не готов, пропуск обработки новостей")
+                else:
+                    logger.debug("[VectorDB] Новости не получены или произошла ошибка")
+            except Exception as e:
+                logger.error(f"[VectorDB] Критическая ошибка при обработке новостей: {e}", exc_info=True)
+                # Продолжаем работу системы даже при ошибке обработки новостей
 
             # --- ИСПРАВЛЕНИЕ: Блок вынесен из-под if all_items ---
 
             # 4. Ранжирование символов
+            logger.info(f"[Orchestrator] Начало ранжирования символов. Данных: {len(data_dict_raw)}")
             self.start_performance_timer("rank_symbols")
             data_dict = {key: df for key, df in data_dict_raw.items()}
             ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict)
+            logger.info(f"[Orchestrator] Ранжирование завершено. Топ символов: {len(ranked_symbols)}")
 
             # --- ВАЖНО: Сохраняем список для R&D ---
             self.latest_full_ranked_list = full_ranked_list
@@ -606,22 +669,31 @@ class TradingSystem(QObject):
                             self.latest_full_ranked_list.append(item)
 
             # 3. Отправляем данные
+            # Убрано избыточное логирование
             if gui_data_list:
-                # Логируем отправку для отладки
-                # logger.info(f"[GUI Data] Отправка {len(gui_data_list)} строк в сканер.")
-
+                # Отправляем данные в сканер
                 self.market_scan_updated.emit(gui_data_list)
-                if self.bridge:
-                    self.bridge.market_scan_updated.emit(gui_data_list)
 
                 # Обновляем график первым символом
                 top_item = gui_data_list[0]
                 symbol_for_chart = top_item['symbol']
                 chart_key = f"{symbol_for_chart}_{mt5.TIMEFRAME_H1}"
                 if chart_key in data_dict:
-                    self._safe_gui_update('update_candle_chart', data_dict[chart_key], symbol_for_chart)
+                    df_chart = data_dict[chart_key]
+                    self._safe_gui_update('update_candle_chart', df_chart, symbol_for_chart)
+                else:
+                    logger.warning(f"[Chart] Ключ {chart_key} не найден в data_dict")
             else:
-                logger.warning("[GUI Data] Нет данных для отправки в сканер (gui_data_list пуст).")
+                logger.warning("[GUI Data] Нет данных для отправки в сканер")
+            
+            # Дополнительно: обновляем график для любого доступного символа, если основное обновление не сработало
+            if not gui_data_list or (gui_data_list and f"{gui_data_list[0]['symbol']}_{mt5.TIMEFRAME_H1}" not in data_dict):
+                # Ищем любой доступный символ с данными H1
+                for key in data_dict.keys():
+                    if "_H1" in key or f"_{mt5.TIMEFRAME_H1}" in key:
+                        symbol = key.split('_')[0]
+                        self._safe_gui_update('update_candle_chart', data_dict[key], symbol)
+                        break
             # =================================================================================
 
             # Загрузка моделей (раз в час)
@@ -660,6 +732,39 @@ class TradingSystem(QObject):
             if len(current_positions) >= self.config.MAX_OPEN_POSITIONS:
                 self.end_performance_timer("run_cycle_total")
                 return
+
+            # НОВАЯ ЛОГИКА: Фильтрация символов в выходные дни
+            # datetime уже импортирован глобально, не нужно импортировать снова
+            current_time = datetime.now()
+            weekday = current_time.weekday()  # 0=Monday, 6=Sunday
+            
+            # Определяем, выходной ли день для Forex
+            is_forex_weekend = (
+                weekday == 5 or  # Суббота
+                (weekday == 6 and current_time.hour < 23) or  # Воскресенье до 23:00
+                (weekday == 4 and current_time.hour >= 23)  # Пятница после 23:00
+            )
+            
+            if is_forex_weekend:
+                # В выходные фильтруем только 24/7 инструменты (криптовалюты)
+                original_count = len(ranked_symbols)
+                ranked_symbols = [
+                    s for s in ranked_symbols 
+                    if any([
+                        'BTC' in s.upper(),
+                        'BITCOIN' in s.upper(),
+                        'ETH' in s.upper(),
+                        'ETHEREUM' in s.upper(),
+                        'CRYPTO' in s.upper(),
+                        'USDT' in s.upper(),
+                    ])
+                ]
+                if ranked_symbols:
+                    logger.info(f"[Weekend Mode] Forex рынок закрыт. Торговля только 24/7 инструментами: {ranked_symbols} (было {original_count}, осталось {len(ranked_symbols)})")
+                else:
+                    logger.debug(f"[Weekend Mode] Нет доступных 24/7 инструментов для торговли в выходные")
+                    self.end_performance_timer("run_cycle_total")
+                    return
 
             for symbol in ranked_symbols:
                 if len(current_positions) + len(analysis_tasks) >= self.config.MAX_OPEN_POSITIONS:
@@ -706,24 +811,35 @@ class TradingSystem(QObject):
         logger.info("Цикл обучения (R&D) остановлен.")
 
     def _vector_db_cleanup_loop(self):
-        logger.info("=== Запуск цикла обслуживания VectorDB ===")
+        logger.info("[VectorDB] === Запуск цикла обслуживания ===")
         cleanup_interval = self.config.vector_db.cleanup_interval_hours * 3600
         self.stop_event.wait(min(cleanup_interval, 3600))
         while not self.stop_event.is_set():
             if self.vector_db_manager and self.config.vector_db.cleanup_enabled:
+                logger.info(f"[VectorDB] Запуск очистки устаревших документов (интервал: {self.config.vector_db.cleanup_interval_hours}ч)")
                 try:
                     self.vector_db_manager.cleanup_old_documents()
                 except Exception as e:
-                    logger.error(f"Ошибка в цикле очистки VectorDB: {e}")
+                    logger.error(f"[VectorDB] Ошибка в цикле очистки: {e}")
             self.stop_event.wait(cleanup_interval)
-        logger.info("Цикл обслуживания VectorDB остановлен.")
+        logger.info("[VectorDB] Цикл обслуживания остановлен.")
 
     # --- ОСТАЛЬНЫЕ МЕТОДЫ (БЕЗ ИЗМЕНЕНИЙ) ---
     def _continuous_training_cycle(self):
         if not self.training_lock.acquire(blocking=False): return
         training_batch_id = f"batch-{uuid.uuid4()}"
+        cycle_start_time = standard_time.time()
         logger.warning(f"--- НАЧАЛО R&D ЦИКЛА (BATCH ID: {training_batch_id}) ---")
         self.long_task_status_updated.emit("R&D_CYCLE", "Идет R&D цикл и оптимизация стратегий...", False)
+        
+        # Отправка начального прогресса в GUI
+        if self.gui:
+            self._safe_gui_update('update_rd_log', {
+                'generation': 0,
+                'best_fitness': 0.0,
+                'config': f'Начало R&D цикла (Batch: {training_batch_id[:8]})'
+            })
+        
         symbol_to_train = None
         ranked_symbols = []
         try:
@@ -748,16 +864,56 @@ class TradingSystem(QObject):
                 else:
                     ranked_symbols = [item['symbol'] for item in
                                       self.latest_full_ranked_list[:self.config.TOP_N_SYMBOLS]]
-                symbol_to_train = ranked_symbols[0]
+                
+                # НОВАЯ ЛОГИКА: Приоритет символам без моделей
+                logger.info("[R&D] Проверка символов без моделей...")
+                
+                # Получаем список всех символов из whitelist
+                all_symbols = self.config.SYMBOLS_WHITELIST if hasattr(self.config, 'SYMBOLS_WHITELIST') else ranked_symbols
+                
+                # Проверяем, какие символы не имеют моделей
+                symbols_without_models = []
+                session = self.db_manager.Session()
+                try:
+                    from src.db.database_manager import TrainedModel
+                    for symbol in all_symbols:
+                        # Проверяем наличие моделей в базе данных
+                        models_count = session.query(TrainedModel).filter_by(symbol=symbol).count()
+                        if models_count == 0:
+                            symbols_without_models.append(symbol)
+                            logger.info(f"[R&D] Символ {symbol} не имеет моделей")
+                finally:
+                    session.close()
+                
+                # Выбираем символ для обучения
+                if symbols_without_models:
+                    # ПРИОРИТЕТ 1: Обучаем первый символ без моделей
+                    symbol_to_train = symbols_without_models[0]
+                    logger.warning(f"[R&D] ПРИОРИТЕТ: Выбран символ БЕЗ МОДЕЛЕЙ: {symbol_to_train}")
+                    logger.info(f"[R&D] Осталось символов без моделей: {len(symbols_without_models)}")
+                else:
+                    # ПРИОРИТЕТ 2: Обучаем топ-1 символ из рейтинга
+                    symbol_to_train = ranked_symbols[0]
+                    logger.info(f"[R&D] Все символы имеют модели. Выбран топ-1: {symbol_to_train}")
+                
                 logger.info(f"[R&D] Выбран символ для обучения: {symbol_to_train}")
+                
+                # Отправка прогресса в GUI
+                if self.gui:
+                    priority_label = "БЕЗ МОДЕЛЕЙ" if symbol_to_train in symbols_without_models else "ТОП-1"
+                    self._safe_gui_update('update_rd_log', {
+                        'generation': 1,
+                        'best_fitness': 0.0,
+                        'config': f'Выбран символ: {symbol_to_train} ({priority_label})'
+                    })
+            
             timeframe = mt5.TIMEFRAME_H1
-            with self.mt5_lock:
-                if not mt5.initialize(path=self.config.MT5_PATH):
-                    logger.error("[R&D] Не удалось инициализировать MT5 для загрузки полных данных.")
-                    return
-                df_full = self.data_provider.get_historical_data(symbol_to_train, timeframe, datetime.now() - timedelta(
-                    days=self.config.TRAINING_DATA_POINTS / 12), datetime.now())
-                mt5.shutdown()
+            data_load_start = standard_time.time()
+            # ИСПРАВЛЕНИЕ: get_historical_data уже использует mt5_lock внутри, не нужно брать его здесь
+            df_full = self.data_provider.get_historical_data(symbol_to_train, timeframe, datetime.now() - timedelta(
+                days=self.config.TRAINING_DATA_POINTS / 12), datetime.now())
+            data_load_time = standard_time.time() - data_load_start
+            logger.info(f"[R&D] Загрузка данных заняла {data_load_time:.2f} сек (MT5 Lock освобожден)")
             if df_full is None or len(df_full) < 1000:
                 logger.warning(
                     f"[R&D] Недостаточно данных ({len(df_full) if df_full is not None else 0} баров) для {symbol_to_train}. Пропуск.")
@@ -765,12 +921,17 @@ class TradingSystem(QObject):
             from src.ml.feature_engineer import FeatureEngineer
             fe = FeatureEngineer(self.config, self.knowledge_graph_querier)
             df_featured = fe.generate_features(df_full, symbol=symbol_to_train)
+            # Удаляем дубликаты из FEATURES_TO_USE
             unique_features = list(dict.fromkeys(self.config.FEATURES_TO_USE))
-            kg_features = ['KG_CB_SENTIMENT', 'KG_INFLATION_SURPRISE']
             # Используем только те признаки, которые действительно есть в данных
             actual_features_to_use = [f for f in unique_features if f in df_featured.columns]
-            # Добавляем KG признаки, если они есть
-            actual_features_to_use.extend([f for f in kg_features if f in df_featured.columns])
+            
+            # ВРЕМЕННО: Добавляем KG признаки для совместимости со старыми моделями
+            # TODO: Удалить после переобучения всех моделей
+            kg_features = ['KG_CB_SENTIMENT', 'KG_INFLATION_SURPRISE']
+            for kg_feat in kg_features:
+                if kg_feat in df_featured.columns and kg_feat not in actual_features_to_use:
+                    actual_features_to_use.append(kg_feat)
             
             # Ограничиваем количество признаков для снижения нагрузки
             if len(actual_features_to_use) > 20:
@@ -781,14 +942,43 @@ class TradingSystem(QObject):
             from src.ml.model_factory import ModelFactory
             model_factory = ModelFactory(self.config)
             trained_candidate_ids = []
-            for candidate_config in self.config.rd_cycle_config.model_candidates:
+            training_start = standard_time.time()
+            logger.info(f"[R&D] Начало обучения {len(self.config.rd_cycle_config.model_candidates)} моделей...")
+            for idx, candidate_config in enumerate(self.config.rd_cycle_config.model_candidates, 1):
+                # Отправка прогресса в GUI
+                if self.gui:
+                    self._safe_gui_update('update_rd_log', {
+                        'generation': idx + 1,
+                        'best_fitness': 0.0,
+                        'config': f'Обучение модели {candidate_config.type} для {symbol_to_train}'
+                    })
+                
                 model_id = self._train_candidate_model(model_type=candidate_config.type, symbol=symbol_to_train,
                                                        timeframe=timeframe, train_df=train_df.copy(),
                                                        val_df=val_df.copy(), model_factory=model_factory,
                                                        training_batch_id=training_batch_id,
                                                        features_to_use=actual_features_to_use)
-                if model_id: trained_candidate_ids.append(model_id)
-            if trained_candidate_ids: self._run_champion_contest(trained_candidate_ids, holdout_df)
+                if model_id: 
+                    trained_candidate_ids.append(model_id)
+                    # Отправка успешного результата
+                    if self.gui:
+                        self._safe_gui_update('update_rd_log', {
+                            'generation': idx + 1,
+                            'best_fitness': 1.0,
+                            'config': f'✓ Модель {candidate_config.type} обучена (ID: {model_id})'
+                        })
+                    
+                    # ОПТИМИЗАЦИЯ: Короткая пауза между моделями для освобождения CPU
+                    # Это позволяет мониторингу получить MT5 lock
+                    standard_time.sleep(0.5)
+            training_time = standard_time.time() - training_start
+            logger.info(f"[R&D] Обучение всех моделей заняло {training_time:.2f} сек")
+            
+            if trained_candidate_ids: 
+                contest_start = standard_time.time()
+                self._run_champion_contest(trained_candidate_ids, holdout_df)
+                contest_time = standard_time.time() - contest_start
+                logger.info(f"[R&D] Конкурс моделей занял {contest_time:.2f} сек")
         except Exception as e:
             logger.error(f"Критическая ошибка в R&D цикле: {e}", exc_info=True)
         finally:
@@ -796,8 +986,17 @@ class TradingSystem(QObject):
             gc.collect()  # Принудительная очистка памяти
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()  # Очистка VRAM
-            logger.warning(f"--- R&D ЦИКЛ (BATCH ID: {training_batch_id}) ЗАВЕРШЕН ---")
+            total_time = standard_time.time() - cycle_start_time
+            logger.warning(f"--- R&D ЦИКЛ (BATCH ID: {training_batch_id}) ЗАВЕРШЕН за {total_time:.2f} сек ---")
             self.long_task_status_updated.emit("R&D_CYCLE", "R&D цикл завершен!", True)
+            
+            # Отправка финального прогресса в GUI
+            if self.gui:
+                self._safe_gui_update('update_rd_log', {
+                    'generation': 99,
+                    'best_fitness': 1.0,
+                    'config': f'✓ R&D цикл завершен (Batch: {training_batch_id[:8]})'
+                })
 
     def _force_retrain_with_optuna(self, symbol: str, timeframe: int, train_df: pd.DataFrame, val_df: pd.DataFrame,
                                    features_to_use: List[str]) -> Optional[Dict]:
@@ -843,11 +1042,13 @@ class TradingSystem(QObject):
         equity = 0.0
         with self.mt5_lock:
             if mt5.initialize(path=self.config.MT5_PATH):
-                acc = mt5.account_info()
-                if acc:
-                    balance = acc.balance
-                    equity = acc.equity
-                mt5.shutdown()
+                try:
+                    acc = mt5.account_info()
+                    if acc:
+                        balance = acc.balance
+                        equity = acc.equity
+                finally:
+                    mt5.shutdown()
         status = SystemStatus(is_running=self.running, mode="Наблюдатель" if self.observer_mode else "Торговля",
                               uptime="0:00:00", balance=balance, equity=equity, current_drawdown=0.0)
         self.web_server.broadcast_status_update(status)
@@ -855,22 +1056,30 @@ class TradingSystem(QObject):
         self.web_server.broadcast_market_regime(regime)
 
     def get_vector_db_stats(self) -> Dict[str, Any]:
-        if not self.vector_db_manager: return {"is_ready": False, "count": 0}
+        if not self.vector_db_manager: 
+            logger.debug("[VectorDB] Менеджер не инициализирован")
+            return {"is_ready": False, "count": 0}
         count = 0
         if self.vector_db_manager.index: count = self.vector_db_manager.index.ntotal
-        return {"is_ready": self.vector_db_manager.is_ready(), "count": count}
+        is_ready = self.vector_db_manager.is_ready()
+        logger.info(f"[VectorDB] Статистика: готов={is_ready}, документов={count}")
+        return {"is_ready": is_ready, "count": count}
 
     def search_vector_db(self, query_text: str):
+        logger.info(f"[VectorDB] Поиск по запросу: '{query_text}'")
         if not self.vector_db_manager or not self.vector_db_manager.is_ready():
+            logger.warning("[VectorDB] Векторная БД не готова для поиска")
             self.bridge.vector_db_search_results.emit([{"error": "Векторная БД не готова."}])
             return
         if not self.nlp_processor.embedding_model:
+            logger.warning("[VectorDB] Модель эмбеддингов не загружена")
             self.bridge.vector_db_search_results.emit([{"error": "Модель эмбеддингов не загружена."}])
             return
         try:
             query_embedding = self.nlp_processor.embedding_model.encode(query_text).tolist()
             results = self.vector_db_manager.query_similar(query_embedding, n_results=15)
             if not results or not results['ids'][0]:
+                logger.info(f"[VectorDB] Ничего не найдено по запросу: '{query_text}'")
                 self.bridge.vector_db_search_results.emit([{"message": "Ничего не найдено."}])
                 return
             formatted_results = []
@@ -879,14 +1088,20 @@ class TradingSystem(QObject):
             documents = results['documents'][0]
             metadatas = results['metadatas'][0]
             for i in range(len(ids)):
+                doc_text = documents[i] if documents[i] else "Текст недоступен"
+                snippet = doc_text[:200] + ("..." if len(doc_text) > 200 else "")
                 formatted_results.append({
-                    "id": ids[i], "distance": str(distances[i]), "snippet": documents[i][:200] + "...",
-                    "full_text": documents[i], "source": metadatas[i].get('source', 'Unknown'),
+                    "id": ids[i], 
+                    "distance": str(distances[i]), 
+                    "snippet": snippet,
+                    "full_text": doc_text, 
+                    "source": metadatas[i].get('source', 'Unknown'),
                     "timestamp": metadatas[i].get('timestamp_iso', 'Unknown')
                 })
+            logger.info(f"[VectorDB] Найдено {len(formatted_results)} результатов по запросу: '{query_text}'")
             self.bridge.vector_db_search_results.emit(formatted_results)
         except Exception as e:
-            logger.error(f"Ошибка поиска в Vector DB: {e}", exc_info=True)
+            logger.error(f"[VectorDB] Ошибка поиска: {e}", exc_info=True)
             self.bridge.vector_db_search_results.emit([{"error": str(e)}])
 
     def get_dummy_df(self) -> pd.DataFrame:
@@ -1128,15 +1343,17 @@ class TradingSystem(QObject):
     def get_account_info(self):
         with self.mt5_lock:
             if mt5.initialize(path=self.config.MT5_PATH):
-                info = mt5.account_info()
-                mt5.shutdown()
-                return info
+                try:
+                    info = mt5.account_info()
+                    return info
+                finally:
+                    mt5.shutdown()
         return None
 
     def start_monitoring_loop(self):
         logger.info("=== Запуск цикла мониторинга v2.4 (Calc Manual Bars) ===")
         last_heavy_check_time = 0
-        heavy_check_interval = 5
+        heavy_check_interval = 3  # ОПТИМИЗАЦИЯ: Уменьшено до 3 секунд для частого обновления прибыли
         last_graph_update_time = 0
         graph_update_interval = 30
         last_kpi_update_time = 0
@@ -1165,9 +1382,10 @@ class TradingSystem(QObject):
                     logger.error(f"Ошибка в под-цикле обновления KPI: {e}")
             try:
                 self._check_scheduled_tasks()
-                if not self.mt5_lock.acquire(timeout=120):
-                    logger.warning("[Monitoring] Не удалось получить MT5 Lock. Пропуск цикла.")
-                    self.stop_event.wait(1)
+                # ОПТИМИЗАЦИЯ: Быстрая проверка лока для частого обновления
+                if not self.mt5_lock.acquire(timeout=5):
+                    logger.warning("[Monitoring] MT5 Lock занят. Ожидание следующего цикла...")
+                    self.stop_event.wait(2)  # ОПТИМИЗАЦИЯ: Уменьшено до 2 секунд для частого обновления
                     continue
                 lock_acquired = True
                 try:
@@ -1197,6 +1415,29 @@ class TradingSystem(QObject):
                             if tick: server_time_dt = datetime.fromtimestamp(tick.time)
                         server_time = server_time_dt.strftime('%H:%M:%S') if server_time_dt else "--:--:--"
                         self._safe_gui_update('update_times', pc_time, server_time)
+                        
+                        # ЛЕГКОЕ ОБНОВЛЕНИЕ: Обновляем прибыль позиций без полного запроса
+                        if hasattr(self, '_last_positions_cache') and self._last_positions_cache:
+                            positions_quick = mt5.positions_get()
+                            if positions_quick:
+                                positions_list_quick = []
+                                for p in positions_quick:
+                                    # Ищем кэшированные данные для этой позиции
+                                    cached = next((pos for pos in self._last_positions_cache if pos.get('ticket') == p.ticket), None)
+                                    if cached:
+                                        # Обновляем только прибыль
+                                        pos_dict = cached.copy()
+                                        pos_dict['profit'] = p.profit
+                                        positions_list_quick.append(pos_dict)
+                                    else:
+                                        # Новая позиция - добавляем базовую информацию
+                                        pos_dict = p._asdict()
+                                        pos_dict['strategy_display'] = 'Loading...'
+                                        pos_dict['timeframe_display'] = 'N/A'
+                                        pos_dict['bars_in_trade_display'] = '0'
+                                        positions_list_quick.append(pos_dict)
+                                self._safe_gui_update('update_positions_view', positions_list_quick)
+                        
                         if current_time - last_heavy_check_time > heavy_check_interval:
                             positions = mt5.positions_get()
                             positions_list = []
@@ -1222,16 +1463,27 @@ class TradingSystem(QObject):
                                             timeframe_code = trade_data['entry_timeframe']
                                             timeframe_str = self._get_timeframe_str(timeframe_code)
                                             tf_seconds = self._get_timeframe_seconds(timeframe_code)
-                                    if entry_time is None: entry_time = datetime.fromtimestamp(p.time)
+                                    
+                                    if entry_time is None: 
+                                        entry_time = datetime.fromtimestamp(p.time)
+                                        logger.debug(f"[{p.symbol}] entry_time не найден в trade_data, используем p.time: {entry_time}")
+                                    
                                     bars_in_trade_str = "0"
                                     if isinstance(entry_time, datetime) and tf_seconds > 0:
                                         delta_seconds = (current_srv_time - entry_time).total_seconds()
                                         bars_count = int(delta_seconds / tf_seconds)
                                         bars_in_trade_str = str(max(0, bars_count))
+                                        logger.debug(f"[{p.symbol}] Баров в сделке: {bars_in_trade_str} (delta={delta_seconds}s, tf={tf_seconds}s)")
+                                    else:
+                                        logger.debug(f"[{p.symbol}] Не удалось рассчитать бары: entry_time={entry_time}, tf_seconds={tf_seconds}")
                                     pos_dict['strategy_display'] = strategy_name
                                     pos_dict['timeframe_display'] = timeframe_str
                                     pos_dict['bars_in_trade_display'] = bars_in_trade_str
                                     positions_list.append(pos_dict)
+                                # Кэшируем позиции для легкого обновления
+                                self._last_positions_cache = positions_list
+                            else:
+                                self._last_positions_cache = []
                             self._safe_gui_update('update_positions_view', positions_list)
                             found_new_trade = self._check_and_log_closed_positions()
                             if found_new_trade or self.history_needs_update:
@@ -1258,53 +1510,64 @@ class TradingSystem(QObject):
                 standard_time.sleep(1)
 
     async def _process_news_background(self, news_items):
-        logger.info(f"Запущена фоновая обработка {len(news_items)} новостей...")
-        is_vdb_ready = self.vector_db_manager and self.vector_db_manager.is_ready()
-        logger.info(
-            f"VectorDB Status: {is_vdb_ready}. Embedding Model: {self.nlp_processor.embedding_model is not None}")
-        
-        # Асинхронная обработка новостей в батчах
-        batch_size = 5  # Уменьшили размер батча с 10 до 5
-        for i in range(0, len(news_items), batch_size):
-            batch = news_items[i:i + batch_size]
-            tasks = []
-            max_concurrent_news = 2  # Уменьшили с 3 до 2 одновременных задач
-            semaphore = asyncio.Semaphore(max_concurrent_news)
+        """Фоновая обработка новостей с защитой от крашей"""
+        try:
+            logger.info(f"[VectorDB] Запущена фоновая обработка {len(news_items)} новостей...")
+            is_vdb_ready = self.vector_db_manager and self.vector_db_manager.is_ready()
+            vdb_count = self.vector_db_manager.index.ntotal if is_vdb_ready else 0
+            logger.info(
+                f"[VectorDB] Статус: готов={is_vdb_ready}, документов={vdb_count}, модель эмбеддингов={self.nlp_processor.embedding_model is not None}")
             
-            async def process_news_with_semaphore(item):
-                async with semaphore:
-                    try:
-                        # Проверяем, является ли item объектом NewsItem или словарем
-                        if hasattr(item, 'text'):
-                            # Это объект NewsItem
-                            text = item.text
-                            source = item.source
-                            timestamp = item.timestamp.isoformat()
-                        elif isinstance(item, dict):
-                            # Это словарь
-                            text = item.get('text', '')
-                            source = item.get('source', 'unknown')
-                            timestamp_iso = item.get('timestamp')
-                            if hasattr(timestamp_iso, 'isoformat'):
-                                timestamp = timestamp_iso.isoformat()
+            if not is_vdb_ready:
+                logger.warning("[VectorDB] VectorDB не готов, обработка новостей отменена")
+                return
+            
+            if not self.nlp_processor.embedding_model:
+                logger.warning("[VectorDB] Модель эмбеддингов не загружена, обработка новостей отменена")
+                return
+            
+            # Асинхронная обработка новостей в батчах (УМЕНЬШЕННАЯ НАГРУЗКА)
+            batch_size = 3  # Уменьшили с 10 до 3 для стабильности
+            for i in range(0, len(news_items), batch_size):
+                batch = news_items[i:i + batch_size]
+                tasks = []
+                max_concurrent_news = 1  # Уменьшили с 5 до 1 для стабильности (последовательная обработка)
+                semaphore = asyncio.Semaphore(max_concurrent_news)
+                
+                async def process_news_with_semaphore(item):
+                    async with semaphore:
+                        try:
+                            # Проверяем, является ли item объектом NewsItem или словарем
+                            if hasattr(item, 'text'):
+                                # Это объект NewsItem
+                                text = item.text
+                                source = item.source
+                                timestamp = item.timestamp.isoformat()
+                            elif isinstance(item, dict):
+                                # Это словарь
+                                text = item.get('text', '')
+                                source = item.get('source', 'unknown')
+                                timestamp_iso = item.get('timestamp')
+                                if hasattr(timestamp_iso, 'isoformat'):
+                                    timestamp = timestamp_iso.isoformat()
+                                else:
+                                    # datetime уже импортирован глобально
+                                    timestamp = timestamp_iso if timestamp_iso else datetime.now().isoformat()
                             else:
-                                from datetime import datetime
-                                timestamp = timestamp_iso if timestamp_iso else datetime.now().isoformat()
-                        else:
-                            logger.warning(f"Неподдерживаемый тип новости: {type(item)}")
-                            return
-                        
-                        # Обрабатываем новость с ограничением по времени
-                        await asyncio.wait_for(
-                            asyncio.to_thread(self.nlp_processor.process_and_store_text,
-                                            text=text, context={"source": source,
-                                                              "timestamp": timestamp}),
-                            timeout=30.0  # Таймаут 30 секунд
-                        )
-                    except asyncio.TimeoutError:
-                        logger.warning(f"Таймаут обработки новости")
-                    except Exception as e:
-                        logger.error(f"Ошибка обработки новости: {e}")
+                                logger.warning(f"Неподдерживаемый тип новости: {type(item)}")
+                                return
+                            
+                            # Обрабатываем новость с ограничением по времени
+                            await asyncio.wait_for(
+                                asyncio.to_thread(self.nlp_processor.process_and_store_text,
+                                                text=text, context={"source": source,
+                                                                  "timestamp": timestamp}),
+                                timeout=10.0  # Уменьшили таймаут с 15 до 10 секунд для стабильности
+                            )
+                        except asyncio.TimeoutError:
+                            logger.warning(f"Таймаут обработки новости")
+                        except Exception as e:
+                            logger.error(f"Ошибка обработки новости: {e}")
             
             for item in batch:
                 task = asyncio.create_task(process_news_with_semaphore(item))
@@ -1319,11 +1582,19 @@ class TradingSystem(QObject):
             
             # Небольшая пауза между батчами для снижения нагрузки
             await asyncio.sleep(0.2)  # Увеличил с 0.1 до 0.2 секунды
+            
+            logger.info(f"[VectorDB] Фоновая обработка новостей завершена.")
+            if is_vdb_ready and self.vector_db_manager.index.ntotal > 0:
+                try:
+                    docs_before = self.vector_db_manager.index.ntotal
+                    self.vector_db_manager.force_save()
+                    logger.critical(f"[VectorDB] Принудительное сохранение индекса: {docs_before} документов сохранено.")
+                except Exception as save_error:
+                    logger.error(f"[VectorDB] Ошибка при сохранении индекса: {save_error}", exc_info=True)
         
-        logger.info("Фоновая обработка новостей завершена.")
-        if is_vdb_ready and self.vector_db_manager.index.ntotal > 0:
-            self.vector_db_manager._save()
-            logger.critical("VectorDB: Принудительное сохранение индекса после обработки новостей.")
+        except Exception as e:
+            logger.error(f"[VectorDB] Критическая ошибка в фоновой обработке новостей: {e}", exc_info=True)
+            # Не прерываем работу системы
 
     async def _process_single_symbol(self, symbol: str, df: pd.DataFrame, timeframe: int, account_info: Any,
                                      current_positions: List):
@@ -1339,13 +1610,21 @@ class TradingSystem(QObject):
 
                 def get_mt5_positions_sync():
                     with self.mt5_lock:
-                        if not self.terminal_connector.initialize(path=self.config.MT5_PATH):
-                            logger.error(f"[{symbol}] MT5 Init Failed in _process_single_symbol.")
-                            return []
-                        try:
-                            return list(self.terminal_connector.get_positions(symbol=symbol))
-                        finally:
-                            self.terminal_connector.shutdown()
+                        # Добавляем повторные попытки подключения
+                        for attempt in range(3):
+                            if not self.terminal_connector.initialize(path=self.config.MT5_PATH):
+                                logger.error(f"[{symbol}] MT5 Init Failed in _process_single_symbol, attempt {attempt + 1}.")
+                                standard_time.sleep(1)
+                                continue
+                            try:
+                                positions = list(self.terminal_connector.get_positions(symbol=symbol))
+                                return positions
+                            except Exception as e:
+                                logger.error(f"Ошибка получения позиций: {e}")
+                                standard_time.sleep(1)
+                            finally:
+                                self.terminal_connector.shutdown()
+                        return []
 
                 open_positions_for_symbol = await asyncio.to_thread(get_mt5_positions_sync)
                 if strategy_name == "RLTradeManager":
@@ -1366,12 +1645,16 @@ class TradingSystem(QObject):
                     'entry_price': entry_price,
                     'timeframe': self._get_timeframe_str(timeframe)
                 }]
+                # ИСПРАВЛЕНИЕ: Отправляем только через self.trading_signals_updated
+                # Сигнал автоматически пробрасывается в bridge через подключение
                 self.trading_signals_updated.emit(trading_signal_data)
-                if self.bridge:
-                    self.bridge.trading_signals_updated.emit(trading_signal_data)
+                # УДАЛЕНО: Дублирующая отправка через bridge
+                # if self.bridge:
+                #     self.bridge.trading_signals_updated.emit(trading_signal_data)
                 
                 if open_positions_for_symbol:
-                    logger.info(f"[{symbol}] Пропуск: уже есть открытая позиция ({len(open_positions_for_symbol)} шт).")
+                    # СТРОГАЯ ПРОВЕРКА: Запрещаем любые дублирующие позиции по символу
+                    logger.info(f"[{symbol}] Пропуск: уже есть открытая позиция по символу {symbol}.")
                     return
                 if not self.risk_engine.is_trade_safe_from_events(symbol):
                     return
@@ -1382,9 +1665,15 @@ class TradingSystem(QObject):
                                                                                         trade_type=confirmed_signal.type,
                                                                                         strategy_name=final_strategy_name)
                 if lot_size is None or lot_size <= 0:
-                    logger.critical(
-                        f"[{symbol}] !!! БЛОКИРОВКА РИСКА !!! Lot Size: {lot_size}. SL Price: {stop_loss_in_price}.")
-                    return
+                    logger.warning(
+                        f"[{symbol}] Лот размер равен 0 или None. Lot Size: {lot_size}. SL Price: {stop_loss_in_price}.")
+                    # Попробуем использовать минимальный размер лота, если возможно
+                    min_lots = self.data_provider.get_minimum_lot_size(symbol)
+                    if min_lots is not None and min_lots > 0:
+                        lot_size = min_lots
+                        logger.info(f"[{symbol}] Используем минимальный размер лота: {lot_size}")
+                    else:
+                        return
                 logger.critical(f"[{symbol}] ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ! ОТПРАВКА ОРДЕРА...")
                 position_ticket = await self.execution_service.execute_trade(symbol=symbol, signal=confirmed_signal,
                                                                              lot_size=lot_size, df=df,
@@ -1464,15 +1753,68 @@ class TradingSystem(QObject):
         except Exception as e:
             logging.error(f"Ошибка при переинициализации компонентов: {e}", exc_info=True)
 
+    def _validate_model_metrics(self, backtest_results: Dict) -> bool:
+        """
+        CRITICAL: Reject models that don't meet minimum profitability criteria.
+        Это защита от убыточных моделей на реальном счёте.
+        """
+        profit_factor = backtest_results.get('profit_factor', 0)
+        win_rate = backtest_results.get('win_rate', 0)
+        sharpe_ratio = backtest_results.get('sharpe_ratio', 0)
+        max_drawdown = backtest_results.get('max_drawdown', 100)
+        total_trades = backtest_results.get('total_trades', 0)
+        
+        # CRITICAL THRESHOLDS - модель должна пройти ВСЕ проверки
+        if profit_factor < 1.5:
+            logger.critical(f"❌ MODEL REJECTED: Profit Factor {profit_factor:.2f} < 1.5 (убыточная модель)")
+            return False
+        
+        if win_rate < 0.40:
+            logger.critical(f"❌ MODEL REJECTED: Win Rate {win_rate:.2%} < 40% (низкая точность)")
+            return False
+        
+        if sharpe_ratio < 1.0:
+            logger.critical(f"❌ MODEL REJECTED: Sharpe Ratio {sharpe_ratio:.2f} < 1.0 (плохое соотношение риск/доходность)")
+            return False
+        
+        if max_drawdown > 10.0:
+            logger.critical(f"❌ MODEL REJECTED: Max Drawdown {max_drawdown:.2f}% > 10% (слишком рискованная)")
+            return False
+        
+        if total_trades < 50:
+            logger.critical(f"❌ MODEL REJECTED: Total Trades {total_trades} < 50 (недостаточно данных)")
+            return False
+        
+        logger.critical(f"✅ MODEL ACCEPTED: PF={profit_factor:.2f}, WR={win_rate:.2%}, Sharpe={sharpe_ratio:.2f}, DD={max_drawdown:.1f}%, Trades={total_trades}")
+        return True
+
     def _train_candidate_model(self, model_type, symbol, timeframe, train_df, val_df, model_factory, training_batch_id,
                                features_to_use: List[str], custom_hyperparams=None):
         target_col = 'close'
-        train_df = train_df.loc[:, ~train_df.columns.duplicated()]
-        val_df = val_df.loc[:, ~val_df.columns.duplicated()]
+        
+        # Проверка на пустые датафреймы
         if train_df.empty or val_df.empty:
             logger.error(f"[R&D] Ошибка: Обучающий или валидационный набор данных пуст. Пропуск обучения.")
             return None
+        
+        # Удаление дубликатов колонок
+        train_df = train_df.loc[:, ~train_df.columns.duplicated()]
+        val_df = val_df.loc[:, ~val_df.columns.duplicated()]
+        
+        # Проверка наличия необходимых признаков
         features_to_use = [f for f in features_to_use if f in train_df.columns]
+        if not features_to_use:
+            logger.error(f"[R&D] Ошибка: Ни один из требуемых признаков не найден в обучающем датафрейме.")
+            return None
+        
+        # Проверка целевой переменной
+        if target_col not in train_df.columns:
+            logger.error(f"[R&D] Ошибка: Целевая переменная '{target_col}' отсутствует в обучающем датафрейме.")
+            return None
+            
+        if target_col not in val_df.columns:
+            logger.error(f"[R&D] Ошибка: Целевая переменная '{target_col}' отсутствует в валидационном датафрейме.")
+            return None
         x_scaler = StandardScaler()
         y_scaler = StandardScaler()
         train_df_features_np = train_df[features_to_use].values
@@ -1519,7 +1861,8 @@ class TradingSystem(QObject):
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
             model.to(self.device)
             loss_history = []
-            for epoch in range(50):
+            # ОПТИМИЗАЦИЯ: Уменьшено с 50 до 20 эпох для ускорения R&D цикла
+            for epoch in range(20):
                 for X_batch, y_batch in train_loader:
                     X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
                     optimizer.zero_grad()
@@ -1617,6 +1960,13 @@ class TradingSystem(QObject):
                                       risk_config=self.config.model_dump())
             backtest_report = backtester.run()
             logger.warning(f"Полный отчет о производительности для нового чемпиона: {backtest_report}")
+            
+            # CRITICAL: Validate model before accepting
+            if not self._validate_model_metrics(backtest_report):
+                logger.critical(f"!!! МОДЕЛЬ ID {best_challenger_id} ОТКЛОНЕНА ВАЛИДАЦИЕЙ !!!")
+                logger.critical("Модель не будет использоваться для торговли. Требуется переобучение с большим количеством данных.")
+                return
+            
             final_report = {"holdout_neg_mse": best_score, **backtest_report}
             self.db_manager.promote_challenger_to_champion(challenger_id=best_challenger_id, report=final_report)
         else:
@@ -1693,17 +2043,18 @@ class TradingSystem(QObject):
         
         # Устанавливаем минимальные интервалы между обновлениями
         update_intervals = {
-            'update_candle_chart': 1.0,  # 1 секунда между обновлениями графика
-            'update_positions_view': 0.5,  # 0.5 секунды между обновлениями позиций
-            'update_history_view': 2.0,  # 2 секунды между обновлениями истории
-            'update_balance': 0.5,  # 0.5 секунды между обновлениями баланса
-            'update_pnl_graph': 2.0,  # 2 секунды между обновлениями PnL
+            'update_candle_chart': 0.1,  # 0.1 секунды между обновлениями графика (ИСПРАВЛЕНО: было 0.5)
+            'update_positions_view': 0.3,  # 0.3 секунды между обновлениями позиций
+            'update_history_view': 1.0,  # 1 секунда между обновлениями истории
+            'update_balance': 0.3,  # 0.3 секунды между обновлениями баланса
+            'update_pnl_graph': 1.0,  # 1 секунда между обновлениями PnL
         }
         
         min_interval = update_intervals.get(method_name, 0.1)  # по умолчанию 0.1 секунды
         last_update_time = self._last_gui_updates.get(method_name, 0)
         
         if current_time - last_update_time < min_interval:
+            logger.debug(f"[Throttle] Пропуск {method_name}, прошло {current_time - last_update_time:.2f}s < {min_interval}s")
             return  # пропускаем обновление, если прошло недостаточно времени
         
         self._last_gui_updates[method_name] = current_time
@@ -1725,6 +2076,7 @@ class TradingSystem(QObject):
                 if method_name in signal_map:
                     signal, signal_args = signal_map[method_name]
                     signal.emit(*signal_args)
+                    # Убрано избыточное логирование
             except Exception as e:
                 logger.error(f"Ошибка GUI update: {e}")
         if self.web_server and self.config.web_dashboard.enabled:
@@ -1761,8 +2113,29 @@ class TradingSystem(QObject):
                             "bars": str(p.get('bars_in_trade_display', '0'))
                         })
                     self.web_server.broadcast_positions_update(web_positions)
+                elif method_name == 'update_pnl_graph':
+                    # Ensure PnL graph data is properly formatted for web
+                    history_data = args[0] if args else []
+                    formatted_history = []
+                    for trade in history_data:
+                        # Convert trade object to dictionary format
+                        if hasattr(trade, '__dict__'):
+                            trade_dict = trade.__dict__
+                        else:
+                            trade_dict = vars(trade) if hasattr(trade, '__dict__') else {}
+                        # Ensure all values are serializable
+                        formatted_trade = {
+                            "ticket": int(trade_dict.get('ticket', 0)),
+                            "symbol": str(trade_dict.get('symbol', '')),
+                            "profit": float(trade_dict.get('profit', 0.0)),
+                            "time_close": str(trade_dict.get('time_close', ''))
+                        }
+                        formatted_history.append(formatted_trade)
+                    # Broadcast the formatted history data to web clients
+                    if self.web_server and self.config.web_dashboard.enabled:
+                        self.web_server.broadcast_history_update(formatted_history)
             except Exception as e:
-                pass
+                logger.error(f"Error in UI callback: {e}")
 
     def _join_all_threads(self):
         logger.info("Начало ожидания завершения всех фоновых потоков (Фаза 2)...")
@@ -1778,9 +2151,16 @@ class TradingSystem(QObject):
                 if thread.is_alive():
                     logger.warning(f"Поток {name} не завершился за 10 секунд.")
                 else:
-                    self.thread_status_updated.emit(name, "STOPPED")
+                    # ИСПРАВЛЕНИЕ: Проверяем, что сигнал еще существует перед отправкой
+                    try:
+                        self.thread_status_updated.emit(name, "STOPPED")
+                    except RuntimeError:
+                        pass  # Сигнал уже удален, игнорируем
             else:
-                self.thread_status_updated.emit(name, "STOPPED")
+                try:
+                    self.thread_status_updated.emit(name, "STOPPED")
+                except RuntimeError:
+                    pass  # Сигнал уже удален, игнорируем
         logger.info("Все фоновые потоки остановлены.")
 
     def _load_active_directives(self):

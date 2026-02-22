@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Optional, Dict
 from sentence_transformers import SentenceTransformer
 
 from anyio import Path
-from huggingface_hub import HfFolder
+# from huggingface_hub import HfFolder  # Disabled due to deprecation
 from transformers import AutoTokenizer, T5ForConditionalGeneration
 import torch
 
@@ -110,112 +110,117 @@ class CausalNLPProcessor:
         return None
 
     def process_and_store_text(self, text: str, context: dict = None):
-        if not self.is_ready:
-            logger.warning("NLP-модель не загружена, обработка текста пропущена.")
-            return
+        """Обработка и сохранение текста с защитой от ошибок"""
+        try:
+            if not self.is_ready:
+                logger.warning("[VectorDB] NLP-модель не загружена, обработка текста пропущена.")
+                return
 
-
-        # 1. Формируем промпт (Few-shot prompting)
-        prompt = (
-            "Extract one clear causal financial relationship from the text. "
-            "The output format MUST BE: subject: [subject] | relation: [relation] | object: [object]\n\n"
-            "GOOD EXAMPLES:\n"
-            "Text: 'The ECB raises interest rates to combat inflation.'\n"
-            "Output: subject: ECB | relation: raises | object: interest rates\n\n"
-            "Text: 'Strong US jobs report boosts the dollar.'\n"
-            "Output: subject: US jobs report | relation: boosts | object: the dollar\n\n"
-            "BAD EXAMPLES (what to avoid):\n"
-            "Text: 'JP Morgan and Goldman Sachs are in the news.'\n"
+            # 1. Формируем промпт (Few-shot prompting)
+            prompt = (
+                "Extract one clear causal financial relationship from the text. "
+                "The output format MUST BE: subject: [subject] | relation: [relation] | object: [object]\n\n"
+                "GOOD EXAMPLES:\n"
+                "Text: 'The ECB raises interest rates to combat inflation.'\n"
+                "Output: subject: ECB | relation: raises | object: interest rates\n\n"
+                "Text: 'Strong US jobs report boosts the dollar.'\n"
+                "Output: subject: US jobs report | relation: boosts | object: the dollar\n\n"
+                "BAD EXAMPLES (what to avoid):\n"
+                "Text: 'JP Morgan and Goldman Sachs are in the news.'\n"
             "Output: subject: [subject] | relation: [relation] | object: [object]\n\n"
             "---\n\n"
             f"Text: '{text}'\n"
             "Output:"
         )
 
-        # 2. Векторизация и сохранение документа (ВЫПОЛНЯЕТСЯ ОДИН РАЗ)
-        if self.vector_db_manager and self.vector_db_manager.is_ready() and self.embedding_model:
-            try:
-                vector_id = str(uuid.uuid4())
+            # 2. Векторизация и сохранение документа (ВЫПОЛНЯЕТСЯ ОДИН РАЗ)
+            if self.vector_db_manager and self.vector_db_manager.is_ready() and self.embedding_model:
+                try:
+                    vector_id = str(uuid.uuid4())
 
-                # 1. КОДИРОВАНИЕ
-                # Убедитесь, что кодирование происходит корректно
-                embedding = self.embedding_model.encode(text, convert_to_tensor=False).tolist()
+                    # 1. КОДИРОВАНИЕ
+                    # Убедитесь, что кодирование происходит корректно
+                    embedding = self.embedding_model.encode(text, convert_to_tensor=False).tolist()
 
-                # 2. СОХРАНЕНИЕ В SQL (через очередь)
-                self.db_manager.add_news_article(
-                    vector_id=vector_id,
-                    content=text,
-                    source=context.get('source', 'Unknown'),
-                    timestamp=context.get('timestamp')
-                )
+                    # 2. СОХРАНЕНИЕ В SQL (через очередь)
+                    self.db_manager.add_news_article(
+                        vector_id=vector_id,
+                        content=text,
+                        source=context.get('source', 'Unknown'),
+                        timestamp=context.get('timestamp')
+                    )
 
-                # 3. СОХРАНЕНИЕ В FAISS (СИНХРОННО)
-                metadata = {
-                    "source": context.get('source', 'Unknown'),
-                    "timestamp_iso": context.get('timestamp', '')
-                }
-                self.vector_db_manager.add_documents(
-                    ids=[vector_id],
-                    embeddings=[embedding],
-                    metadatas=[metadata],
-                    documents=[text]
-                )
-                logger.info(f"Векторная БД: Добавлен документ ID: {vector_id} из {context.get('source')}")
-            except Exception as e:
-                logger.error(f"Ошибка при векторизации и сохранении текста: {e}", exc_info=True)
+                    # 3. СОХРАНЕНИЕ В FAISS (СИНХРОННО)
+                    metadata = {
+                        "source": context.get('source', 'Unknown'),
+                        "timestamp_iso": context.get('timestamp', '')
+                    }
+                    self.vector_db_manager.add_documents(
+                        ids=[vector_id],
+                        embeddings=[embedding],
+                        metadatas=[metadata],
+                        documents=[text]
+                    )
+                    logger.info(f"[VectorDB] Добавлен документ ID: {vector_id[:8]}... из источника: {context.get('source')}")
+                except Exception as e:
+                    logger.error(f"Ошибка при векторизации и сохранении текста: {e}", exc_info=True)
 
-        # 3. Генерация связей (LLM Inference)
-        generated_relations = []
-        for model_name, components in self.models.items():
-            try:
-                tokenizer = components['tokenizer']
-                model = components['model']
+            # 3. Генерация связей (LLM Inference)
+            generated_relations = []
+            for model_name, components in self.models.items():
+                try:
+                    tokenizer = components['tokenizer']
+                    model = components['model']
 
-                input_ids = tokenizer.encode(prompt, return_tensors="pt", max_length=512, truncation=True).to(
-                    self.device)
+                    input_ids = tokenizer.encode(prompt, return_tensors="pt", max_length=512, truncation=True).to(
+                        self.device)
 
-                # Переносим модель на CPU перед генерацией (если она не была перенесена ранее)
+                    # Переносим модель на CPU перед генерацией (если она не была перенесена ранее)
 
-                model.to(self.device)
+                    model.to(self.device)
 
-                outputs = model.generate(input_ids, max_length=128, num_beams=2, early_stopping=True)
-                generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                    outputs = model.generate(input_ids, max_length=128, num_beams=2, early_stopping=True)
+                    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-                parsed_relation = self._parse_relations(generated_text)
-                if parsed_relation:
-                    generated_relations.append(parsed_relation)
-            except Exception as e:
-                logger.error(f"Ошибка при генерации связей моделью '{model_name}': {e}")
+                    parsed_relation = self._parse_relations(generated_text)
+                    if parsed_relation:
+                        generated_relations.append(parsed_relation)
+                except Exception as e:
+                    logger.error(f"Ошибка при генерации связей моделью '{model_name}': {e}")
 
-        if not generated_relations:
-            return
+            if not generated_relations:
+                return
 
-        # 4. Сохранение лучшей связи в Граф Знаний
-        best_relation = max(generated_relations,
-                            key=lambda r: len(r['subject']) + len(r['relation']) + len(r['object']))
+            # 4. Сохранение лучшей связи в Граф Знаний
+            best_relation = max(generated_relations,
+                                key=lambda r: len(r['subject']) + len(r['relation']) + len(r['object']))
 
-        logger.info(f"NLP модель нашла связь: {best_relation}")
+            logger.info(f"NLP модель нашла связь: {best_relation}")
 
-        source_name_upper = best_relation["subject"].upper()
-        target_name_upper = best_relation["object"].upper()
+            source_name_upper = best_relation["subject"].upper()
+            target_name_upper = best_relation["object"].upper()
 
-        source_type = "Unknown"
-        for key, type_val in self.entity_types.items():
-            if key in source_name_upper:
-                source_type = type_val
-                break
+            source_type = "Unknown"
+            for key, type_val in self.entity_types.items():
+                if key in source_name_upper:
+                    source_type = type_val
+                    break
 
-        target_type = "Unknown"
-        for key, type_val in self.entity_types.items():
-            if key in target_name_upper:
-                target_type = type_val
-                break
+            target_type = "Unknown"
+            for key, type_val in self.entity_types.items():
+                if key in target_name_upper:
+                    target_type = type_val
+                    break
 
-        self.db_manager.add_relation(
-            source_name=best_relation["subject"],
-            relation_type=best_relation["relation"],
-            target_name=best_relation["object"],
-            source_type=source_type,
-            target_type=target_type,
-            context=context
-        )
+            self.db_manager.add_relation(
+                source_name=best_relation["subject"],
+                relation_type=best_relation["relation"],
+                target_name=best_relation["object"],
+                source_type=source_type,
+                target_type=target_type,
+                context=context
+            )
+            
+        except Exception as e:
+            logger.error(f"[VectorDB] Критическая ошибка при обработке текста: {e}", exc_info=True)
+            # Не прерываем работу, просто логируем ошибку

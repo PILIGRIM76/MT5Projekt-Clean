@@ -28,6 +28,7 @@ data/generated_strategies/
 
 # Конфигурационные файлы с секретами
 configs/.env
+configs/settings.json
 
 # Логи
 *.log

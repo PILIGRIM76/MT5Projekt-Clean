@@ -85,6 +85,13 @@ def setup_qt_logging(bridge_log_signal, config: Settings):
     # 1. Настраиваем цветной обработчик для консоли
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(ColorFormatter())
+    # Устанавливаем utf-8 для корректного отображения кириллицы в Windows
+    import sys
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
     root_logger.addHandler(console_handler)
 
     # 2. Настраиваем обработчик для GUI
