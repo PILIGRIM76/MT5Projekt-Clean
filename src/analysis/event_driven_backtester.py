@@ -135,7 +135,7 @@ class EventDrivenBacktester:
                 })
 
             if i % 100 == 0:
-                print(f"\rSimulating: {current_time} | Eq: {self.broker.equity:.0f}", end="")
+                logger.info(f"Simulating: {current_time} | Eq: {self.broker.equity:.0f}")
 
         # 3. Генерация отчета
         return self._generate_report()

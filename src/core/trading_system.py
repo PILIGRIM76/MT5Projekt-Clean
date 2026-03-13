@@ -1082,7 +1082,8 @@ class TradingSystem(QObject):
             self.bridge.vector_db_search_results.emit([{"error": "Модель эмбеддингов не загружена."}])
             return
         try:
-            query_embedding = self.nlp_processor.embedding_model.encode(query_text).tolist()
+            # ИСПРАВЛЕНИЕ: Отключаем progress bar для предотвращения OSError в Windows GUI
+            query_embedding = self.nlp_processor.embedding_model.encode(query_text, show_progress_bar=False).tolist()
             results = self.vector_db_manager.query_similar(query_embedding, n_results=15)
             if not results or not results['ids'][0]:
                 logger.info(f"[VectorDB] Ничего не найдено по запросу: '{query_text}'")

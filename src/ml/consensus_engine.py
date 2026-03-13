@@ -82,7 +82,8 @@ class ConsensusEngine:
 
         try:
             # 1. Векторизация и поиск (RAG)
-            query_embedding = self.embedding_model.encode(query_text).tolist()
+            # ИСПРАВЛЕНИЕ: Отключаем progress bar для предотвращения OSError в Windows GUI
+            query_embedding = self.embedding_model.encode(query_text, show_progress_bar=False).tolist()
             similar_events = self.vector_db_manager.query_similar(query_embedding, n_results=5)
 
             if not similar_events or not similar_events.get('ids') or not similar_events['ids'][0]:

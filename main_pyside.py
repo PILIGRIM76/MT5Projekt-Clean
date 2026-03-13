@@ -58,17 +58,17 @@ try:
                 cache_path = Path(hf_cache_dir_str)
                 root_disk = cache_path.anchor
                 if not Path(root_disk).exists():
-                    print(f"[WARN] Корневой диск '{root_disk}' для кэша HF не найден. Используется стандартный путь.")
+                    logger.warning(f"[WARN] Корневой диск '{root_disk}' для кэша HF не найден. Используется стандартный путь.")
                 else:
                     cache_path.mkdir(parents=True, exist_ok=True)
                     os.environ['HF_HOME'] = str(cache_path.resolve())
                     # Сообщение будет выведено позже, через систему логирования
             except Exception as e_mkdir:
-                print(f"[ERROR] Не удалось создать/использовать директорию для кэша '{hf_cache_dir_str}'. Причина: {e_mkdir}. Используется стандартный путь.")
+                logger.error(f"[ERROR] Не удалось создать/использовать директорию для кэша '{hf_cache_dir_str}'. Причина: {e_mkdir}. Используется стандартный путь.")
     else:
-        print("[WARN] Файл settings.json не найден, используется стандартный путь для кэша HF.")
+        logger.warning("[WARN] Файл settings.json не найден, используется стандартный путь для кэша HF.")
 except Exception as e:
-    print(f"[ERROR] Не удалось прочитать settings.json для настройки HF_HOME: {e}")
+    logger.error(f"[ERROR] Не удалось прочитать settings.json для настройки HF_HOME: {e}")
 
 
 
@@ -2679,9 +2679,8 @@ class MainWindow(QMainWindow):
             logger.error(f"[GUI-History] Ошибка при обновлении таблицы истории: {e}", exc_info=True)
 
     def update_market_scanner_view(self, ranked_list: list):
-        # ОТЛАДКА: Логируем КАЖДЫЙ вызов (используем logger вместо print для Windows GUI)
+        # ОТЛАДКА: Логируем (используем logger вместо print для Windows GUI)
         logger.debug(f"[DEBUG] update_market_scanner_view ВЫЗВАН с {len(ranked_list) if ranked_list else 0} элементами")
-        # Убрано избыточное логирование
         
         # КРИТИЧНО: Не обновляем таблицу пустыми данными
         if not ranked_list or len(ranked_list) == 0:

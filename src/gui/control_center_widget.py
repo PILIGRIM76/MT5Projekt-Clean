@@ -38,7 +38,7 @@ class ControlCenterWidget(QWidget):
     def _connect_signals(self):
         """Явное подключение сигналов с проверкой."""
         if self.bridge:
-            print("GUI: Подключение сигналов моста...")
+            logger.info("GUI: Подключение сигналов моста...")
             # Логи
             self.bridge.log_message_added.connect(self.append_log)
             # Статус
@@ -48,9 +48,9 @@ class ControlCenterWidget(QWidget):
             # Торговые сигналы (если есть отдельный сигнал)
             if hasattr(self.bridge, 'trading_signals_updated'):
                 self.bridge.trading_signals_updated.connect(self.update_trading_signals_table)
-            print("GUI: Сигналы успешно подключены.")
+            logger.info("GUI: Сигналы успешно подключены.")
         else:
-            print("GUI ОШИБКА: Bridge не передан в ControlCenterWidget!")
+            logger.error("GUI ОШИБКА: Bridge не передан в ControlCenterWidget!")
 
     def prepare_control_center_data(self, raw_data: list) -> list:
         """
@@ -403,7 +403,7 @@ class ControlCenterWidget(QWidget):
                     strategies = core.strategy_loader.load_strategies()
                     available_strategies += [s.__class__.__name__ for s in strategies]
                 except Exception as e:
-                    print(f"GUI Warning: Не удалось загрузить стратегии: {e}")
+                    logger.warning(f"GUI Warning: Не удалось загрузить стратегии: {e}")
         # --------------------------------------------------
 
         self.regime_table.setRowCount(len(regime_mapping))

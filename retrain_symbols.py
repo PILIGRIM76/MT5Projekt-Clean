@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Принудительный вывод для отладки
-print("=== СКРИПТ ПЕРЕОБУЧЕНИЯ МОДЕЛЕЙ ===", flush=True)
+logger.info("=== СКРИПТ ПЕРЕОБУЧЕНИЯ МОДЕЛЕЙ ===")
 
 
 def retrain_symbols(symbols: list):
@@ -91,15 +91,15 @@ def retrain_symbols(symbols: list):
 
 
 if __name__ == "__main__":
-    print("=== MAIN BLOCK EXECUTED ===", flush=True)
+    logger.info("=== MAIN BLOCK EXECUTED ===")
     # Получаем символы из аргументов командной строки
     if len(sys.argv) < 2:
-        print("ERROR: No symbols provided", flush=True)
+        logger.error("ERROR: No symbols provided")
         logger.error("Использование: python retrain_symbols.py SYMBOL1 SYMBOL2 ...")
         logger.error("Пример: python retrain_symbols.py BITCOIN USDJPY")
         sys.exit(1)
     
-    print(f"Arguments: {sys.argv}", flush=True)
+    logger.info(f"Arguments: {sys.argv}")
     symbols = sys.argv[1:]
-    print(f"Symbols to retrain: {symbols}", flush=True)
+    logger.info(f"Symbols to retrain: {symbols}")
     retrain_symbols(symbols)

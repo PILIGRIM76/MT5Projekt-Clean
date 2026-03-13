@@ -2,6 +2,9 @@
 import torch
 import torch.nn as nn
 import math
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # --- АРХИТЕКТУРА LSTM (УПРОЩЕННАЯ) ---
@@ -32,14 +35,14 @@ class SimpleLSTM(nn.Module):
 
         # Проверка на NaN/inf на входе (можно удалить после клиппинга, но оставим для лога)
         if not torch.all(torch.isfinite(x)):
-            print("!!! ВНИМАНИЕ: NaN или inf на входе в модель SimpleLSTM !!!")
+            logger.warning("!!! ВНИМАНИЕ: NaN или inf на входе в модель SimpleLSTM !!!")
 
         out, _ = self.lstm(x)
         out = self.dropout(out)
 
         # Проверка на NaN/inf после LSTM
         if not torch.all(torch.isfinite(out)):
-            print("!!! ВНИМАНИЕ: NaN или inf на выходе из LSTM слоя !!!")
+            logger.warning("!!! ВНИМАНИЕ: NaN или inf на выходе из LSTM слоя !!!")
             out = torch.clamp(out, min=-1e5, max=1e5)
             # ----------------------------------------------------------
 
@@ -47,7 +50,7 @@ class SimpleLSTM(nn.Module):
 
         # Проверка на NaN/inf на финальном выходе
         if not torch.all(torch.isfinite(out)):
-            print("!!! ВНИМАНИЕ: NaN или inf на финальном выходе из модели !!!")
+            logger.warning("!!! ВНИМАНИЕ: NaN или inf на финальном выходе из модели !!!")
             # --- ИСПРАВЛЕНИЕ 3: Принудительный клиппинг финального выхода ---
             out = torch.clamp(out, min=-1e5, max=1e5)
             # ----------------------------------------------------------------
