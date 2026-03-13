@@ -295,6 +295,14 @@ class Settings(BaseModel):
     PORTFOLIO_VOLATILITY_THRESHOLD: float = Field(default=0.05,
                                                   description="Порог волатильности портфеля.")
 
+    # --- Profit Control & Reentry ---
+    MAX_PROFIT_PER_TRADE_PERCENT: float = Field(default=5.0, description="Макс. прибыль в % для закрытия сделки.")
+    PROFIT_TARGET_MODE: str = Field(default="auto", description="Режим целевой прибыли: 'auto' или 'manual'.")
+    PROFIT_TARGET_MANUAL_PERCENT: float = Field(default=5.0, description="Фиксированная целевая прибыль в % (ручной режим).")
+    REENTRY_COOLDOWN_AFTER_PROFIT: int = Field(default=60, description="Пауза в минутах перед повторным входом после прибыльной сделки.")
+    REENTRY_COOLDOWN_AFTER_LOSS: int = Field(default=30, description="Пауза в минутах перед повторным входом после убыточной сделки.")
+    REENTRY_COOLDOWN_AFTER_BREAKEVEN: int = Field(default=45, description="Пауза в минутах перед повторным входом после безубытка.")
+
     # --- Strategy Settings ---
     STRATEGY_REGIME_MAPPING: Dict[str, str] = Field(description="Сопоставление режимов рынка и стратегий.")
     STRATEGY_WEIGHTS: Dict[str, float] = Field(description="Веса для подтверждающих классических стратегий.")

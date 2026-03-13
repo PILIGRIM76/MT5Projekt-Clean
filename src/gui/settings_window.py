@@ -323,6 +323,12 @@ class SettingsWindow(QDialog):
             self.auto_retrain_max_symbols_spin.setValue(30)
             self.auto_retrain_max_workers_spin.setValue(3)
 
+        # Загрузка настроек контроля прибыли
+        self.profit_target_mode_combo.setCurrentText(getattr(self.full_config, 'PROFIT_TARGET_MODE', 'auto'))
+        self.profit_target_manual_spin.setValue(getattr(self.full_config, 'PROFIT_TARGET_MANUAL_PERCENT', 5.0))
+        self.reentry_profit_spin.setValue(getattr(self.full_config, 'REENTRY_COOLDOWN_AFTER_PROFIT', 60))
+        self.reentry_loss_spin.setValue(getattr(self.full_config, 'REENTRY_COOLDOWN_AFTER_LOSS', 30))
+
         maint_time_str = self.scheduler_manager.get_task_trigger_time("GenesisMaintenance")
         if maint_time_str:
             self.maintenance_time_edit.setTime(QTime.fromString(maint_time_str, "HH:mm"))
@@ -380,7 +386,12 @@ class SettingsWindow(QDialog):
                     "interval_hours": self.auto_retrain_interval_spin.value(),
                     "max_symbols": self.auto_retrain_max_symbols_spin.value(),
                     "max_workers": self.auto_retrain_max_workers_spin.value()
-                }
+                },
+
+                "PROFIT_TARGET_MODE": self.profit_target_mode_combo.currentText(),
+                "PROFIT_TARGET_MANUAL_PERCENT": self.profit_target_manual_spin.value(),
+                "REENTRY_COOLDOWN_AFTER_PROFIT": self.reentry_profit_spin.value(),
+                "REENTRY_COOLDOWN_AFTER_LOSS": self.reentry_loss_spin.value()
 
 
             }
@@ -519,6 +530,39 @@ class SettingsWindow(QDialog):
         )
         info_label.setWordWrap(True)
         layout.addWidget(info_label, 11, 0, 1, 3)
+
+        # --- НОВАЯ СЕКЦИЯ: Целевая прибыль ---
+        layout.addWidget(QLabel("\n<b>Контроль прибыли сделок</b>"), 12, 0, 1, 3)
+
+        self.profit_target_mode_combo = QComboBox()
+        self.profit_target_mode_combo.addItems(["auto", "manual"])
+        self.profit_target_mode_combo.setToolTip(
+            "auto - система сама определяет оптимальную прибыль\n"
+            "manual - использовать фиксированное значение"
+        )
+        layout.addWidget(QLabel("Режим:"), 13, 0)
+        layout.addWidget(self.profit_target_mode_combo, 13, 1)
+
+        self.profit_target_manual_spin = QDoubleSpinBox()
+        self.profit_target_manual_spin.setRange(0.1, 100.0)
+        self.profit_target_manual_spin.setSuffix(" %")
+        self.profit_target_manual_spin.setToolTip("Фиксированный процент прибыли для закрытия сделки")
+        layout.addWidget(QLabel("Целевая прибыль (%):"), 14, 0)
+        layout.addWidget(self.profit_target_manual_spin, 14, 1)
+
+        self.reentry_profit_spin = QSpinBox()
+        self.reentry_profit_spin.setRange(1, 480)
+        self.reentry_profit_spin.setSuffix(" мин")
+        self.reentry_profit_spin.setToolTip("Пауза перед повторным входом после прибыльной сделки")
+        layout.addWidget(QLabel("Повторный вход после прибыли:"), 15, 0)
+        layout.addWidget(self.reentry_profit_spin, 15, 1)
+
+        self.reentry_loss_spin = QSpinBox()
+        self.reentry_loss_spin.setRange(1, 480)
+        self.reentry_loss_spin.setSuffix(" мин")
+        self.reentry_loss_spin.setToolTip("Пауза перед повторным входом после убыточной сделки")
+        layout.addWidget(QLabel("Повторный вход после убытка:"), 16, 0)
+        layout.addWidget(self.reentry_loss_spin, 16, 1)
 
         return widget
 
