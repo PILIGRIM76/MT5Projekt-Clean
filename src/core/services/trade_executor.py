@@ -496,6 +496,14 @@ class TradeExecutor:
                     result = connector.order_send(request)
                     if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                         order_ticket = result.order
+                        # Инициализируем историю для отслеживания повторного входа
+                        if not hasattr(self.risk_engine.trading_system, 'trade_history'):
+                            self.risk_engine.trading_system.trade_history = {}
+                        self.risk_engine.trading_system.trade_history[symbol] = {
+                            'last_profit_pct': 0,
+                            'last_trade_time': datetime.now(),
+                            'last_outcome': 'open'
+                        }
                     else:
                         logger.warning(
                             f"[{symbol}] Не удалось выставить Limit ордер: {result.comment if result else 'Unknown'}")
@@ -721,8 +729,34 @@ class TradeExecutor:
 
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             logger.info(f"Команда на закрытие позиции #{ticket} успешно отправлена.")
+            # Записываем исход сделки для контроля повторного входа
+            self._track_trade_outcome(pos.symbol, pos.profit)
         else:
             logger.error(f"Не удалось закрыть позицию #{ticket}: {result.comment if result else 'Unknown error'}")
+
+    def _track_trade_outcome(self, symbol: str, profit: float):
+        """Записывает исход сделки для контроля повторного входа."""
+        trading_system = self.risk_engine.trading_system
+        
+        # Определяем исход
+        if profit > 0:
+            outcome = 'profit'
+        elif profit < 0:
+            outcome = 'loss'
+        else:
+            outcome = 'breakeven'
+        
+        # Записываем в историю
+        if not hasattr(trading_system, 'trade_history'):
+            trading_system.trade_history = {}
+        
+        trading_system.trade_history[symbol] = {
+            'last_profit_pct': profit,
+            'last_trade_time': datetime.now(),
+            'last_outcome': outcome
+        }
+        
+        logger.info(f"[{symbol}] Исход сделки записан: {outcome}, прибыль: {profit:.2f}")
 
     def emergency_close_position(self, ticket: int):
         logger.info(f"Запуск экстренного закрытия для одной позиции #{ticket}.")

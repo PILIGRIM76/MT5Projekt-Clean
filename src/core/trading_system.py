@@ -190,6 +190,7 @@ class TradingSystem(QObject):
         self.y_scalers: Dict[str, StandardScaler] = {}
         self.strategy_performance = defaultdict(lambda: {'wins': 0, 'losses': 0, 'total_trades': 0})
         self.active_directives: Dict[str, Any] = {}
+        self.trade_history: Dict[str, Dict] = {}  # {symbol: {'last_profit_pct': float, 'last_trade_time': datetime, 'last_outcome': str}}
 
         if bridge:
             logger.info("TradingSystem __init__: Bridge ОБЪЕКТ СУЩЕСТВУЕТ. Легкая инициализация завершена.")
@@ -1663,6 +1664,28 @@ class TradingSystem(QObject):
                     # СТРОГАЯ ПРОВЕРКА: Запрещаем любые дублирующие позиции по символу
                     logger.info(f"[{symbol}] Пропуск: уже есть открытая позиция по символу {symbol}.")
                     return
+                
+                # Проверка кулдауна повторного входа
+                if symbol in self.trade_history:
+                    last_trade = self.trade_history[symbol]
+                    last_trade_time = last_trade.get('last_trade_time')
+                    last_outcome = last_trade.get('last_outcome', 'unknown')
+                    
+                    if last_trade_time:
+                        minutes_since = (datetime.now() - last_trade_time).total_seconds() / 60
+                        
+                        # Определяем нужный кулдаун
+                        if last_outcome == 'profit':
+                            cooldown = getattr(self.config, 'REENTRY_COOLDOWN_AFTER_PROFIT', 60)
+                        elif last_outcome == 'loss':
+                            cooldown = getattr(self.config, 'REENTRY_COOLDOWN_AFTER_LOSS', 30)
+                        else:
+                            cooldown = getattr(self.config, 'REENTRY_COOLDOWN_AFTER_BREAKEVEN', 45)
+                        
+                        if minutes_since < cooldown:
+                            logger.info(f"[{symbol}] Кулдаун повторного входа: {minutes_since:.1f}/{cooldown} мин")
+                            return
+                
                 if not self.risk_engine.is_trade_safe_from_events(symbol):
                     return
                 logger.warning(
