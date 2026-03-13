@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
                                QPushButton, QLabel, QLineEdit, QFrame,
                                QDialogButtonBox, QTabWidget, QWidget, QFileDialog,
                                QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QCheckBox,
-                               QDoubleSpinBox, QSpinBox, QGroupBox,QTimeEdit)
+                               QDoubleSpinBox, QSpinBox, QGroupBox, QTimeEdit, QComboBox)
 
 from PySide6.QtGui import QColor
 from PySide6.QtCore import Qt, QThread, Signal, QTime
@@ -329,6 +329,14 @@ class SettingsWindow(QDialog):
         self.reentry_profit_spin.setValue(getattr(self.full_config, 'REENTRY_COOLDOWN_AFTER_PROFIT', 60))
         self.reentry_loss_spin.setValue(getattr(self.full_config, 'REENTRY_COOLDOWN_AFTER_LOSS', 30))
 
+        # Загрузка новых настроек контроля прибыли и интенсивности
+        self.max_profit_close_spin.setValue(getattr(self.full_config, 'MAX_PROFIT_PER_TRADE_PERCENT', 5.0))
+        self.profit_mode_combo.setCurrentText(getattr(self.full_config, 'PROFIT_MODE', 'auto'))
+        self.trade_intensity_combo.setCurrentText(getattr(self.full_config, 'TRADE_INTENSITY', 'medium'))
+        self.trade_interval_spin.setValue(getattr(self.full_config, 'TRADE_INTERVAL_SECONDS', 15))
+        self.reentry_same_pair_combo.setCurrentText(getattr(self.full_config, 'REENTRY_SAME_PAIR_MODE', 'cooldown'))
+        self.reentry_same_pair_cooldown_spin.setValue(getattr(self.full_config, 'REENTRY_SAME_PAIR_COOLDOWN_MINUTES', 30))
+
         maint_time_str = self.scheduler_manager.get_task_trigger_time("GenesisMaintenance")
         if maint_time_str:
             self.maintenance_time_edit.setTime(QTime.fromString(maint_time_str, "HH:mm"))
@@ -391,7 +399,15 @@ class SettingsWindow(QDialog):
                 "PROFIT_TARGET_MODE": self.profit_target_mode_combo.currentText(),
                 "PROFIT_TARGET_MANUAL_PERCENT": self.profit_target_manual_spin.value(),
                 "REENTRY_COOLDOWN_AFTER_PROFIT": self.reentry_profit_spin.value(),
-                "REENTRY_COOLDOWN_AFTER_LOSS": self.reentry_loss_spin.value()
+                "REENTRY_COOLDOWN_AFTER_LOSS": self.reentry_loss_spin.value(),
+
+                # Новые настройки контроля прибыли и интенсивности
+                "MAX_PROFIT_PER_TRADE_PERCENT": self.max_profit_close_spin.value(),
+                "PROFIT_MODE": self.profit_mode_combo.currentText(),
+                "TRADE_INTENSITY": self.trade_intensity_combo.currentText(),
+                "TRADE_INTERVAL_SECONDS": self.trade_interval_spin.value(),
+                "REENTRY_SAME_PAIR_MODE": self.reentry_same_pair_combo.currentText(),
+                "REENTRY_SAME_PAIR_COOLDOWN_MINUTES": self.reentry_same_pair_cooldown_spin.value()
 
 
             }
@@ -563,6 +579,74 @@ class SettingsWindow(QDialog):
         self.reentry_loss_spin.setToolTip("Пауза перед повторным входом после убыточной сделки")
         layout.addWidget(QLabel("Повторный вход после убытка:"), 16, 0)
         layout.addWidget(self.reentry_loss_spin, 16, 1)
+
+        # --- НОВАЯ СЕКЦИЯ: Контроль прибыли и интенсивность сделок ---
+        layout.addWidget(QLabel("\n<b>Контроль прибыли и интенсивность сделок</b>"), 17, 0, 1, 3)
+
+        # Максимальная прибыль для закрытия
+        layout.addWidget(QLabel("Макс. прибыль для закрытия (%):"), 18, 0)
+        self.max_profit_close_spin = QDoubleSpinBox()
+        self.max_profit_close_spin.setRange(0.1, 100.0)
+        self.max_profit_close_spin.setSuffix(" %")
+        self.max_profit_close_spin.setToolTip(
+            "Максимальная сумма прибыли, после которой сделка будет закрыта.\n"
+            "0 - без ограничений (закрытие только по TP/SL)."
+        )
+        layout.addWidget(self.max_profit_close_spin, 18, 1)
+
+        # Режим выбора целевой прибыли
+        layout.addWidget(QLabel("Режим целевой прибыли:"), 19, 0)
+        self.profit_mode_combo = QComboBox()
+        self.profit_mode_combo.addItems(["auto", "manual"])
+        self.profit_mode_combo.setToolTip(
+            "auto - система сама выбирает оптимальную прибыль на основе анализа\n"
+            "manual - использовать фиксированное значение из настроек"
+        )
+        layout.addWidget(self.profit_mode_combo, 19, 1)
+
+        # Интенсивность сделок
+        layout.addWidget(QLabel("Интенсивность сделок:"), 20, 0)
+        self.trade_intensity_combo = QComboBox()
+        self.trade_intensity_combo.addItems(["low", "medium", "high", "auto"])
+        self.trade_intensity_combo.setToolTip(
+            "low - редкие сделки, высокая уверенность\n"
+            "medium - стандартная частота\n"
+            "high - частые сделки, агрессивная торговля\n"
+            "auto - система сама регулирует частоту"
+        )
+        layout.addWidget(self.trade_intensity_combo, 20, 1)
+
+        # Интервал между сделками
+        layout.addWidget(QLabel("Мин. интервал между сделками (сек):"), 21, 0)
+        self.trade_interval_spin = QSpinBox()
+        self.trade_interval_spin.setRange(5, 3600)
+        self.trade_interval_spin.setSuffix(" сек")
+        self.trade_interval_spin.setToolTip(
+            "Минимальный интервал между открытием новых сделок.\n"
+            "Защищает от чрезмерной торговли."
+        )
+        layout.addWidget(self.trade_interval_spin, 21, 1)
+
+        # Повторный вход на ту же пару
+        layout.addWidget(QLabel("Повторный вход на ту же пару:"), 22, 0)
+        self.reentry_same_pair_combo = QComboBox()
+        self.reentry_same_pair_combo.addItems(["allowed", "cooldown", "blocked"])
+        self.reentry_same_pair_combo.setToolTip(
+            "allowed - разрешен без ограничений\n"
+            "cooldown - пауза между сделками на одну пару\n"
+            "blocked - запрещено открывать новые сделки на той же паре"
+        )
+        layout.addWidget(self.reentry_same_pair_combo, 22, 1)
+
+        # Пауза перед повторным входом на ту же пару
+        layout.addWidget(QLabel("Пауза перед повторным входом (мин):"), 23, 0)
+        self.reentry_same_pair_cooldown_spin = QSpinBox()
+        self.reentry_same_pair_cooldown_spin.setRange(1, 1440)
+        self.reentry_same_pair_cooldown_spin.setSuffix(" мин")
+        self.reentry_same_pair_cooldown_spin.setToolTip(
+            "Сколько минут ждать перед повторным входом на ту же валютную пару."
+        )
+        layout.addWidget(self.reentry_same_pair_cooldown_spin, 23, 1)
 
         return widget
 

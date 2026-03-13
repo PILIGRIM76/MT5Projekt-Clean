@@ -32,25 +32,19 @@ def get_candidate_symbols(db_manager, max_symbols: int) -> list:
     Returns:
         Список символов для переобучения
     """
+    from sqlalchemy import text
     try:
+        session = db_manager.Session()
         # Получаем все символы с их последними метриками
-        query = """
-            SELECT 
-                cm.symbol,
-                cm.win_rate,
-                cm.profit_factor,
-                cm.total_trades,
-                cm.last_trained_at,
-                cm.model_accuracy
-            FROM champion_models cm
-            WHERE cm.last_trained_at IS NOT NULL
-            ORDER BY 
-                cm.last_trained_at ASC,
-                cm.profit_factor DESC,
-                cm.win_rate DESC
-            LIMIT ?
-        """
-        results = db_manager.execute_query(query, (max_symbols,), fetch_all=True)
+        query = text("""
+            SELECT DISTINCT cm.symbol
+            FROM trained_models cm
+            WHERE cm.training_date IS NOT NULL
+            ORDER BY cm.training_date ASC
+            LIMIT :max_symbols
+        """)
+        results = session.execute(query, {'max_symbols': max_symbols}).fetchall()
+        session.close()
         
         if results:
             symbols = [row[0] for row in results]
@@ -70,9 +64,12 @@ def get_all_available_symbols(db_manager) -> list:
     Returns:
         Список всех доступных символов
     """
+    from sqlalchemy import text
     try:
-        query = "SELECT DISTINCT symbol FROM champion_models ORDER BY symbol"
-        results = db_manager.execute_query(query, fetch_all=True)
+        session = db_manager.Session()
+        query = text("SELECT DISTINCT symbol FROM trained_models ORDER BY symbol")
+        results = session.execute(query).fetchall()
+        session.close()
         
         if results:
             symbols = [row[0] for row in results]
@@ -148,18 +145,20 @@ def smart_retrain_models(max_symbols: int = 30, max_workers: int = 3) -> dict:
                 logger.info(f"\nОбработка символа: {symbol}")
                 
                 # Проверяем, сколько моделей есть для этого символа
-                check_query = "SELECT COUNT(*) as count FROM champion_models WHERE symbol = ?"
-                result = db_manager.execute_query(check_query, (symbol,), fetch_one=True)
+                session = db_manager.Session()
+                check_query = text("SELECT COUNT(*) as count FROM trained_models WHERE symbol = :symbol")
+                result = session.execute(check_query, {'symbol': symbol}).fetchone()
                 
                 if result and result[0] > 0:
                     count_before = result[0]
                     
                     # Удаляем модели
-                    delete_query = "DELETE FROM champion_models WHERE symbol = ?"
-                    db_manager.execute_query(delete_query, (symbol,))
+                    delete_query = text("DELETE FROM trained_models WHERE symbol = :symbol")
+                    session.execute(delete_query, {'symbol': symbol})
+                    session.commit()
                     
                     # Проверяем результат
-                    result_after = db_manager.execute_query(check_query, (symbol,), fetch_one=True)
+                    result_after = session.execute(check_query, {'symbol': symbol}).fetchone()
                     count_after = result_after[0] if result_after else 0
                     
                     deleted = count_before - count_after
@@ -168,6 +167,8 @@ def smart_retrain_models(max_symbols: int = 30, max_workers: int = 3) -> dict:
                     logger.info(f"  ✓ Удалено моделей для {symbol}: {deleted}")
                 else:
                     logger.info(f"  Модели для {symbol} не найдены")
+                    
+                session.close()
                     
             except Exception as e:
                 logger.error(f"  ✗ Ошибка при обработке {symbol}: {e}")
