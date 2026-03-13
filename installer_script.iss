@@ -35,19 +35,20 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "dist\GenesisTrading\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\GenesisTrading\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; NOTE: settings.json will be created automatically on first run
-; User can configure it manually using QUICK_START.md as reference
+Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "configs\settings.json"; DestDir: "{app}\configs"; Flags: ignoreversion
+Source: "configs\settings.example.json"; DestDir: "{app}\configs"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "QUICK_START.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "TROUBLESHOOTING_PROMPT.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "QUICK_FIX_GUIDE.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "assets\sounds\*"; DestDir: "{app}\assets\sounds"; Flags: ignoreversion recursesubdirs
 
 [Dirs]
 Name: "{app}\database"; Permissions: users-full
 Name: "{app}\logs"; Permissions: users-full
 Name: "{app}\configs"; Permissions: users-full
+Name: "{app}\assets\sounds"; Permissions: users-full
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
