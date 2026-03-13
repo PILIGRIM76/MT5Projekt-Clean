@@ -9,13 +9,20 @@
 
 ---
 
-## ⚙️ Настройка (5 минут)
+## ⚙️ Первый запуск
 
-### Шаг 1: Открой конфигурацию
+При **первом запуске** программа автоматически создаст файл `configs\settings.json` с настройками по умолчанию.
 
-Открой файл: `configs\settings.json`
+### Шаг 1: Запусти программу
 
-### Шаг 2: Настрой MT5 подключение
+После установки запусти Genesis Trading System.
+
+### Шаг 2: Настрой подключение к MT5
+
+Открой файл настроек:
+```
+C:\Program Files\Genesis Trading System\configs\settings.json
+```
 
 Найди секцию MT5 и замени на свои данные:
 
@@ -23,10 +30,10 @@
 "MT5_LOGIN": "ВАШ_ЛОГИН",
 "MT5_PASSWORD": "ВАШ_ПАРОЛЬ",
 "MT5_SERVER": "ВАШ_СЕРВЕР",
-"MT5_PATH": "C:/Program Files/MetaTrader 5/terminal64.exe"
+"MT5_PATH": "C:/Program Files/ВашБрокер/terminal64.exe"
 ```
 
-**Пример:**
+**Пример для Alpari:**
 ```json
 "MT5_LOGIN": "12345678",
 "MT5_PASSWORD": "MyPassword123",
@@ -34,17 +41,9 @@
 "MT5_PATH": "C:/Program Files/Alpari MT5/terminal64.exe"
 ```
 
-### Шаг 3: Настрой базу данных (опционально)
+### Шаг 3: Перезапусти программу
 
-По умолчанию база создаётся в папке программы. Если хочешь изменить:
-
-```json
-"DATABASE_FOLDER": "C:\\MyTrading\\Database"
-```
-
-### Шаг 4: Сохрани файл
-
-Сохрани `settings.json` и закрой редактор.
+После сохранения настроек перезапусти Genesis Trading System.
 
 ---
 

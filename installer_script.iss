@@ -37,8 +37,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "dist\GenesisTrading\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\GenesisTrading\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Overwrite settings.json with example (correct paths)
-Source: "configs\settings.example.json"; DestDir: "{app}\_internal\configs"; DestName: "settings.json"; Flags: ignoreversion confirmoverwrite
+; NOTE: settings.json will be created automatically on first run
+; User can configure it manually using QUICK_START.md as reference
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "QUICK_START.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "TROUBLESHOOTING_PROMPT.md"; DestDir: "{app}"; Flags: ignoreversion

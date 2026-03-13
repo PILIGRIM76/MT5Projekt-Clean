@@ -28,6 +28,7 @@ desktop.ini
 # Project specific
 database/
 logs/
+installer_output/
 *.db
 *.db-journal
 *.log

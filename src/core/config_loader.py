@@ -10,10 +10,31 @@ from src.core.config_models import Settings
 
 logger = logging.getLogger(__name__)
 
+def _get_default_settings_dict() -> dict:
+    """Возвращает словарь с настройками по умолчанию."""
+    return {
+        "SYMBOLS_WHITELIST": ["EURUSD", "GBPUSD", "USDJPY", "USDCAD", "AUDUSD", "USDCHF", "NZDUSD", "EURJPY", "GBPJPY", "EURGBP", "AUDJPY", "XAUUSD", "XAGUSD", "EURCHF", "CADJPY", "AUDNZD", "GBPAUD", "BITCOIN"],
+        "web_dashboard": {"enabled": True, "host": "0.0.0.0", "port": 8000},
+        "FEATURES_TO_USE": ["close", "tick_volume", "ATR_14", "RSI_14", "BB_WIDTH", "STOCHk_14_3_3", "MACD_12_26_9", "EMA_50", "EMA_200", "ADX_14", "ATR_NORM", "DIST_EMA_50", "DIST_EMA_200", "SKEW_60", "KURT_60", "VOLA_60", "hour_sin", "hour_cos", "day_of_week_sin", "day_of_week_cos", "KG_CB_SENTIMENT", "KG_INFLATION_SURPRISE"],
+        "TRADE_INTERVAL_SECONDS": 60,
+        "MAX_OPEN_POSITIONS": 5,
+        "RISK_PER_TRADE": 1.0,
+        "CONSENSUS_THRESHOLD": 0.05,
+        "MT5_LOGIN": 0,
+        "MT5_PASSWORD": "",
+        "MT5_SERVER": "",
+        "MT5_PATH": "",
+        "DATABASE_FOLDER": "database",
+        "vector_db": {"enabled": True, "path": "database/vector_db", "embedding_model": "all-MiniLM-L6-v2"},
+        "CONSENSUS_WEIGHTS": {"ai_forecast": 0.5, "classic_strategies": 0.3, "sentiment_kg": 0.1, "on_chain_data": 0.1}
+    }
+
+
 def load_config() -> Settings:
     """
     Загружает конфигурацию из .env и settings.json,
     валидирует и возвращает строго типизированный объект Settings.
+    При первом запуске создает settings.json с настройками по умолчанию.
     """
     config_dict = {}
     project_root = Path(__file__).parent.parent.parent
@@ -31,8 +52,20 @@ def load_config() -> Settings:
             logger.error(f"Критическая ошибка чтения {settings_path}: {e}")
             raise  # Прерываем выполнение, если основной конфиг не читается
     else:
-        logger.critical(f"Файл конфигурации {settings_path} не найден. Работа невозможна.")
-        raise FileNotFoundError(f"Файл конфигурации {settings_path} не найден.")
+        # Создаем settings.json с настройками по умолчанию
+        logger.warning(f"Файл конфигурации {settings_path} не найден. Создаю с настройками по умолчанию...")
+        try:
+            default_settings = _get_default_settings_dict()
+            # Создаем директорию если не существует
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(settings_path, 'w', encoding='utf-8') as f:
+                json.dump(default_settings, f, indent=4, ensure_ascii=False)
+            logger.info(f"Создан файл настроек: {settings_path}")
+            logger.warning("ВНИМАНИЕ: Отредактируйте settings.json и укажите ваш MT5 путь, логин и пароль!")
+            config_dict.update(default_settings)
+        except Exception as e:
+            logger.error(f"Не удалось создать файл настроек: {e}")
+            raise
 
     # 2. Загрузка и переопределение из .env
     env_path = project_root / 'configs' / '.env'
