@@ -321,7 +321,7 @@
   "HF_MODELS_CACHE_DIR": "F:/Enjen/hub",
   "vector_db": {
     "enabled": true,
-    "path": "database/vector_db",
+    "path": "vector_db",
     "collection_name": "news_and_events",
     "embedding_model": "all-MiniLM-L6-v2",
     "cleanup_enabled": true,
