@@ -217,6 +217,7 @@
   },
   "DATABASE_FOLDER": "F:/Enjen/database",
   "DATABASE_NAME": "trading_system.db",
+  "LOGS_FOLDER": "F:/Enjen/database/logs",
   "TRADE_INTERVAL_SECONDS": 15,
   "TRAINING_INTERVAL_SECONDS": 86400,
   "EXCLUDED_SYMBOLS": [

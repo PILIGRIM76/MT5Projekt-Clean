@@ -305,6 +305,20 @@ class SettingsWindow(QDialog):
             self.symbols_table.setItem(row_position, 0, QTableWidgetItem(symbol))
 
         self.db_folder_edit.setText(self.full_config.DATABASE_FOLDER)
+        
+        # Загрузка путей к векторной БД и логам
+        vector_db_path = getattr(self.full_config.vector_db, 'path', 'vector_db')
+        # Если путь относительный, добавляем к DATABASE_FOLDER
+        if not os.path.isabs(vector_db_path):
+            vector_db_full_path = os.path.join(self.full_config.DATABASE_FOLDER, vector_db_path)
+        else:
+            vector_db_full_path = vector_db_path
+        self.vector_db_folder_edit.setText(vector_db_full_path)
+        
+        # Загрузка пути к логам (по умолчанию database/logs)
+        logs_path = getattr(self.full_config, 'LOGS_FOLDER', os.path.join(self.full_config.DATABASE_FOLDER, 'logs'))
+        self.logs_folder_edit.setText(logs_path)
+        
         self._update_scheduler_status()
         
         # Загрузка настроек автообучения
@@ -376,7 +390,8 @@ class SettingsWindow(QDialog):
                 "SYMBOLS_WHITELIST": symbols_list,
                 "ALLOW_WEEKEND_TRADING": self.allow_weekend_trading_checkbox.isChecked(),
                 "DATABASE_FOLDER": self.db_folder_edit.text(),
-                "HF_MODELS_CACHE_DIR": self.hf_cache_edit.text() or None,  # <-- Исправлено
+                "LOGS_FOLDER": self.logs_folder_edit.text(),
+                "HF_MODELS_CACHE_DIR": self.hf_cache_edit.text() or None,
 
                 "GP_POPULATION_SIZE": self.gp_pop_spin.value(),
                 "GP_GENERATIONS": self.gp_gen_spin.value(),
@@ -386,6 +401,16 @@ class SettingsWindow(QDialog):
                     "host": self.web_host_edit.text(),
                     "port": self.web_port_spinbox.value()
 
+                },
+                
+                "vector_db": {
+                    "enabled": self.full_config.vector_db.enabled,
+                    "path": self._get_relative_vector_db_path(),
+                    "collection_name": self.full_config.vector_db.collection_name,
+                    "embedding_model": self.full_config.vector_db.embedding_model,
+                    "cleanup_enabled": self.full_config.vector_db.cleanup_enabled,
+                    "max_age_days": self.full_config.vector_db.max_age_days,
+                    "cleanup_interval_hours": self.full_config.vector_db.cleanup_interval_hours
                 },
                 
                 "auto_retraining": {
@@ -688,6 +713,36 @@ class SettingsWindow(QDialog):
         db_layout.addWidget(self.hf_cache_edit, 1, 1)
         db_layout.addWidget(hf_browse_button, 1, 2)
 
+        # Папка для векторной БД
+        vector_db_label = QLabel("Папка для векторной базы данных:")
+        vector_db_label.setToolTip(
+            "Здесь будет храниться векторная база данных FAISS для поиска по новостям и событиям.\n"
+            "Рекомендуется размещать в той же папке, что и основная БД."
+        )
+        self.vector_db_folder_edit = QLineEdit()
+        vector_db_browse_button = QPushButton("Обзор...")
+        vector_db_browse_button.clicked.connect(
+            lambda: self._browse_folder(self.vector_db_folder_edit, "Выберите папку для векторной БД")
+        )
+        db_layout.addWidget(vector_db_label, 2, 0)
+        db_layout.addWidget(self.vector_db_folder_edit, 2, 1)
+        db_layout.addWidget(vector_db_browse_button, 2, 2)
+
+        # Папка для логов
+        logs_label = QLabel("Папка для логов системы:")
+        logs_label.setToolTip(
+            "Здесь будут храниться файлы логов работы системы.\n"
+            "Рекомендуется периодически очищать старые логи."
+        )
+        self.logs_folder_edit = QLineEdit()
+        logs_browse_button = QPushButton("Обзор...")
+        logs_browse_button.clicked.connect(
+            lambda: self._browse_folder(self.logs_folder_edit, "Выберите папку для логов")
+        )
+        db_layout.addWidget(logs_label, 3, 0)
+        db_layout.addWidget(self.logs_folder_edit, 3, 1)
+        db_layout.addWidget(logs_browse_button, 3, 2)
+
         layout.addWidget(db_group, 0, 0, 1, 3)
 
         # --- НОВАЯ ГРУППА: Настройки Web-Dashboard ---
@@ -719,6 +774,19 @@ class SettingsWindow(QDialog):
         dir_path = QFileDialog.getExistingDirectory(self, title)
         if dir_path:
             line_edit_widget.setText(dir_path)
+
+    def _get_relative_vector_db_path(self):
+        """Получить относительный путь к векторной БД относительно DATABASE_FOLDER"""
+        vector_db_path = self.vector_db_folder_edit.text()
+        db_folder = self.db_folder_edit.text()
+        
+        # Если путь начинается с DATABASE_FOLDER, делаем его относительным
+        if vector_db_path.startswith(db_folder):
+            relative_path = os.path.relpath(vector_db_path, db_folder)
+            return relative_path.replace('\\', '/')
+        else:
+            # Если путь вне DATABASE_FOLDER, сохраняем абсолютный
+            return vector_db_path.replace('\\', '/')
 
     def _find_env_file(self):
         project_root = Path(__file__).parent.parent.parent
