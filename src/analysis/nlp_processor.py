@@ -139,8 +139,8 @@ class CausalNLPProcessor:
                     vector_id = str(uuid.uuid4())
 
                     # 1. КОДИРОВАНИЕ
-                    # Убедитесь, что кодирование происходит корректно
-                    embedding = self.embedding_model.encode(text, convert_to_tensor=False).tolist()
+                    # ИСПРАВЛЕНИЕ: Отключаем progress bar (show_progress_bar=False) для предотвращения OSError в Windows GUI
+                    embedding = self.embedding_model.encode(text, convert_to_tensor=False, show_progress_bar=False).tolist()
 
                     # 2. СОХРАНЕНИЕ В SQL (через очередь)
                     self.db_manager.add_news_article(

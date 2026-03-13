@@ -338,6 +338,12 @@ class TradingSystem(QObject):
             self.training_scheduler.start()
             self.thread_status_updated.emit("Training Scheduler", "RUNNING")
         
+        # Запуск системы автоматического обновления
+        if self.auto_updater:
+            self.auto_updater.start()
+            self.thread_status_updated.emit("Auto Updater", "RUNNING")
+            logger.info("[UPDATE] Система автоматического обновления запущена")
+        
         # CRITICAL: Инициализация Safety Monitor
         if self.safety_monitor:
             self.safety_monitor.initialize()

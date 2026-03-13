@@ -2679,8 +2679,8 @@ class MainWindow(QMainWindow):
             logger.error(f"[GUI-History] Ошибка при обновлении таблицы истории: {e}", exc_info=True)
 
     def update_market_scanner_view(self, ranked_list: list):
-        # ОТЛАДКА: Логируем КАЖДЫЙ вызов
-        print(f"[DEBUG] update_market_scanner_view ВЫЗВАН с {len(ranked_list) if ranked_list else 0} элементами", flush=True)
+        # ОТЛАДКА: Логируем КАЖДЫЙ вызов (используем logger вместо print для Windows GUI)
+        logger.debug(f"[DEBUG] update_market_scanner_view ВЫЗВАН с {len(ranked_list) if ranked_list else 0} элементами")
         # Убрано избыточное логирование
         
         # КРИТИЧНО: Не обновляем таблицу пустыми данными

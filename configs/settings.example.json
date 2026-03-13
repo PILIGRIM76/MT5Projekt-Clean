@@ -1,4 +1,4 @@
-﻿{
+{
   "SYMBOLS_WHITELIST": [
     "EURUSD",
     "GBPUSD",
@@ -109,8 +109,8 @@
     "ECB",
     "POWELL",
     "LAGARDE",
-    "Р¤Р РЎ",
-    "Р•Р¦Р‘",
+    "Р¤Р РЎ",
+    "Р•Р¦Р'",
     "RATE",
     "INFLATION"
   ],

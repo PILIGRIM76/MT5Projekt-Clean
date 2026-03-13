@@ -1,97 +1,82 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
 .Python
-env/
 venv/
-pip-selfcheck.json
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+*.egg
+__init__.py
 
-# IDE / Editor specific
-.idea/
+# IDE
 .vscode/
-.qoder/
+.idea/
+*.swp
+*.swo
+*~
 
-# База данных и сгенерированные файлы
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Project specific
 database/
-vector_db/
-data/generated_strategies/
-*.pkl
-*.keras
-*.sqlite
+logs/
 *.db
-
-# Файлы сессий и кэша
-*telegram_session*
-*/cpython-cache/
-
-# Конфигурационные файлы с секретами
-configs/.env
-configs/settings.json
-
-# Логи
+*.db-journal
 *.log
 
-# Специфичные для Windows
-Thumbs.db
+# Configs (keep examples)
+configs/settings.json
+configs/.env
 
 # Build artifacts
-build/
 dist/
-*.egg-info/
-main_pyside.build/
-main_pyside.dist/
-main_pyside.onefile-build/
+build/
+*.spec.bak
 
-# Скомпилированные файлы и библиотеки
-*.exe
-*.dll
-*.so
-*.dylib
-*.lib
-*.a
-*.o
-*.obj
-
-# Cache и временные файлы
-.cache/
-.tmp/
-temp/
+# Temporary files
+error*.txt
+output*.txt
 *.tmp
+*.bak
 
-# Large files
-*.pkg
-*.pyz
-*.bin
-*.payload-*
-project_backup.zip
+# AI Models cache
+ai_models/
+F:/ai_models/
 
-# ML models and data
-*.h5
-*.onnx
-*.pt
-*.pth
-*.joblib
+# Installer output (keep only final)
+installer_output/*.exe.bak
 
-# System files
-.DS_Store
-Desktop.ini
+# Test files
+test_*.py
+*_test.py
 
-# Large text files
-full_project_code.txt
+# Documentation drafts
+*_DRAFT.md
+*_OLD.md
+*_BACKUP.md
 
-# Utility files
-bfg.jar
-
-# Plugin directories
-plugins/
-
-# TensorBoard logs
-rl_tensorboard/
-
-# Trader storage
-trader_storage/
-
-# Test directories
-tests/
+# Utility scripts (not needed in production)
+check_*.py
+collect_*.py
+setup_*.py
+sync_*.py
+train_*.py
+retrain_*.py
+smart_*.py
+run_headless.py
+maintenance.bat
+optimize_all.bat
+start_genesis.bat
+create_portable.bat
+VERSION
+MANIFEST.in
+qodana.yaml
+installed.txt

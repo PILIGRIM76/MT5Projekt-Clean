@@ -81,7 +81,7 @@
     "liquidity": 0.1
   },
   "INPUT_LAYER_SIZE": 60,
-  "TRAINING_DATA_POINTS": 2000,
+  "TRAINING_DATA_POINTS": 10000,
   "PREDICTION_DATA_POINTS": 1000,
   "GP_POPULATION_SIZE": 50,
   "GP_GENERATIONS": 20,
@@ -89,21 +89,21 @@
   "GP_CROSSOVER_RATE": 0.7,
   "GP_ELITISM_SIZE": 2,
   "GP_TOURNAMENT_SIZE": 5,
-  "ENTRY_THRESHOLD": 1e-05,
-  "CONSENSUS_THRESHOLD": 0.4,
-  "SENTIMENT_THRESHOLD": 0.05,
+  "ENTRY_THRESHOLD": 0.01,
+  "CONSENSUS_THRESHOLD": 0.15,
+  "SENTIMENT_THRESHOLD": 0.10,
   "DIVERGENCE_BLOCK_MINUTES": 15,
-  "GP_TRIGGER_WIN_RATE": 0.99,
+  "GP_TRIGGER_WIN_RATE": 0.55,
   "GP_MIN_TRADES_SAMPLE": 10,
-  "RISK_PERCENTAGE": 5.0,
+  "RISK_PERCENTAGE": 0.5,
   "DYNAMIC_RISK_MIN_PERCENT": 0.5,
-  "STOP_LOSS_ATR_MULTIPLIER": 2.5,
-  "RISK_REWARD_RATIO": 2.05,
-  "MAX_DAILY_DRAWDOWN_PERCENT": 10.0,
-  "MAX_PORTFOLIO_VAR_PERCENT": 5.0,
-  "MAX_OPEN_POSITIONS": 18,
+  "STOP_LOSS_ATR_MULTIPLIER": 3.5,
+  "RISK_REWARD_RATIO": 2.5,
+  "MAX_DAILY_DRAWDOWN_PERCENT": 5.0,
+  "MAX_PORTFOLIO_VAR_PERCENT": 3.0,
+  "MAX_OPEN_POSITIONS": 5,
   "CORRELATION_THRESHOLD": 0.85,
-  "PORTFOLIO_VOLATILITY_THRESHOLD": 0.05,
+  "PORTFOLIO_VOLATILITY_THRESHOLD": 0.03,
   "IMPORTANT_NEWS_ENTITIES": [
     "FED",
     "ECB",
@@ -212,20 +212,22 @@
   "DATABASE_FOLDER": "F:\\Enjen",
   "DATABASE_NAME": "trading_system.db",
   "TRADE_INTERVAL_SECONDS": 15,
-  "TRAINING_INTERVAL_SECONDS": 300,
+  "TRAINING_INTERVAL_SECONDS": 86400,
   "EXCLUDED_SYMBOLS": [
     "USDRUB",
     "EURRUB"
   ],
   "rd_cycle_config": {
-    "sharpe_ratio_threshold": 1.2,
-    "max_drawdown_threshold": 15.0,
-    "performance_check_trades_min": 20,
-    "profit_factor_threshold": 1.1,
+    "sharpe_ratio_threshold": 1.0,
+    "max_drawdown_threshold": 10.0,
+    "performance_check_trades_min": 50,
+    "profit_factor_threshold": 1.5,
+    "min_win_rate_threshold": 0.40,
     "model_candidates": [
       {
         "type": "LSTM_PyTorch",
-        "k": 10
+        "k": 10,
+        "epochs": 50
       },
       {
         "type": "LightGBM",
@@ -234,7 +236,7 @@
     ]
   },
   "online_learning": {
-    "enabled": false,
+    "enabled": true,
     "learning_rate": 0.0001,
     "adjustment_factor": 0.1,
     "max_expected_profit": 100.0
@@ -340,27 +342,27 @@
   "NEO4J_USER": "neo4j",
   "NEO4J_PASSWORD": "your_neo4j_password",
   "FRED_API_KEY": "05d652018b9088612ff28a0b3ac0189a",
-  "STRATEGY_MIN_WIN_RATE_THRESHOLD": 0.2,
+  "STRATEGY_MIN_WIN_RATE_THRESHOLD": 0.45,
   "orchestrator_settings": {
     "decision_interval_seconds": 14400,
     "training_interval_seconds": 604800
   },
-  "ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION": true,
+  "ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION": false,
   "concept_drift": {
     "enabled": true,
     "adwin_delta": 0.002,
     "min_window_size": 30
   },
   "CONSENSUS_WEIGHTS": {
-    "ai_forecast": 0.4,
+    "ai_forecast": 0.5,
     "classic_strategies": 0.3,
-    "sentiment_kg": 0.2,
+    "sentiment_kg": 0.1,
     "on_chain_data": 0.1
   },
   "auto_retraining": {
     "enabled": true,
     "schedule_time": "02:00",
-    "interval_hours": 24,
+    "interval_hours": 1,
     "max_symbols": 30,
     "max_workers": 3
   }

@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 import time as standard_time
 
-from statsmodels.sandbox.regression.sympy_diff import df
-from torchgen.api.unboxing import connector
+# from statsmodels.sandbox.regression.sympy_diff import df  # COMMENTED OUT - not used
+# from torchgen.api.unboxing import connector  # COMMENTED OUT - not used
 
 from src.core.config_models import Settings
 from src.data_models import TradeSignal, SignalType
