@@ -71,7 +71,6 @@ setup_*.py
 sync_*.py
 train_*.py
 retrain_*.py
-smart_*.py
 run_headless.py
 maintenance.bat
 optimize_all.bat
