@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # main_pyside.py
 import asyncio
 import sys
