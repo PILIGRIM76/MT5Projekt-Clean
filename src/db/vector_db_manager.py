@@ -9,7 +9,7 @@ import pickle
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
-from core.config_models import VectorDBSettings
+from src.core.config_models import VectorDBSettings
 
 logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------

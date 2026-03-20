@@ -8,7 +8,7 @@ import uuid
 from typing import TYPE_CHECKING, Optional, Dict
 from sentence_transformers import SentenceTransformer
 
-from anyio import Path
+from pathlib import Path
 # from huggingface_hub import HfFolder  # Disabled due to deprecation
 from transformers import AutoTokenizer, T5ForConditionalGeneration
 import torch

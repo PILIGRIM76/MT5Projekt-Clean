@@ -3,7 +3,7 @@ import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple
 import time
 import asyncio
@@ -12,7 +12,6 @@ import MetaTrader5 as mt5
 import numpy as np
 import pandas as pd
 from src.core.config_models import Settings
-from datetime import datetime, timedelta, timezone
 from src.data_models import NewsItem
 
 logger = logging.getLogger(__name__)

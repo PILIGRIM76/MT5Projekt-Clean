@@ -3,7 +3,6 @@
 import os
 import subprocess
 import sys
-from dataclasses import Field
 
 from dotenv import dotenv_values, set_key
 from pathlib import Path
@@ -20,7 +19,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
 from PySide6.QtGui import QColor
 from PySide6.QtCore import Qt, QThread, Signal, QTime
 
-from core.config_models import Settings
+from src.core.config_models import Settings
 from pydantic import BaseModel
 
 from .api_tester import ApiTester

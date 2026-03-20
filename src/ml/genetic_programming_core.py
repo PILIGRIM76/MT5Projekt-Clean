@@ -10,8 +10,6 @@ import operator
 import numpy as np
 import pandas as pd
 
-from transformers.models import mt5 as transformers_mt5
-
 from src.data_models import TradeSignal, SignalType
 from src.strategies.StrategyInterface import BaseStrategy
 from src.core.config_models import Settings
