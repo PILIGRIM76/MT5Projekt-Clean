@@ -6,11 +6,9 @@ import torch
 from typing import Any, Dict, Optional
 
 import lightgbm as lgb
-#from sympy.printing.pytorch import torch
 
 from src.core.config_models import Settings
-from src.db.database_manager import SimpleLSTM  # Наша PyTorch LSTM модель
-from src.ml.architectures import TimeSeriesTransformer
+from src.ml.architectures import TimeSeriesTransformer, SimpleLSTM  # Наша PyTorch LSTM модель
 
 logger = logging.getLogger(__name__)
 

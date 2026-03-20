@@ -12,15 +12,12 @@ import queue
 import numpy as np
 import torch
 import torch.nn as nn
-from alembic.util import status
 from sqlalchemy import create_engine, Column, Integer, String, Float, LargeBinary, DateTime, Text, inspect, text, \
     UniqueConstraint, func, Boolean, event
 from sqlalchemy.orm import sessionmaker, declarative_base, aliased
 from sqlalchemy.exc import SQLAlchemyError, OperationalError, IntegrityError
 from MetaTrader5 import ORDER_TYPE_BUY
 from src.ml.architectures import TimeSeriesTransformer, SimpleLSTM
-
-from src.ml.architectures import SimpleLSTM
 from src.core.config_models import Settings
 
 KerasModel = None

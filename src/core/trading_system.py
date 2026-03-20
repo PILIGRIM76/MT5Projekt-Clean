@@ -24,7 +24,7 @@ except ImportError:
 import MetaTrader5 as mt5
 import numpy as np
 import pandas as pd
-from pathlib import Path as SyncPath, Path
+from pathlib import Path as SyncPath
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import train_test_split
 from PySide6.QtCore import QObject, Signal, QThreadPool

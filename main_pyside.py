@@ -3,6 +3,87 @@
 import asyncio
 import sys
 import os
+import logging
+from pathlib import Path
+
+# ===================================================================
+# === ПРОВЕРКА КОНФИГУРАЦИИ ПЕРЕД ЗАПУСКОМ ===
+# ===================================================================
+def check_and_run_setup():
+    """Проверка конфигурации и запуск мастера настройки при необходимости"""
+    # Определяем путь к конфигу
+    if getattr(sys, 'frozen', False):
+        base_path = Path(sys.executable).parent
+    else:
+        base_path = Path(__file__).parent
+    
+    config_path = base_path / 'configs' / 'settings.json'
+    
+    needs_setup = False
+    reason = ""
+    
+    # Проверка существования конфига
+    if not config_path.exists():
+        needs_setup = True
+        reason = "Файл конфигурации не найден"
+    else:
+        # Проверка критических параметров
+        try:
+            import json
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = "".join(line for line in f if not line.strip().startswith("//"))
+                config = json.loads(content)
+            
+            # Проверка обязательных полей
+            required_fields = ['MT5_LOGIN', 'MT5_PASSWORD', 'MT5_SERVER', 'MT5_PATH']
+            missing_fields = []
+            for field in required_fields:
+                if field not in config or not config[field]:
+                    missing_fields.append(field)
+            
+            if missing_fields:
+                needs_setup = True
+                reason = f"Отсутствуют обязательные параметры: {', '.join(missing_fields)}"
+            
+            # Проверка путей
+            if 'MT5_PATH' in config and config['MT5_PATH']:
+                mt5_path = Path(config['MT5_PATH'])
+                if not mt5_path.exists():
+                    needs_setup = True
+                    reason = f"MT5 терминал не найден по пути: {config['MT5_PATH']}"
+                    
+        except Exception as e:
+            needs_setup = True
+            reason = f"Ошибка чтения конфигурации: {e}"
+    
+    if needs_setup:
+        print("\n" + "=" * 60)
+        print("  [!] ТРЕБУЕТСЯ НАСТРОЙКА СИСТЕМЫ")
+        print("=" * 60)
+        print(f"\nПричина: {reason}")
+        print("\nЗапуск мастера настройки...\n")
+
+        # Запуск мастера настройки
+        setup_script = base_path / 'setup_launcher.py'
+        if setup_script.exists():
+            if getattr(sys, 'frozen', False):
+                # В замороженном виде запускаем через exec
+                os.execv(sys.executable, [sys.executable, str(setup_script)])
+            else:
+                os.execv(sys.executable, [sys.executable, str(setup_script)])
+        else:
+            print(f"[ERROR] Файл мастера настройки не найден: {setup_script}")
+            print("Запустите setup_launcher.py вручную")
+            sys.exit(1)
+
+# Запускаем проверку перед всем остальным
+check_and_run_setup()
+# ===================================================================
+
+# Инициализация логгера ДО его использования
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 os.environ['CURL_CA_BUNDLE'] = ''
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -82,7 +163,6 @@ os.environ['QT_WEBENGINE_DISABLE_SANDBOX'] = '1'
 # Флаг для выбора интерфейса
 USE_MODERN_UI = True  # Установите в False для использования старого интерфейса
 
-import logging
 import threading
 import time
 from typing import Optional, Dict, Any, List
@@ -94,10 +174,7 @@ import subprocess
 import pyqtgraph as pg
 import multiprocessing
 import queue
-import json
-from pathlib import Path
 import MetaTrader5 as mt5
-import shap
 
 warnings.filterwarnings("ignore", category=UserWarning,
                         message="X does not have valid feature names, but LGBMRegressor was fitted with feature names")
@@ -106,9 +183,6 @@ warnings.filterwarnings("ignore", category=UserWarning,
                         message="X does not have valid feature names, but MinMaxScaler was fitted with feature names")
 
 from PySide6.QtCore import QTimer, Slot, QThreadPool, QRunnable
-
-warnings.filterwarnings("ignore", message="Series.__getitem__ treating keys as positions is deprecated.*",
-                        category=FutureWarning, module="pyqtgraph")
 
 from datetime import datetime
 
@@ -120,14 +194,11 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QSplitter, QTextEdit, QTabWidget, QLabel, QCheckBox, QTableView, QHeaderView,
                                QMessageBox, QComboBox, QDateEdit, QMenu, QDialog, QLineEdit, QSpinBox, QDialogButtonBox,
                                QGridLayout, QDoubleSpinBox, QGroupBox, QTableWidgetItem, QTableWidget)
-from PySide6.QtCore import QThreadPool, QTimer
-from PySide6.QtCore import Qt, Signal, QObject, QAbstractTableModel, QRectF, QUrl, QDate, QEvent, QPointF
+from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal, QObject, QAbstractTableModel, QRectF, QUrl, QDate, QEvent, QPointF, Slot, QRunnable
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from src.utils.worker import Worker
 
 from PySide6.QtGui import QColor, QTextCharFormat, QPainterPath, QAction, QIcon
-# noinspection PyInterpreter
-from pyqtgraph import BarGraphItem
 
 from src.core.trading_system import TradingSystem
 from src.core.config_loader import load_config
@@ -145,7 +216,6 @@ from src.core.config_models import Settings
 from src.gui.modern_main_window import ModernMainWindow
 from src.utils.scheduler_manager import SchedulerManager
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtCore import Slot, QObject, Signal, QUrl
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
 from src.analysis.system_backtester import SystemBacktester
 from src.analysis.event_driven_backtester import EventDrivenBacktester
