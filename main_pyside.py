@@ -199,6 +199,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from src.utils.worker import Worker
 
 from PySide6.QtGui import QColor, QTextCharFormat, QPainterPath, QAction, QIcon
+from pyqtgraph import BarGraphItem
 
 from src.core.trading_system import TradingSystem
 from src.core.config_loader import load_config
