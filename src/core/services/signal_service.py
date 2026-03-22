@@ -104,13 +104,22 @@ class SignalService:
         # 3. Получаем основной сигнал от AI
         ai_signal, pred_input, entry_price = self._get_ai_signal(symbol, df)
 
-        if not ai_signal or ai_signal.type == SignalType.HOLD:
-            return None
-
         # 4. Собираем все факторы для Консенсуса
 
         # 4.1. Классические сигналы
         classic_signals = self._get_classic_signals(df, timeframe, market_regime)
+
+        # Если нет AI-сигнала — используем классические стратегии напрямую
+        if not ai_signal or ai_signal.type == SignalType.HOLD:
+            if not classic_signals:
+                return None
+            # Берём первый классический сигнал как основной
+            classic_signal = classic_signals[0]
+            strategy_name = classic_signal.__class__.__name__ if hasattr(classic_signal, '__class__') else "ClassicStrategy"
+            # Определяем entry_price из df
+            entry_price = float(df['close'].iloc[-1]) if 'close' in df.columns else None
+            logger.info(f"[{symbol}] AI-модель недоступна. Торговля по классической стратегии: {market_regime}")
+            return classic_signal, f"Classic_{market_regime}", None, None, entry_price
 
         # 4.2. Сентимент KG
         kg_sentiment_score = self.consensus_engine.get_historical_context_sentiment(symbol, market_regime) or 0.0
