@@ -75,7 +75,7 @@ jobs:
         if-no-files-found: ignore
         
     - name: 🏷️ Create Release
-      if: startsWith(github.ref, 'refs/tags/')
+      if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
       uses: softprops/action-gh-release@v2
       with:
         name: Release ${{ github.ref_name }}
@@ -107,8 +107,10 @@ jobs:
           GenesisTrading_Build/GenesisTrading_Portable_v*.zip
         draft: false
         prerelease: false
+        fail_on_unmatched_files: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
         
     - name: ✅ Build completed
       run: |
