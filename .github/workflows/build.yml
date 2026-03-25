@@ -32,22 +32,22 @@ jobs:
         
     - name: 🔨 Build EXE
       run: |
-        cd GenesisTrading_Build
         pyinstaller GenesisTrading.spec --clean --noconfirm
       shell: cmd
+      working-directory: .
       
     - name: 📁 Deploy files
       run: |
-        cd GenesisTrading_Build
-        call deploy.bat
+        call GenesisTrading_Build/deploy.bat
       shell: cmd
+      working-directory: .
       continue-on-error: true
       
     - name: 📦 Create Portable ZIP
       run: |
-        cd GenesisTrading_Build
-        call create_portable.bat
+        call GenesisTrading_Build/create_portable.bat
       shell: cmd
+      working-directory: .
       continue-on-error: true
       
     - name: 📤 Upload artifact
@@ -55,14 +55,14 @@ jobs:
       with:
         name: GenesisTrading-v${{ github.ref_name }}
         path: |
-          MT5Projekt-Clean/dist/GenesisTrading.exe
-          MT5Projekt-Clean/dist/configs/
-          MT5Projekt-Clean/dist/assets/
-          MT5Projekt-Clean/dist/logs/
-          MT5Projekt-Clean/dist/database/
-          MT5Projekt-Clean/dist/README.md
-          MT5Projekt-Clean/dist/QUICK_START.md
-          MT5Projekt-Clean/dist/HOW_TO_RUN.md
+          dist/GenesisTrading.exe
+          dist/configs/
+          dist/assets/
+          dist/logs/
+          dist/database/
+          dist/README.md
+          dist/QUICK_START.md
+          dist/HOW_TO_RUN.md
         retention-days: 30
         
     - name: 📦 Upload Portable ZIP
@@ -103,7 +103,7 @@ jobs:
           ---
           **Сборка создана автоматически через GitHub Actions**
         files: |
-          MT5Projekt-Clean/dist/GenesisTrading.exe
+          dist/GenesisTrading.exe
           GenesisTrading_Build/GenesisTrading_Portable_v*.zip
         draft: false
         prerelease: false
