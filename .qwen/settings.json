@@ -20,7 +20,9 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(winget *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git tag *)",
+      "Bash(echo.)"
     ]
   },
   "$version": 3
