@@ -1,289 +1,233 @@
 # 🚀 Genesis Trading System
 
-**Версия:** 1.0.0  
-**Дата:** 23 февраля 2026  
-**Статус:** Production Ready ✅
+**Версия:** 13.0.0  
+**Платформа:** Windows 10/11 x64  
+**Python:** 3.9+
+
+[![Build EXE](https://github.com/PILIGRIM76/MT5Projekt-Clean/actions/workflows/build.yml/badge.svg)](https://github.com/PILIGRIM76/MT5Projekt-Clean/actions/workflows/build.yml)
 
 ---
 
-## 📋 Описание
+## 📖 О проекте
 
-Genesis Trading System - это продвинутая AI-торговая система для MetaTrader 5, использующая машинное обучение, NLP и генетическое программирование для автоматической торговли на финансовых рынках.
+Genesis Trading System - это саморазвивающаяся торговая экосистема для MetaTrader 5 с использованием AI/ML.
 
-### Основные возможности:
-
-- 🤖 **AI-модели:** LightGBM, LSTM, Transformer для прогнозирования
-- 📊 **Классические стратегии:** Breakout, Mean Reversion, MA Crossover
-- 🧬 **Генетическое программирование:** Автоматическая генерация торговых правил
-- 📰 **NLP анализ:** Обработка новостей и настроений рынка
-- 🎯 **Умное управление рисками:** Динамическое управление позициями
-- 📈 **Сканер рынка:** Автоматический поиск торговых возможностей
-- 🌐 **Web Dashboard:** Мониторинг в реальном времени
+**Основные возможности:**
+- 🤖 AI Trading (Deep Learning, Reinforcement Learning)
+- 📊 Market Scanner (сканирование рынка)
+- 📈 Trading Signals (торговые сигналы)
+- 🛡️ Risk Management (управление рисками)
+- 📉 Backtesting (тестирование на истории)
+- 🔄 Auto Retraining (автоматическое переобучение)
 
 ---
 
-## 📦 Установка
+## 🚀 Быстрый старт
 
-### Для пользователей (Windows):
+### 1️⃣ Скачать
 
-1. **Скачай установщик:**
-   ```
-   installer_output/GenesisTrading_Setup_v1.0.0.exe
-   ```
+Перейдите в [Releases](https://github.com/PILIGRIM76/MT5Projekt-Clean/releases) и скачайте последнюю версию.
 
-2. **Запусти установщик** и следуй инструкциям
+### 2️⃣ Распаковать
 
-3. **Настрой конфигурацию:**
-   ```
-   C:\Program Files\Genesis Trading System\configs\settings.json
-   ```
-   
-   Измени:
-   - `MT5_LOGIN` - твой логин MT5
-   - `MT5_PASSWORD` - твой пароль MT5
-   - `MT5_SERVER` - твой сервер MT5
-   - `MT5_PATH` - путь к terminal64.exe
+Распакуйте архив в любую папку.
 
-4. **Запусти программу** из меню Пуск или Desktop
+### 3️⃣ Настроить
 
-### Для разработчиков:
+Откройте `configs/settings.json` и укажите:
 
-1. **Клонируй репозиторий:**
-   ```bash
-   git clone https://github.com/PILIGRIM76/MT5Projekt-Clean.git
-   cd MT5Projekt-Clean
-   ```
+```json
+{
+  "MT5_LOGIN": "ваш_логин",
+  "MT5_PASSWORD": "ваш_пароль",
+  "MT5_SERVER": "ваш_сервер",
+  "MT5_PATH": "C:/Program Files/MetaTrader 5/terminal64.exe"
+}
+```
 
-2. **Создай виртуальное окружение:**
-   ```bash
-   python -m venv venv
-   venv\Scripts\activate
-   ```
+### 4️⃣ Запустить
 
-3. **Установи зависимости:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Настрой конфигурацию:**
-   ```bash
-   copy configs\settings.example.json configs\settings.json
-   notepad configs\settings.json
-   ```
-
-5. **Запусти систему:**
-   ```bash
-   python main_pyside.py
-   ```
+Запустите `GenesisTrading.exe`
 
 ---
 
-## 🔧 Сборка установщика
+## 📦 Сборка из исходного кода
 
-### Требования:
+### Требования
 
-- Python 3.14+
-- PyInstaller 6.19+
-- Inno Setup 6+
-
-### Шаги:
-
-1. **Собери EXE:**
-   ```bash
-   pyinstaller genesis_trading.spec --clean --noconfirm
-   ```
-
-2. **Создай установщик:**
-   ```bash
-   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer_script.iss
-   ```
-
-3. **Установщик будет в:**
-   ```
-   installer_output/GenesisTrading_Setup_v1.0.0.exe
-   ```
-
-Подробнее: [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md)
-
----
-
-## 📚 Документация
-
-- **[QUICK_START.md](QUICK_START.md)** - Быстрый старт для пользователей
-- **[HOW_TO_RUN.md](HOW_TO_RUN.md)** - Подробная инструкция по запуску
-- **[BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md)** - Инструкция по сборке
-- **[TROUBLESHOOTING_PROMPT.md](TROUBLESHOOTING_PROMPT.md)** - Решение проблем
-- **[QUICK_FIX_GUIDE.md](QUICK_FIX_GUIDE.md)** - Быстрые исправления
-- **[RETRAIN_INSTRUCTIONS.md](RETRAIN_INSTRUCTIONS.md)** - Переобучение моделей
-- **[FINAL_BUILD_REPORT.md](FINAL_BUILD_REPORT.md)** - Отчёт о финальной сборке
-
----
-
-## 🎯 Системные требования
-
-### Минимальные:
-- Windows 10/11 (64-bit)
-- 8 GB RAM
+- Python 3.9+
+- Git
 - 10 GB свободного места
-- MetaTrader 5 установлен
-- Интернет-соединение
 
-### Рекомендуемые:
-- Windows 11 (64-bit)
-- 16 GB RAM
-- 20 GB свободного места (для AI моделей)
-- SSD диск
-- Стабильное интернет-соединение
+### Установка
+
+```bash
+# Клонирование репозитория
+git clone https://github.com/PILIGRIM76/MT5Projekt-Clean.git
+cd MT5Projekt-Clean
+
+# Установка зависимостей
+pip install -r requirements.txt
+
+# Сборка EXE
+cd GenesisTrading_Build
+build.bat
+```
+
+### Автоматическая сборка (GitHub Actions)
+
+1. Перейдите в [Actions](https://github.com/PILIGRIM76/MT5Projekt-Clean/actions)
+2. Выберите workflow **Build EXE**
+3. Скачайте артефакт из последнего запуска
+
+---
+
+## 📁 Структура проекта
+
+```
+MT5Projekt-Clean/
+├── .github/workflows/    # GitHub Actions workflow
+├── GenesisTrading_Build/ # Скрипты сборки
+│   ├── build.bat         # Сборка EXE
+│   ├── deploy.bat        # Развёртывание
+│   └── GenesisTrading.spec
+├── src/                  # Исходный код
+│   ├── core/             # Ядро системы
+│   ├── ml/               # ML модели
+│   ├── gui/              # GUI компоненты
+│   ├── data/             # Работа с данными
+│   └── db/               # Базы данных
+├── configs/              # Конфигурация
+├── assets/               # Ресурсы
+└── main_pyside.py        # Точка входа
+```
+
+---
+
+## 🔧 Документация
+
+| Файл | Описание |
+|------|----------|
+| [QUICK_START.md](QUICK_START.md) | Быстрый старт |
+| [SETUP_GUIDE.md](SETUP_GUIDE.md) | Полная установка |
+| [GITHUB_SETUP_GUIDE.md](GITHUB_SETUP_GUIDE.md) | Настройка GitHub |
+| [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) | Инструкция по сборке |
+| [HOW_TO_RUN.md](HOW_TO_RUN.md) | Как запустить |
 
 ---
 
 ## ⚙️ Конфигурация
 
-### Основные параметры:
+### Основные параметры
 
-```json
-{
-  "MT5_LOGIN": "ВАШ_ЛОГИН",
-  "MT5_PASSWORD": "ВАШ_ПАРОЛЬ",
-  "MT5_SERVER": "ВАШ_СЕРВЕР",
-  "MT5_PATH": "C:/Program Files/MetaTrader 5/terminal64.exe",
-  
-  "RISK_PERCENTAGE": 0.5,
-  "MAX_OPEN_POSITIONS": 5,
-  "STOP_LOSS_ATR_MULTIPLIER": 3.5,
-  "RISK_REWARD_RATIO": 2.5,
-  
-  "DATABASE_FOLDER": "./database",
-  "HF_MODELS_CACHE_DIR": "F:\\ai_models"
-}
+| Параметр | Описание | Пример |
+|----------|----------|--------|
+| `MT5_LOGIN` | Логин MT5 | `12345678` |
+| `MT5_PASSWORD` | Пароль MT5 | `MyPassword` |
+| `MT5_SERVER` | Сервер MT5 | `Alpari-MT5-Demo` |
+| `MT5_PATH` | Путь к терминалу | `C:/Program Files/MetaTrader 5/terminal64.exe` |
+
+### Дополнительные параметры
+
+- `RISK_PERCENT` - Риск на сделку (по умолчанию: 0.5%)
+- `MAX_POSITIONS` - Максимум позиций (по умолчанию: 5)
+- `USE_AI` - Использовать AI (по умолчанию: True)
+
+---
+
+## 🐛 Решение проблем
+
+### EXE не запускается
+
+1. Проверьте логи в `logs/genesis_system.log`
+2. Убедитесь, что MT5 установлен
+3. Проверьте `configs/settings.json`
+
+### Ошибка matplotlib
+
+Обновите matplotlib:
+```bash
+pip install --upgrade matplotlib
 ```
 
-Полная конфигурация: `configs/settings.example.json`
+### Сборка не удаётся
+
+1. Очистите кэш: `clean_before_build.bat`
+2. Проверьте зависимости: `pip install -r requirements.txt`
+3. Запустите сборку снова
 
 ---
 
-## 🚦 Быстрый старт
+## 📊 Системные требования
 
-1. **Установи программу** (см. раздел Установка)
-2. **Настрой MT5 credentials** в `settings.json`
-3. **Запусти программу**
-4. **Дождись загрузки AI моделей** (первый запуск ~5-10 минут)
-5. **Проверь подключение к MT5** в статус-баре
-6. **Запусти сканирование рынка** (кнопка "Start Scan")
-7. **Мониторь сигналы** во вкладке "Signals"
-
-⚠️ **ВАЖНО:** Тестируй на демо-счёте минимум 30 дней!
+| Компонент | Минимум | Рекомендуется |
+|-----------|---------|---------------|
+| **ОС** | Windows 10 x64 | Windows 11 x64 |
+| **CPU** | 4 ядра | 8+ ядер |
+| **RAM** | 8 GB | 16+ GB |
+| **Диск** | 10 GB | 20+ GB (SSD) |
+| **MT5** | Любая версия | Последняя |
 
 ---
 
-## 📊 Структура проекта
+## 🔐 Безопасность
 
-```
-MT5Projekt-Clean/
-├── src/                      # Исходный код
-│   ├── core/                 # Ядро системы
-│   ├── ml/                   # ML модели
-│   ├── strategies/           # Торговые стратегии
-│   ├── data/                 # Провайдеры данных
-│   ├── analysis/             # Анализ рынка
-│   ├── risk/                 # Управление рисками
-│   ├── gui/                  # Графический интерфейс
-│   └── web/                  # Web сервер
-├── configs/                  # Конфигурационные файлы
-├── assets/                   # Ресурсы (иконки, звуки)
-├── installer_output/         # Готовый установщик
-├── main_pyside.py           # Точка входа
-├── genesis_trading.spec     # PyInstaller конфиг
-├── installer_script.iss     # Inno Setup скрипт
-└── requirements.txt         # Python зависимости
-```
+**Никогда не загружайте на GitHub:**
+- ❌ `configs/settings.json` (пароли)
+- ❌ `*.db` (базы данных)
+- ❌ `*.log` (логи)
+- ❌ `ai_models/` (модели)
+
+Эти файлы добавлены в `.gitignore`.
 
 ---
 
-## 🔍 Основные компоненты
+## 📈 Roadmap
 
-### 1. Trading System (`src/core/trading_system.py`)
-Главный оркестратор системы, управляет всеми компонентами.
-
-### 2. Model Factory (`src/ml/model_factory.py`)
-Создание и обучение ML моделей (LightGBM, LSTM, Transformer).
-
-### 3. Strategy Loader (`src/strategies/strategy_loader.py`)
-Загрузка и управление торговыми стратегиями.
-
-### 4. Risk Engine (`src/risk/risk_engine.py`)
-Управление рисками и размером позиций.
-
-### 5. Market Screener (`src/analysis/market_screener.py`)
-Сканирование рынка и поиск возможностей.
-
-### 6. NLP Processor (`src/analysis/nlp_processor.py`)
-Анализ новостей и настроений.
+- [ ] Поддержка других брокеров
+- [ ] Мобильное приложение
+- [ ] Веб-интерфейс
+- [ ] Облачная синхронизация
+- [ ] Социальный трейдинг
 
 ---
 
-## 🛠️ Технологии
+## 🤝 Вклад в проект
 
-- **Python 3.14** - Основной язык
-- **PySide6** - GUI фреймворк
-- **PyTorch** - Deep Learning
-- **LightGBM** - Gradient Boosting
-- **Transformers** - NLP модели
-- **MetaTrader5** - Торговая платформа
-- **SQLite** - База данных
-- **FAISS** - Vector DB
-- **FastAPI** - Web API
+### Pull Requests приветствуются!
 
----
-
-## ⚠️ Предупреждения
-
-1. **Торговля сопряжена с рисками** - можешь потерять весь капитал
-2. **Тестируй на демо** минимум 30 дней перед реальной торговлей
-3. **Не инвестируй больше**, чем можешь позволить себе потерять
-4. **Система не гарантирует прибыль** - прошлые результаты не гарантируют будущих
-5. **Используй только на демо-счетах** для обучения и тестирования
+1. Fork репозиторий
+2. Создайте ветку (`git checkout -b feature/AmazingFeature`)
+3. Закоммитьте изменения (`git commit -m 'Add AmazingFeature'`)
+4. Отправьте в ветку (`git push origin feature/AmazingFeature`)
+5. Откройте Pull Request
 
 ---
 
 ## 📝 Лицензия
 
-Этот проект предоставляется "как есть" для образовательных целей.
-
-См. [LICENSE](LICENSE) для деталей.
+MIT License - см. файл [LICENSE](LICENSE)
 
 ---
 
-## 🆘 Поддержка
+## 📞 Контакты
 
-### GitHub:
-- **Репозиторий:** https://github.com/PILIGRIM76/MT5Projekt-Clean
+- **GitHub:** https://github.com/PILIGRIM76
 - **Issues:** https://github.com/PILIGRIM76/MT5Projekt-Clean/issues
 - **Releases:** https://github.com/PILIGRIM76/MT5Projekt-Clean/releases
 
-### Документация:
-- Проверь [TROUBLESHOOTING_PROMPT.md](TROUBLESHOOTING_PROMPT.md) для решения проблем
-- Читай [QUICK_FIX_GUIDE.md](QUICK_FIX_GUIDE.md) для быстрых исправлений
+---
+
+## ⚠️ Предупреждение о рисках
+
+**Торговля на финансовых рынках сопряжена с высоким уровнем риска.**
+
+- Тестируйте стратегию на демо-счёте минимум 30 дней
+- Не используйте деньги, которые не готовы потерять
+- Прошлые результаты не гарантируют будущую прибыль
 
 ---
 
-## 🎉 Благодарности
+**Удачной торговли! 🚀**
 
-Спасибо всем контрибьюторам и сообществу за поддержку!
-
----
-
-## 📈 Статус проекта
-
-- ✅ Стабильная версия 1.0.0
-- ✅ Полностью рабочий установщик
-- ✅ Протестировано на Windows 10/11
-- ✅ Все зависимости включены
-- ✅ GUI работает корректно
-- ✅ AI модели загружаются
-
-**Готово к использованию!** 🚀
-
----
-
-**Удачной торговли! Помни: тестируй на демо!** 💰
+*Последнее обновление: 25 марта 2026*
