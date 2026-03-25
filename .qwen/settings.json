@@ -22,7 +22,8 @@
       "Bash(winget *)",
       "Bash(git push *)",
       "Bash(git tag *)",
-      "Bash(echo.)"
+      "Bash(echo.)",
+      "Bash(copy *)"
     ]
   },
   "$version": 3
