@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rmdir *)",
+      "Bash(del *)",
+      "Bash(dir *)",
+      "Bash(mkdir *)",
+      "Bash(python *)",
+      "Bash(get-content *)",
+      "Bash(timeout *)",
+      "Bash(powershell *)",
+      "Bash(taskkill *)",
+      "Read(F:\\MT5Qoder\\GenesisTrading_Build/**)",
+      "Bash(findstr *)",
+      "Bash(dir)",
+      "Bash(call *)",
+      "Bash(tasklist)",
+      "Bash(pip freeze)",
+      "Bash(git init)"
+    ]
+  },
+  "$version": 3
+}

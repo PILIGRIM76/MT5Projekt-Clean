@@ -1,82 +1,113 @@
-# Python
+# ============================================================
+# Genesis Trading System - .gitignore
+# ============================================================
+
+# --- Python ---
+*.pyc
 __pycache__/
-*.py[cod]
-*$py.class
+*.pyo
+*.pyd
 *.so
 .Python
+*.egg-info/
+.eggs/
+
+# --- Виртуальное окружение ---
 venv/
 env/
+.venv/
 ENV/
-*.egg-info/
-dist/
-build/
-*.egg
-__init__.py
 
-# IDE
-.vscode/
+# --- PyInstaller ---
+build/
+dist/
+*.spec.bak
+
+# --- IDE ---
 .idea/
+.vscode/
+*.iml
 *.swp
 *.swo
 *~
+.project
+.pydevproject
+.settings/
 
-# OS
-.DS_Store
+# --- Логи и базы данных ---
+*.log
+logs/
+*.db
+*.db-journal
+database/*.db
+database/*.db-journal
+database/vector_db/
+database/faiss/
+ai_models/
+.hf_cache/
+hf_models/
+
+# --- Конфигурации пользователя ---
+configs/settings.json
+configs/*.local.json
+.env
+.env.local
+.env.*.local
+*.secret
+*.key
+
+# --- Временные файлы ---
+*.tmp
+*.bak
+*.old
+*.orig
+~$*.doc*
+~$*.xls*
 Thumbs.db
 desktop.ini
 
-# Project specific
-database/
-logs/
+# --- Сборка ---
+GenesisTrading_Build/stubs/
 installer_output/
-*.db
-*.db-journal
-*.log
+temp/
+cache/
 
-# Configs (keep examples)
-configs/settings.json
-configs/.env
+# --- Тесты и покрытие ---
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
 
-# Build artifacts
-dist/
-build/
-*.spec.bak
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb_checkpoints
 
-# Temporary files
-error*.txt
-output*.txt
-*.tmp
-*.bak
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
 
-# AI Models cache
-ai_models/
-F:/ai_models/
+# --- Windows ---
+$RECYCLE.BIN/
+System Volume Information/
+*.lnk
 
-# Installer output (keep only final)
-installer_output/*.exe.bak
+# --- Документация ---
+*.pdf
+*.epub
+.mobi
 
-# Test files
-test_*.py
-*_test.py
+# --- Архивы ---
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+!requirements*.txt
 
-# Documentation drafts
-*_DRAFT.md
-*_OLD.md
-*_BACKUP.md
-
-# Utility scripts (not needed in production)
-check_*.py
-collect_*.py
-setup_*.py
-sync_*.py
-train_*.py
-retrain_*.py
-run_headless.py
-maintenance.bat
-optimize_all.bat
-start_genesis.bat
-create_portable.bat
-VERSION
-MANIFEST.in
-qodana.yaml
-installed.txt
+# --- Специфичные для проекта ---
+*.pem
+*.crt
+*.p12

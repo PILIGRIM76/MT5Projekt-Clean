@@ -75,8 +75,9 @@ class VectorDBManager:
         logger.warning("VectorDB Cleanup: Запуск очистки устаревших документов...")
 
         # 1. Определяем порог времени
-        # --- ИСПРАВЛЕНИЕ 2: Используем datetime.now(timezone.utc) для создания AWARE-объекта ---
-        time_threshold = datetime.now(timezone.utc) - timedelta(days=self.config.max_age_days)
+        # ИСПОЛЬЗУЕМ naive datetime для совместимости с сохраненными данными
+        time_threshold = datetime.now() - timedelta(days=self.config.max_age_days)
+        time_threshold_str = time_threshold.isoformat()
 
         # 2. Идентифицируем индексы для сохранения
         indices_to_keep = []
@@ -88,17 +89,23 @@ class VectorDBManager:
             timestamp_str = metadata.get('timestamp_iso')
             if timestamp_str:
                 try:
-                    # doc_time уже AWARE (UTC)
-                    doc_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-
-                    # Сравнение AWARE-объектов теперь корректно
-                    if doc_time >= time_threshold:
+                    # Парсим дату и преобразуем в naive datetime (локальное время)
+                    # Заменяем 'Z' на '+00:00' для корректного парсинга UTC
+                    doc_time_str = timestamp_str.replace('Z', '+00:00')
+                    doc_time_aware = datetime.fromisoformat(doc_time_str)
+                    
+                    # Преобразуем в naive datetime для сравнения
+                    doc_time_naive = doc_time_aware.replace(tzinfo=None)
+                    
+                    # Сравниваем naive datetime объекты
+                    if doc_time_naive >= time_threshold:
                         indices_to_keep.append(i)
                         new_ids.append(self.ids[i])
                         new_documents.append(self.documents[i])
                         new_metadatas.append(metadata)
-                except ValueError:
+                except ValueError as e:
                     # Если дата не парсится, сохраняем документ (на всякий случай)
+                    logger.warning(f"VectorDB Cleanup: Не удалось распарсить дату '{timestamp_str}': {e}")
                     indices_to_keep.append(i)
                     new_ids.append(self.ids[i])
                     new_documents.append(self.documents[i])

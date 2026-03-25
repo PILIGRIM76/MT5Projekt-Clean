@@ -42,6 +42,11 @@ class MACrossoverTimeframeParams(BaseModel):
 
 class MACrossoverStrategyParams(BaseModel):
     timeframe_params: Dict[str, MACrossoverTimeframeParams] = Field(
+        default_factory=lambda: {
+            "default": MACrossoverTimeframeParams(short_window=15, long_window=35),
+            "low": MACrossoverTimeframeParams(short_window=10, long_window=25),
+            "high": MACrossoverTimeframeParams(short_window=50, long_window=200)
+        },
         description="Параметры MA для разных уровней волатильности.")
 
 
@@ -54,7 +59,16 @@ class StrategiesParams(BaseModel):
 class OptimizerSettings(BaseModel):
     ideal_volatility: float = Field(default=0.005,
                                     description="Целевая волатильность для выбора оптимального таймфрейма.")
-    timeframes_to_check: Dict[str, int] = Field(description="Словарь таймфреймов для проверки оптимизатором.")
+    timeframes_to_check: Dict[str, int] = Field(
+        default_factory=lambda: {
+            "M1": 1,
+            "M5": 5,
+            "M15": 15,
+            "H1": 16385,
+            "H4": 16388,
+            "D1": 16408
+        },
+        description="Словарь таймфреймов для проверки оптимизатором.")
     MAX_OPEN_POSITIONS: int = Field(default=10, description="Макс. позиций для системного бэктестера.")
     MAX_HOLD_BARS: int = Field(default=24,
                                description="Макс. время удержания позиции в барах для системного бэктестера.")
@@ -62,8 +76,8 @@ class OptimizerSettings(BaseModel):
 
 
 class ModelCandidate(BaseModel):
-    type: str = Field(description="Тип модели для обучения (напр. 'LSTM_PyTorch').")
-    k: Any = Field(description="Параметр для выбора признаков ('all' или число).")
+    type: str = Field(default="LSTM_PyTorch", description="Тип модели для обучения (напр. 'LSTM_PyTorch').")
+    k: Any = Field(default="all", description="Параметр для выбора признаков ('all' или число).")
 
 
 class RDCycleSettings(BaseModel):
@@ -72,7 +86,12 @@ class RDCycleSettings(BaseModel):
     performance_check_trades_min: int = Field(default=20,
                                               description="Мин. кол-во сделок для оценки производительности.")
     profit_factor_threshold: float = Field(default=1.1, description="Минимальный профит-фактор для прохождения R&D.")
-    model_candidates: List[ModelCandidate] = Field(description="Список моделей-кандидатов для обучения в R&D цикле.")
+    model_candidates: List[ModelCandidate] = Field(
+        default_factory=lambda: [
+            {"type": "LSTM_PyTorch", "k": 10},
+            {"type": "LightGBM", "k": "all"}
+        ],
+        description="Список моделей-кандидатов для обучения в R&D цикле.")
 
 
 class OnlineLearningSettings(BaseModel):
@@ -85,7 +104,9 @@ class OnlineLearningSettings(BaseModel):
 class AnomalyDetectorSettings(BaseModel):
     enabled: bool = Field(default=True, description="Включить/отключить детектор аномалий.")
     training_data_bars: int = Field(default=5000, description="Кол-во баров для обучения автоэнкодера.")
-    features: List[str] = Field(description="Список признаков для детектора аномалий.")
+    features: List[str] = Field(
+        default_factory=lambda: ["ATR_NORM", "SKEW_60", "KURT_60", "VOLA_60", "DIST_EMA_50"],
+        description="Список признаков для детектора аномалий.")
     threshold_std_multiplier: float = Field(default=3.0, description="Множитель СКО для определения порога аномалии.")
     risk_off_duration_hours: int = Field(default=4, description="На сколько часов блокировать торговлю после аномалии.")
     epochs: int = Field(default=50)
@@ -358,6 +379,22 @@ class Settings(BaseModel):
 
     EVENT_BLOCK_WINDOW_HOURS: int
     ALLOW_WEEKEND_TRADING: bool
+    WEEKEND_CLASSIC_STRATEGIES_ENABLED: bool = Field(default=True, description="Разрешить классические стратегии в выходные")
+    CRYPTO_THRESHOLDS: dict = Field(default_factory=lambda: {
+        "profit_factor": 0.5,
+        "win_rate": 0.25,
+        "sharpe_ratio": 0.1,
+        "max_drawdown": 25.0,
+        "total_trades": 5
+    }, description="Сниженные пороги для криптовалют")
+    FOREX_THRESHOLDS: dict = Field(default_factory=lambda: {
+        "profit_factor": 0.5,
+        "win_rate": 0.25,
+        "sharpe_ratio": 0.1,
+        "max_drawdown": 20.0,
+        "total_trades": 10
+    }, description="Сниженные пороги для Forex на период обучения")
+    TEMPORARY_RELAXED_MODE: bool = Field(default=True, description="Временный режим со сниженными порогами для всех инструментов")
 
     model_config = {"case_sensitive": False, "coerce_numbers_to_str": True}
 

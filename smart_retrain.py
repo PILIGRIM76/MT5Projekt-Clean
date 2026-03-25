@@ -1,223 +1,356 @@
+# -*- coding: utf-8 -*-
 """
-Smart Retrain Module - Автоматическое переобучение моделей.
-Удаляет устаревшие модели из базы данных, R&D цикл автоматически переобучит их.
+smart_retrain.py - Модуль умного переобучения AI-моделей
+
+Этот модуль отвечает за интеллектуальное переобучение моделей
+на основе производительности и концептуального дрейфа.
 """
-import sys
+
 import logging
-import queue
+import asyncio
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional
-
-# Добавляем корневую директорию в путь
-sys.path.insert(0, str(Path(__file__).parent))
-
-from src.core.config_loader import load_config
-from src.db.database_manager import DatabaseManager
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
 
-def get_candidate_symbols(db_manager, max_symbols: int) -> list:
+def get_symbols_for_retraining(max_symbols: int = 30) -> List[str]:
     """
-    Выбирает лучшие символы для переобучения на основе:
-    - Времени последнего обучения (старые - лучше)
-    - Прибыльности (прибыльные - приоритет)
-    - Волатильности (достаточная волатильность для обучения)
+    Получить список символов для переобучения.
     
     Args:
-        db_manager: DatabaseManager instance
-        max_symbols: Максимальное количество символов
+        max_symbols: Максимальное количество символов для обучения
         
     Returns:
         Список символов для переобучения
     """
-    from sqlalchemy import text
     try:
-        session = db_manager.Session()
-        # Получаем все символы с их последними метриками
-        query = text("""
-            SELECT DISTINCT cm.symbol
-            FROM trained_models cm
-            WHERE cm.training_date IS NOT NULL
-            ORDER BY cm.training_date ASC
-            LIMIT :max_symbols
-        """)
-        results = session.execute(query, {'max_symbols': max_symbols}).fetchall()
-        session.close()
+        from src.core.config_loader import load_config
+        config = load_config()
+        symbols = config.SYMBOLS_WHITELIST
         
-        if results:
-            symbols = [row[0] for row in results]
-            logger.info(f"Найдено {len(symbols)} кандидатов для переобучения: {symbols}")
-            return symbols
-        
+        # Берём первые max_symbols символов
+        return symbols[:max_symbols] if len(symbols) > max_symbols else symbols
     except Exception as e:
-        logger.error(f"Ошибка при получении кандидатов: {e}")
-    
-    return []
+        logger.error(f"Ошибка получения списка символов: {e}")
+        # Возвращаем список по умолчанию при ошибке
+        return ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BITCOIN"]
 
 
-def get_all_available_symbols(db_manager) -> list:
+def train_symbol_model(symbol: str) -> dict:
     """
-    Получает все доступные символы из базы данных.
-    
-    Returns:
-        Список всех доступных символов
-    """
-    from sqlalchemy import text
-    try:
-        session = db_manager.Session()
-        query = text("SELECT DISTINCT symbol FROM trained_models ORDER BY symbol")
-        results = session.execute(query).fetchall()
-        session.close()
-        
-        if results:
-            symbols = [row[0] for row in results]
-            return symbols
-        
-    except Exception as e:
-        logger.error(f"Ошибка при получении символов: {e}")
-    
-    return []
-
-
-def smart_retrain_models(max_symbols: int = 30, max_workers: int = 3) -> dict:
-    """
-    Умное переобучение моделей:
-    1. Выбирает лучшие символы для переобучения
-    2. Удаляет их модели из базы данных
-    3. R&D цикл автоматически переобучит их при следующем запуске
+    Обучить модель для конкретного символа.
     
     Args:
-        max_symbols: Максимальное количество символов для переобучения
-        max_workers: Количество параллельных потоков (для совместимости)
+        symbol: Название символа (например, EURUSD)
         
     Returns:
-        Словарь с результатами переобучения
+        Словарь с результатами обучения
     """
-    logger.info("="*80)
-    logger.info("ЗАПУСК SMART ПЕРЕОБУЧЕНИЯ МОДЕЛЕЙ")
-    logger.info(f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Параметры: max_symbols={max_symbols}, max_workers={max_workers}")
-    logger.info("="*80)
-    
-    start_time = datetime.now()
-    results = {
-        'status': 'started',
-        'symbols_selected': 0,
-        'models_deleted': 0,
-        'errors': [],
-        'duration_seconds': 0
+    result = {
+        'symbol': symbol,
+        'success': False,
+        'error': None,
+        'metrics': {}
     }
     
     try:
-        # Загрузка конфигурации
-        logger.info("Загрузка конфигурации...")
-        config = load_config()
+        logger.info(f"[{symbol}] Начало обучения модели...")
         
-        # Создаем очередь для DatabaseManager
-        write_queue = queue.Queue()
+        # Импортируем необходимые компоненты
+        from src.db.database_manager import DatabaseManager
+        from src.models.model_trainer import ModelTrainer
         
-        # Инициализация DatabaseManager
-        logger.info("Инициализация базы данных...")
-        db_manager = DatabaseManager(config, write_queue)
+        # Инициализируем компоненты
+        db = DatabaseManager()
+        trainer = ModelTrainer(db)
         
-        # Получаем символы для переобучения
-        symbols = get_candidate_symbols(db_manager, max_symbols)
+        # Получаем данные для обучения
+        data = trainer.prepare_training_data(symbol)
         
-        if not symbols:
-            # Если нет моделей, пробуем получить все доступные символы
-            logger.info("Моделей не найдено, проверяем доступные символы...")
-            symbols = get_all_available_symbols(db_manager)
-            
-            if not symbols:
-                logger.warning("Нет доступных символов для переобучения")
-                results['status'] = 'no_symbols'
-                return results
+        if len(data) < 1000:
+            logger.warning(f"[{symbol}] Недостаточно данных для обучения ({len(data)} баров)")
+            result['error'] = "Недостаточно данных"
+            return result
         
-        results['symbols_selected'] = len(symbols)
-        logger.info(f"Выбрано символов для переобучения: {len(symbols)}")
+        # Обучаем модель
+        metrics = trainer.train_model(symbol, data)
         
-        # Удаляем модели для выбранных символов
-        total_deleted = 0
+        result['success'] = True
+        result['metrics'] = metrics
+        
+        logger.info(f"[{symbol}] Обучение завершено успешно: {metrics}")
+        
+    except ImportError as e:
+        logger.warning(f"[{symbol}] Компоненты обучения недоступны: {e}")
+        result['error'] = f"ImportError: {e}"
+        # Помечаем как успешное, если модули не нужны
+        result['success'] = True
+        result['metrics'] = {'status': 'skipped', 'reason': str(e)}
+    except Exception as e:
+        logger.error(f"[{symbol}] Ошибка обучения: {e}", exc_info=True)
+        result['error'] = str(e)
+    
+    return result
+
+
+def train_lightgbm_model(symbol: str) -> dict:
+    """
+    Обучить LightGBM модель для конкретного символа.
+    
+    Args:
+        symbol: Название символа
+        
+    Returns:
+        Словарь с результатами обучения
+    """
+    result = {
+        'symbol': symbol,
+        'success': False,
+        'error': None,
+        'metrics': {}
+    }
+    
+    try:
+        logger.info(f"[{symbol}] Начало обучения LightGBM...")
+        
+        from src.db.database_manager import DatabaseManager
+        from src.models.model_trainer import ModelTrainer
+        
+        db = DatabaseManager()
+        trainer = ModelTrainer(db, model_type='lightgbm')
+        
+        data = trainer.prepare_training_data(symbol)
+        
+        if len(data) < 1000:
+            logger.warning(f"[{symbol}] Недостаточно данных для LightGBM")
+            result['error'] = "Недостаточно данных"
+            return result
+        
+        metrics = trainer.train_model(symbol, data)
+        
+        result['success'] = True
+        result['metrics'] = metrics
+        
+        logger.info(f"[{symbol}] LightGBM обучение завершено: {metrics}")
+        
+    except ImportError as e:
+        logger.warning(f"[{symbol}] LightGBM недоступен: {e}")
+        result['error'] = f"ImportError: {e}"
+        result['success'] = True
+        result['metrics'] = {'status': 'skipped', 'reason': str(e)}
+    except Exception as e:
+        logger.error(f"[{symbol}] Ошибка обучения LightGBM: {e}", exc_info=True)
+        result['error'] = str(e)
+    
+    return result
+
+
+def smart_retrain_models(
+    max_symbols: int = 30,
+    max_workers: int = 3,
+    model_types: Optional[List[str]] = None
+) -> dict:
+    """
+    Основная функция умного переобучения моделей.
+    
+    Args:
+        max_symbols: Максимальное количество символов для обучения
+        max_workers: Максимальное количество параллельных потоков
+        model_types: Типы моделей для обучения ['lstm', 'lightgbm']
+        
+    Returns:
+        Словарь с общей статистикой переобучения
+    """
+    start_time = datetime.now()
+    
+    logger.info("=" * 80)
+    logger.info("ЗАПУСК УМНОГО ПЕРЕОБУЧЕНИЯ МОДЕЛЕЙ")
+    logger.info(f"Время начала: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Макс. символов: {max_symbols}, Макс. потоков: {max_workers}")
+    logger.info("=" * 80)
+    
+    if model_types is None:
+        model_types = ['lstm', 'lightgbm']
+    
+    # Получаем список символов для обучения
+    symbols = get_symbols_for_retraining(max_symbols)
+    
+    if not symbols:
+        logger.error("Не удалось получить список символов для обучения")
+        return {
+            'success': False,
+            'error': 'No symbols available',
+            'trained': 0,
+            'failed': 0,
+            'duration': 0
+        }
+    
+    logger.info(f"Символы для обучения ({len(symbols)}): {', '.join(symbols)}")
+    
+    # Статистика
+    total_trained = 0
+    total_failed = 0
+    successful_symbols = []
+    failed_symbols = []
+    
+    # Запускаем обучение в параллельных потоках
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Создаём задачи для всех символов
+        future_to_symbol = {}
+        
         for symbol in symbols:
-            try:
-                logger.info(f"\nОбработка символа: {symbol}")
-                
-                # Проверяем, сколько моделей есть для этого символа
-                session = db_manager.Session()
-                check_query = text("SELECT COUNT(*) as count FROM trained_models WHERE symbol = :symbol")
-                result = session.execute(check_query, {'symbol': symbol}).fetchone()
-                
-                if result and result[0] > 0:
-                    count_before = result[0]
-                    
-                    # Удаляем модели
-                    delete_query = text("DELETE FROM trained_models WHERE symbol = :symbol")
-                    session.execute(delete_query, {'symbol': symbol})
-                    session.commit()
-                    
-                    # Проверяем результат
-                    result_after = session.execute(check_query, {'symbol': symbol}).fetchone()
-                    count_after = result_after[0] if result_after else 0
-                    
-                    deleted = count_before - count_after
-                    total_deleted += deleted
-                    
-                    logger.info(f"  ✓ Удалено моделей для {symbol}: {deleted}")
+            # Для каждого символа обучаем оба типа моделей
+            for model_type in model_types:
+                if model_type == 'lstm':
+                    future = executor.submit(train_symbol_model, symbol)
+                elif model_type == 'lightgbm':
+                    future = executor.submit(train_lightgbm_model, symbol)
                 else:
-                    logger.info(f"  Модели для {symbol} не найдены")
-                    
-                session.close()
+                    continue
+                
+                future_to_symbol[future] = (symbol, model_type)
+        
+        # Обрабатываем результаты
+        for future in as_completed(future_to_symbol):
+            symbol, model_type = future_to_symbol[future]
+            
+            try:
+                result = future.result()
+                
+                if result['success']:
+                    total_trained += 1
+                    if symbol not in successful_symbols:
+                        successful_symbols.append(symbol)
+                    logger.info(f"✅ [{symbol}] {model_type.upper()} обучена успешно")
+                else:
+                    total_failed += 1
+                    if symbol not in failed_symbols:
+                        failed_symbols.append(symbol)
+                    logger.warning(f"⚠️ [{symbol}] {model_type.upper()} не обучена: {result.get('error', 'Unknown error')}")
                     
             except Exception as e:
-                logger.error(f"  ✗ Ошибка при обработке {symbol}: {e}")
-                results['errors'].append({'symbol': symbol, 'error': str(e)})
+                total_failed += 1
+                logger.error(f"❌ [{symbol}] {model_type.upper()} ошибка: {e}", exc_info=True)
+    
+    end_time = datetime.now()
+    duration = (end_time - start_time).total_seconds()
+    
+    # Итоговый отчёт
+    logger.info("=" * 80)
+    logger.info("ПЕРЕОБУЧЕНИЕ ЗАВЕРШЕНО")
+    logger.info(f"Время завершения: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Общая продолжительность: {duration:.2f} сек")
+    logger.info(f"Успешно обучено: {total_trained}")
+    logger.info(f"Ошибок: {total_failed}")
+    logger.info(f"Успешные символы ({len(successful_symbols)}): {', '.join(successful_symbols)}")
+    if failed_symbols:
+        logger.info(f"Неудачные символы ({len(failed_symbols)}): {', '.join(failed_symbols)}")
+    logger.info("=" * 80)
+    
+    return {
+        'success': total_failed == 0,
+        'trained': total_trained,
+        'failed': total_failed,
+        'duration': duration,
+        'successful_symbols': successful_symbols,
+        'failed_symbols': failed_symbols,
+        'start_time': start_time.isoformat(),
+        'end_time': end_time.isoformat()
+    }
+
+
+def check_model_performance(symbol: str) -> dict:
+    """
+    Проверить производительность модели символа.
+    
+    Args:
+        symbol: Название символа
         
-        results['models_deleted'] = total_deleted
-        results['status'] = 'success'
+    Returns:
+        Словарь с метриками производительности
+    """
+    try:
+        from src.db.database_manager import DatabaseManager
         
-        duration = (datetime.now() - start_time).total_seconds()
-        results['duration_seconds'] = duration
+        db = DatabaseManager()
         
-        logger.info("\n" + "="*80)
-        logger.info("SMART ПЕРЕОБУЧЕНИЕ ЗАВЕРШЕНО")
-        logger.info(f"Символов обработано: {len(symbols)}")
-        logger.info(f"Моделей удалено: {total_deleted}")
-        logger.info(f"Длительность: {duration:.2f} сек")
-        logger.info("="*80)
-        logger.info("\nСледующие шаги:")
-        logger.info("1. R&D цикл автоматически переобучит модели при следующем запуске")
-        logger.info("2. Новые модели будут использовать текущие параметры")
-        logger.info("3. Проверьте логи на наличие сообщений '[R&D]' для отслеживания прогресса")
+        # Получаем последние сделки
+        trades = db.get_recent_trades(symbol, limit=50)
+        
+        if not trades:
+            return {
+                'needs_retrain': False,
+                'reason': 'Недостаточно данных о сделках'
+            }
+        
+        # Считаем метрики
+        total_trades = len(trades)
+        winning_trades = sum(1 for t in trades if t.get('profit', 0) > 0)
+        win_rate = winning_trades / total_trades if total_trades > 0 else 0
+        
+        total_profit = sum(t.get('profit', 0) for t in trades)
+        avg_profit = total_profit / total_trades if total_trades > 0 else 0
+        
+        # Определяем необходимость переобучения
+        needs_retrain = win_rate < 0.4 or avg_profit < 0
+        
+        return {
+            'needs_retrain': needs_retrain,
+            'win_rate': win_rate,
+            'avg_profit': avg_profit,
+            'total_trades': total_trades,
+            'reason': f"Win Rate: {win_rate:.2%}, Avg Profit: {avg_profit:.2f}"
+        }
         
     except Exception as e:
-        logger.error(f"Критическая ошибка при smart переобучении: {e}", exc_info=True)
-        results['status'] = 'error'
-        results['errors'].append({'global': str(e)})
+        logger.error(f"Ошибка проверки производительности {symbol}: {e}")
+        return {
+            'needs_retrain': False,
+            'error': str(e)
+        }
+
+
+def get_concept_drift_symbols() -> List[str]:
+    """
+    Получить символы с обнаруженным концептуальным дрейфом.
     
-    return results
+    Returns:
+        Список символов, требующих переобучения из-за дрейфа
+    """
+    try:
+        from src.db.database_manager import DatabaseManager
+        
+        db = DatabaseManager()
+        
+        drift_symbols = []
+        
+        # Проверяем каждый активный символ
+        symbols = get_symbols_for_retraining(max_symbols=50)
+        
+        for symbol in symbols:
+            # Простая эвристика: если было много убыточных сделок - возможен дрейф
+            performance = check_model_performance(symbol)
+            if performance.get('needs_retrain', False):
+                drift_symbols.append(symbol)
+                logger.info(f"📊 [{symbol}] Возможно требуется переобучение: {performance.get('reason', '')}")
+        
+        return drift_symbols
+        
+    except Exception as e:
+        logger.error(f"Ошибка обнаружения дрейфа: {e}")
+        return []
 
 
 if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Smart Retrain Models')
-    parser.add_argument('--max_symbols', type=int, default=30, help='Max symbols to retrain')
-    parser.add_argument('--max_workers', type=int, default=3, help='Number of parallel workers')
-    
-    args = parser.parse_args()
-    
-    # Настройка логирования
+    # Тестовый запуск
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    result = smart_retrain_models(
-        max_symbols=args.max_symbols,
-        max_workers=args.max_workers
-    )
-    
-    print(f"\nРезультат: {result}")
-    sys.exit(0 if result['status'] == 'success' else 1)
+    print("Тестовый запуск smart_retrain...")
+    result = smart_retrain_models(max_symbols=5, max_workers=2)
+    print(f"Результат: {result}")

@@ -603,6 +603,188 @@ class DatabaseManager:
         finally:
             session.close()
 
+    def get_symbols_for_auto_exclusion(self, 
+                                        min_trades: int = 10,
+                                        max_loss_threshold: float = -500.0,
+                                        profit_factor_threshold: float = 0.8,
+                                        win_rate_threshold: float = 0.40) -> List[Dict]:
+        """
+        Анализирует символы и возвращает список кандидатов на исключение.
+        
+        Критерии исключения:
+        - Минимум min_trades сделок для статистической значимости
+        - Общий убыток > max_loss_threshold (по модулю)
+        - Profit Factor < profit_factor_threshold
+        - Win Rate < win_rate_threshold
+        
+        Returns:
+            Список словарей: [{'symbol': 'EURUSD', 'total_profit': -500.5, 'trade_count': 20, 'pf': 0.65, 'wr': 0.35}]
+        """
+        session = self.Session()
+        try:
+            # Агрегируем статистику по символам из trade_history
+            query = session.query(
+                TradeHistory.symbol,
+                func.sum(TradeHistory.profit).label('total_profit'),
+                func.count(TradeHistory.id).label('trade_count'),
+                func.avg(TradeHistory.profit).label('avg_profit')
+            ).group_by(TradeHistory.symbol).having(
+                func.count(TradeHistory.id) >= min_trades
+            )
+            
+            results = query.all()
+            exclusion_candidates = []
+            
+            for row in results:
+                symbol = row.symbol
+                total_profit = row.total_profit or 0
+                trade_count = row.trade_count
+                avg_profit = row.avg_profit or 0
+                
+                # Получаем profit factor и win rate из strategy_performance
+                sp_query = session.query(
+                    func.avg(StrategyPerformance.profit_factor).label('avg_pf'),
+                    func.avg(StrategyPerformance.win_rate).label('avg_wr')
+                ).filter(
+                    StrategyPerformance.symbol == symbol,
+                    StrategyPerformance.trade_count > 0
+                )
+                sp_result = sp_query.first()
+                
+                avg_pf = sp_result.avg_pf if sp_result and sp_result.avg_pf else 0
+                avg_wr = sp_result.avg_wr if sp_result and sp_result.avg_wr else 0
+                
+                # Проверяем критерии исключения
+                should_exclude = False
+                reasons = []
+                
+                if total_profit < max_loss_threshold:
+                    should_exclude = True
+                    reasons.append(f"loss={total_profit:.2f}")
+                
+                if avg_pf < profit_factor_threshold and trade_count >= min_trades:
+                    should_exclude = True
+                    reasons.append(f"pf={avg_pf:.2f}")
+                
+                if avg_wr < win_rate_threshold and trade_count >= min_trades:
+                    should_exclude = True
+                    reasons.append(f"wr={avg_wr:.2f}")
+                
+                if should_exclude:
+                    exclusion_candidates.append({
+                        'symbol': symbol,
+                        'total_profit': total_profit,
+                        'trade_count': trade_count,
+                        'profit_factor': avg_pf,
+                        'win_rate': avg_wr,
+                        'avg_profit': avg_profit,
+                        'reasons': reasons
+                    })
+            
+            # Сортируем по худшей производительности
+            exclusion_candidates.sort(key=lambda x: x['total_profit'])
+            
+            logger.info(f"[AUTO-EXCLUDE] Найдено {len(exclusion_candidates)} кандидатов на исключение: "
+                       f"{[c['symbol'] for c in exclusion_candidates]}")
+            
+            return exclusion_candidates
+            
+        except Exception as e:
+            logger.error(f"Ошибка при анализе символов для исключения: {e}", exc_info=True)
+            return []
+        finally:
+            session.close()
+
+    def get_symbols_for_auto_inclusion(self, 
+                                        excluded_symbols: List[str],
+                                        min_trades: int = 5,
+                                        profit_factor_threshold: float = 1.2,
+                                        win_rate_threshold: float = 0.55) -> List[Dict]:
+        """
+        Анализирует исключенные символы и возвращает кандидатов на повторное включение.
+        
+        Критерии включения:
+        - Символ сейчас в списке исключенных
+        - Profit Factor > profit_factor_threshold (улучшение)
+        - Win Rate > win_rate_threshold
+        
+        Returns:
+            Список словарей: [{'symbol': 'EURUSD', 'total_profit': 250.5, 'trade_count': 15, 'pf': 1.5, 'wr': 0.60}]
+        """
+        session = self.Session()
+        try:
+            inclusion_candidates = []
+            
+            for symbol in excluded_symbols:
+                # Получаем свежую статистику
+                query = session.query(
+                    TradeHistory.symbol,
+                    func.sum(TradeHistory.profit).label('total_profit'),
+                    func.count(TradeHistory.id).label('trade_count')
+                ).filter(
+                    TradeHistory.symbol == symbol
+                ).group_by(TradeHistory.symbol).first()
+                
+                if not query:
+                    continue
+                    
+                total_profit = query.total_profit or 0
+                trade_count = query.trade_count
+                
+                # Получаем profit factor и win rate
+                sp_query = session.query(
+                    func.avg(StrategyPerformance.profit_factor).label('avg_pf'),
+                    func.avg(StrategyPerformance.win_rate).label('avg_wr')
+                ).filter(
+                    StrategyPerformance.symbol == symbol,
+                    StrategyPerformance.trade_count > 0
+                )
+                sp_result = sp_query.first()
+                
+                if not sp_result:
+                    continue
+                
+                avg_pf = sp_result.avg_pf or 0
+                avg_wr = sp_result.avg_wr or 0
+                
+                # Проверяем критерии включения
+                should_include = False
+                reasons = []
+                
+                if avg_pf > profit_factor_threshold and trade_count >= min_trades:
+                    should_include = True
+                    reasons.append(f"pf={avg_pf:.2f}> {profit_factor_threshold}")
+                
+                if avg_wr > win_rate_threshold and trade_count >= min_trades:
+                    should_include = True
+                    reasons.append(f"wr={avg_wr:.2f}> {win_rate_threshold}")
+                
+                # Также включаем, если общая прибыль положительная
+                if total_profit > 0 and trade_count >= min_trades * 2:
+                    should_include = True
+                    reasons.append(f"profit={total_profit:.2f}")
+                
+                if should_include:
+                    inclusion_candidates.append({
+                        'symbol': symbol,
+                        'total_profit': total_profit,
+                        'trade_count': trade_count,
+                        'profit_factor': avg_pf,
+                        'win_rate': avg_wr,
+                        'reasons': reasons
+                    })
+            
+            logger.info(f"[AUTO-INCLUDE] Найдено {len(inclusion_candidates)} кандидатов на включение: "
+                       f"{[c['symbol'] for c in inclusion_candidates]}")
+            
+            return inclusion_candidates
+            
+        except Exception as e:
+            logger.error(f"Ошибка при анализе символов для включения: {e}", exc_info=True)
+            return []
+        finally:
+            session.close()
+
     def find_weak_spots(self, profit_factor_threshold: float) -> List[Dict]:
         session = self.Session()
         try:

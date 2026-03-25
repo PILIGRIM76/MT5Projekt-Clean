@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Monitor App Logs",
+  "description": "Reads the last 50 lines of genesis_system.log every time user sends a message and reports errors, warnings or important events",
+  "version": "1",
+  "when": {
+    "type": "promptSubmit"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Read the last 50 lines of F:\\Enjen\\database\\logs\\genesis_system.log using PowerShell: Get-Content \"F:\\Enjen\\database\\logs\\genesis_system.log\" -Tail 50 -Encoding UTF8. Then analyze the output and report to the user: 1) Any ERROR or CRITICAL lines (show them), 2) Any WARNING lines that look important, 3) Current trading activity (trades opened/closed, cycles), 4) Overall system health. Be brief and in Russian."
+  }
+}

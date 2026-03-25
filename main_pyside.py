@@ -1,10 +1,35 @@
 # -*- coding: utf-8 -*-
 # main_pyside.py
-import asyncio
 import sys
 import os
 import logging
 from pathlib import Path
+
+# ===================================================================
+# === НАСТРОЙКА ЛОГИРОВАНИЯ (должно быть самым первым) ===
+# ===================================================================
+from src.utils.logger import setup_logger, get_logger
+
+# Создаём главный логгер приложения
+logger = setup_logger(
+    name='genesis',
+    level=logging.INFO,
+    log_to_file=True,
+    log_to_console=True,
+    rotation='daily',
+    backup_count=7
+)
+
+logger.info("=" * 60)
+logger.info("  Genesis Trading System - Запуск")
+logger.info("=" * 60)
+logger.info(f"Версия Python: {sys.version}")
+logger.info(f"Путь к скрипту: {Path(__file__).resolve()}")
+# ===================================================================
+
+import asyncio
+import logging
+import urllib3
 
 # ===================================================================
 # === ПРОВЕРКА КОНФИГУРАЦИИ ПЕРЕД ЗАПУСКОМ ===
@@ -80,12 +105,7 @@ def check_and_run_setup():
 check_and_run_setup()
 # ===================================================================
 
-# Инициализация логгера ДО его использования
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
 os.environ['CURL_CA_BUNDLE'] = ''
-import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import requests
 from requests.exceptions import SSLError
@@ -214,7 +234,6 @@ from src._version import __version__
 from src.strategies.strategy_loader import StrategyLoader
 from src.data.data_provider import DataProvider
 from src.core.config_models import Settings
-from src.gui.modern_main_window import ModernMainWindow
 from src.utils.scheduler_manager import SchedulerManager
 from PySide6.QtWebChannel import QWebChannel
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
@@ -1300,7 +1319,8 @@ class MainWindow(QMainWindow):
             self.bridge.status_updated.emit("AI-модели загружены. Система готова к запуску.", False)
             # Разблокируем кнопку (нужно делать через сигнал, чтобы быть потокобезопасным)
             self.bridge.heavy_initialization_finished.emit()
-            #self.start_button.setEnabled(True)
+            # Разблокируем кнопку после загрузки AI
+            self.start_button.setEnabled(True)
 
         # Запускаем воркера в отдельном потоке, чтобы не блокировать GUI
         init_thread = threading.Thread(target=worker, daemon=True)
@@ -2893,21 +2913,41 @@ class MainWindow(QMainWindow):
                 logger.debug(f"[GUI-Chart] График обрезан до 200 баров из {len(df)}")
             else:
                 df_chart = df
-            
+
             # Оптимизация: преобразование данных в numpy массивы для ускорения
             timestamps = df_chart.index.astype(np.int64) // 10 ** 9
             open_vals = df_chart['open'].values
             high_vals = df_chart['high'].values
             low_vals = df_chart['low'].values
             close_vals = df_chart['close'].values
-            
+
             candlestick_data = np.column_stack((timestamps, open_vals, high_vals, low_vals, close_vals))
             self.candlestick_item.setData(candlestick_data)
             logger.debug(f"[GUI-Chart] Данные свечей установлены: {len(candlestick_data)} баров")
-            
+
             # Обновление объема
             volume_vals = df_chart['tick_volume'].values
             self.volume_item.setOpts(x=timestamps, height=volume_vals)
+            
+            # === ИСПРАВЛЕНИЕ: Устанавливаем диапазон вручную с правильным масштабом ===
+            if len(timestamps) > 1:
+                # Вычисляем диапазон по X (время)
+                time_span = timestamps[-1] - timestamps[0]
+                x_padding = max(time_span * 0.1, 3600)  # Минимум 1 час отступ
+                x_min = timestamps[0] - x_padding
+                x_max = timestamps[-1] + x_padding
+                
+                # Вычисляем диапазон по Y (цена) с учетом волатильности
+                price_range = max(high_vals) - min(low_vals)
+                y_padding = max(price_range * 0.1, 1.0)  # Минимум 1 единица отступ
+                y_min = min(low_vals) - y_padding
+                y_max = max(high_vals) + y_padding
+                
+                # Применяем диапазон с небольшим отступом
+                self.price_plot.setXRange(x_min, x_max, padding=0.02)
+                self.price_plot.setYRange(y_min, y_max, padding=0.02)
+                logger.debug(f"[GUI-Chart] Диапазон установлен: X=[{x_min:.0f}, {x_max:.0f}] ({time_span/3600:.1f}ч), Y=[{y_min:.2f}, {y_max:.2f}] ({price_range:.2f})")
+            
             logger.info(f"[GUI-Chart] График {symbol} успешно обновлен, {len(candlestick_data)} баров отображено")
         except Exception as e:
             logger.error(f"[GUI-Chart] Ошибка при обновлении графика {symbol}: {e}", exc_info=True)

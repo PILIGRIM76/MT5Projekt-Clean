@@ -44,9 +44,7 @@
     "hour_sin",
     "hour_cos",
     "day_of_week_sin",
-    "day_of_week_cos",
-    "KG_CB_SENTIMENT",
-    "KG_INFLATION_SURPRISE"
+    "day_of_week_cos"
   ],
   "INTER_MARKET_SYMBOLS": [
     "DXY",
@@ -64,7 +62,8 @@
     ]
   },
   "IGNORE_HISTORICAL_DRAWDOWN_ON_START": true,
-  "TOP_N_SYMBOLS": 17,
+  "TOP_N_SYMBOLS": 18,
+  "MAX_OPEN_POSITIONS": 18,
   "screener_volatility": {
     "ideal_min_percent": 0.05,
     "ideal_max_percent": 0.5
@@ -80,28 +79,27 @@
     "trend": 0.3,
     "liquidity": 0.1
   },
-  "INPUT_LAYER_SIZE": 60,
-  "TRAINING_DATA_POINTS": 10000,
-  "PREDICTION_DATA_POINTS": 1000,
-  "GP_POPULATION_SIZE": 50,
-  "GP_GENERATIONS": 20,
-  "GP_MUTATION_RATE": 0.2,
-  "GP_CROSSOVER_RATE": 0.7,
-  "GP_ELITISM_SIZE": 2,
-  "GP_TOURNAMENT_SIZE": 5,
-  "ENTRY_THRESHOLD": 0.01,
-  "CONSENSUS_THRESHOLD": 0.05,
-  "SENTIMENT_THRESHOLD": 0.1,
-  "DIVERGENCE_BLOCK_MINUTES": 15,
-  "GP_TRIGGER_WIN_RATE": 0.55,
-  "GP_MIN_TRADES_SAMPLE": 10,
+  "INPUT_LAYER_SIZE": 30,
+  "TRAINING_DATA_POINTS": 5000,
+  "PREDICTION_DATA_POINTS": 500,
+  "GP_POPULATION_SIZE": 100,
+  "GP_GENERATIONS": 30,
+  "GP_MUTATION_RATE": 0.3,
+  "GP_CROSSOVER_RATE": 0.8,
+  "GP_ELITISM_SIZE": 5,
+  "GP_TOURNAMENT_SIZE": 7,
+  "ENTRY_THRESHOLD": 0.005,
+  "CONSENSUS_THRESHOLD": 0.005,
+  "SENTIMENT_THRESHOLD": 0.03,
+  "DIVERGENCE_BLOCK_MINUTES": 5,
+  "GP_TRIGGER_WIN_RATE": 0.45,
+  "GP_MIN_TRADES_SAMPLE": 5,
   "RISK_PERCENTAGE": 0.5,
   "DYNAMIC_RISK_MIN_PERCENT": 0.5,
   "STOP_LOSS_ATR_MULTIPLIER": 3.5,
   "RISK_REWARD_RATIO": 2.5,
   "MAX_DAILY_DRAWDOWN_PERCENT": 5.0,
   "MAX_PORTFOLIO_VAR_PERCENT": 3.0,
-  "MAX_OPEN_POSITIONS": 5,
   "MAX_PROFIT_PER_TRADE_PERCENT": 5.0,
   "PROFIT_TARGET_MODE": "manual",
   "PROFIT_TARGET_MANUAL_PERCENT": 5.0,
@@ -129,9 +127,9 @@
   },
   "STRATEGY_WEIGHTS": {
     "BreakoutStrategy": 1.0,
-    "MovingAverageCrossoverStrategy": 0.8,
-    "MeanReversionStrategy": 0.9,
-    "AdaptiveStrategy": 0.5
+    "MovingAverageCrossoverStrategy": 1.0,
+    "MeanReversionStrategy": 1.0,
+    "AdaptiveStrategy": 1.0
   },
   "strategies": {
     "breakout": {
@@ -144,9 +142,18 @@
     },
     "ma_crossover": {
       "timeframe_params": {
-        "default": {"short_window": 15, "long_window": 35},
-        "low": {"short_window": 10, "long_window": 25},
-        "high": {"short_window": 50, "long_window": 200}
+        "default": {
+          "short_window": 15,
+          "long_window": 35
+        },
+        "low": {
+          "short_window": 10,
+          "long_window": 25
+        },
+        "high": {
+          "short_window": 50,
+          "long_window": 200
+        }
       }
     }
   },
@@ -267,18 +274,18 @@
   "ALLOW_WEEKEND_TRADING": true,
   "WEEKEND_CLASSIC_STRATEGIES_ENABLED": true,
   "CRYPTO_THRESHOLDS": {
-    "profit_factor": 0.4,
-    "win_rate": 0.20,
+    "profit_factor": 0.3,
+    "win_rate": 0.15,
     "sharpe_ratio": -0.5,
     "max_drawdown": 30.0,
-    "total_trades": 5
+    "total_trades": 3
   },
   "FOREX_THRESHOLDS": {
-    "profit_factor": 0.5,
-    "win_rate": 0.25,
-    "sharpe_ratio": 0.1,
+    "profit_factor": 0.4,
+    "win_rate": 0.2,
+    "sharpe_ratio": 0.0,
     "max_drawdown": 20.0,
-    "total_trades": 10
+    "total_trades": 5
   },
   "TEMPORARY_RELAXED_MODE": true,
   "backtester_initial_balance": 10000.0,
@@ -328,7 +335,7 @@
   },
   "HF_MODELS_CACHE_DIR": "F:/Enjen/hub",
   "vector_db": {
-    "enabled": true,
+    "enabled": false,
     "path": "vector_db",
     "collection_name": "news_and_events",
     "embedding_model": "all-MiniLM-L6-v2",
@@ -366,8 +373,8 @@
     "min_window_size": 30
   },
   "CONSENSUS_WEIGHTS": {
-    "ai_forecast": 0.5,
-    "classic_strategies": 0.3,
+    "ai_forecast": 0.4,
+    "classic_strategies": 0.4,
     "sentiment_kg": 0.1,
     "on_chain_data": 0.1
   },
@@ -376,9 +383,9 @@
     "schedule_time": "02:00",
     "interval_hours": 1,
     "max_symbols": 30,
-    "max_workers": 3
+    "max_workers": 5
   },
-  "PROFIT_MODE": "auto",
+  "PROFIT_MODE": "manual",
   "TRADE_INTENSITY": "medium",
   "REENTRY_SAME_PAIR_MODE": "allowed",
   "REENTRY_SAME_PAIR_COOLDOWN_MINUTES": 30

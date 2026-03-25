@@ -139,7 +139,23 @@ class SignalService:
             is_crypto=is_crypto
         )
 
+        # === ИЗМЕНЕНИЕ: Если консенсус не достигнут, проверяем классические стратегии отдельно ===
         if final_signal_type == SignalType.HOLD:
+            # Если есть сильные классические сигналы, используем их
+            if classic_signals:
+                # Проверяем, есть ли единогласие среди классических стратегий
+                buy_count = sum(1 for s in classic_signals if s.type == SignalType.BUY)
+                sell_count = sum(1 for s in classic_signals if s.type == SignalType.SELL)
+                total = len(classic_signals)
+                
+                # Если 70%+ стратегий согласны, используем классический сигнал
+                if buy_count >= total * 0.7:
+                    logger.critical(f"[{symbol}] КОНСЕНСУС не достигнут, но КЛАССИЧЕСКИЕ стратегии голосуют за BUY ({buy_count}/{total})")
+                    return classic_signals[0], f"Classic_Consensus ({buy_count}/{total})", None, None, float(df['close'].iloc[-1])
+                elif sell_count >= total * 0.7:
+                    logger.critical(f"[{symbol}] КОНСЕНСУС не достигнут, но КЛАССИЧЕСКИЕ стратегии голосуют за SELL ({sell_count}/{total})")
+                    return classic_signals[0], f"Classic_Consensus ({sell_count}/{total})", None, None, float(df['close'].iloc[-1])
+            
             logger.info(
                 f"[{symbol}] Многофакторный консенсус не достигнут (Score: {final_score:.2f}). Сигнал отклонен.")
             return None

@@ -188,33 +188,49 @@ class TrainingScheduler:
     def _is_good_time_to_train(self) -> bool:
         """
         Проверяет, подходящее ли время для обучения.
+        
+        ВАЖНО: Для демо-счета (MT5_SERVER содержит 'Demo') обучение разрешено 24/7,
+        так как нет риска реальных финансовых потерь.
+        
+        Для реального счета:
         Желательно обучать, когда основные рынки закрыты.
         """
         now = datetime.now()
         current_time = now.time()
         weekday = now.weekday()  # 0=Monday, 6=Sunday
-        
+
+        # === ИЗМЕНЕНИЕ: Проверка типа счета ===
+        # Для демо-счета разрешаем обучение в любое время
+        if self.config and hasattr(self.config, 'MT5_SERVER'):
+            server_name = self.config.MT5_SERVER or ""
+            if 'demo' in server_name.lower() or 'Demo' in server_name:
+                logger.debug(f"[TrainingScheduler] Демо-счет ({server_name}): обучение разрешено 24/7")
+                return True
+
+        # Для реального счета - проверка времени
         # Выходные - хорошее время для обучения
         if weekday in [5, 6]:  # Saturday, Sunday
             return True
-        
+
         # В будние дни проверяем время
         # Forex торгуется 24/5, но есть "тихие часы"
         # Лучшее время: 00:00 - 06:00 по местному времени
         quiet_hours_start = dt_time(0, 0)
         quiet_hours_end = dt_time(6, 0)
-        
+
         if quiet_hours_start <= current_time <= quiet_hours_end:
             return True
-        
+
         # Также хорошо после закрытия американской сессии
         # (примерно 22:00 - 00:00 по Москве/GMT+3)
         late_hours_start = dt_time(22, 0)
         late_hours_end = dt_time(23, 59)
-        
+
         if late_hours_start <= current_time <= late_hours_end:
             return True
-        
+
+        # Для реального счета в активную сессию - блокировка
+        logger.debug(f"[TrainingScheduler] Реальный счет: обучение заблокировано до тихих часов")
         return False
     
     def trigger_manual_training(self):

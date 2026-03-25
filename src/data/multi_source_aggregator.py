@@ -110,6 +110,45 @@ class MultiSourceDataAggregator:
             return []
         return []
 
+    async def _load_all_news_async(self) -> Tuple[List[NewsItem], Optional[int], Optional[Dict[str, Any]]]:
+        """
+        Загружает все новости из доступных источников.
+        Возвращает кортеж: (список новостей, fear_greed_index, on_chain_data)
+        """
+        logger.info("Загрузка новостей из всех источников...")
+        
+        all_news = []
+        fear_greed_index = None
+        on_chain_data = None
+        
+        try:
+            # Загружаем новости из различных источников
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # 1. Fear & Greed Index
+                fear_greed_index = await self._fetch_fear_and_greed_index_async(client)
+                
+                # 2. Economic Calendar
+                calendar_news = self._fetch_economic_calendar()
+                all_news.extend(calendar_news)
+                
+                # 3. News API
+                api_news = self._fetch_news_api()
+                all_news.extend(api_news)
+                
+                # 4. RSS Feeds
+                rss_news = self._fetch_rss()
+                all_news.extend(rss_news)
+                
+                # 5. On-chain данные (для криптовалют)
+                on_chain_data = await self._fetch_binance_open_interest_async(client)
+                
+            logger.info(f"Загружено {len(all_news)} новостей из всех источников")
+            
+        except Exception as e:
+            logger.error(f"Ошибка загрузки новостей: {e}", exc_info=True)
+        
+        return all_news, fear_greed_index, on_chain_data
+
     def _fetch_twitter_scrape(self) -> List[NewsItem]:
         return []
 
@@ -263,14 +302,24 @@ class MultiSourceDataAggregator:
         available_symbols = self.config.SYMBOLS_WHITELIST
         timeframes_to_check = list(self.config.optimizer.timeframes_to_check.values())
 
+        # Задача для получения рыночных данных
         data_task = asyncio.create_task(
             self.data_provider.get_all_symbols_data_async(available_symbols, timeframes_to_check))
         tasks = [data_task]
 
-        if self.news_cache is None or (self.last_news_fetch_time and (
-                datetime.now() - self.last_news_fetch_time).total_seconds() > self.config.NEWS_CACHE_DURATION_MINUTES * 60):
-            # Убираем рекурсивный вызов, так как мы уже в этом методе
-            news_task = None
+        # Задача для получения новостей (если кэш устарел или пуст)
+        news_task = None
+        should_fetch_news = (
+            self.news_cache is None or 
+            len(self.news_cache) == 0 or
+            (self.last_news_fetch_time and 
+             (datetime.now() - self.last_news_fetch_time).total_seconds() > self.config.NEWS_CACHE_DURATION_MINUTES * 60)
+        )
+        
+        if should_fetch_news:
+            logger.info(f"Загрузка новостей (кэш: {len(self.news_cache) if self.news_cache else 0} записей)")
+            news_task = asyncio.create_task(self._load_all_news_async())
+            tasks.append(news_task)
             self.last_news_fetch_time = datetime.now()
 
         results = await asyncio.gather(*tasks, return_exceptions=True)

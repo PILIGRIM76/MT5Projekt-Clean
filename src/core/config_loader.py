@@ -26,7 +26,24 @@ def _get_default_settings_dict() -> dict:
         "MT5_PATH": "",
         "DATABASE_FOLDER": "database",
         "vector_db": {"enabled": True, "path": "database/vector_db", "embedding_model": "all-MiniLM-L6-v2"},
-        "CONSENSUS_WEIGHTS": {"ai_forecast": 0.5, "classic_strategies": 0.3, "sentiment_kg": 0.1, "on_chain_data": 0.1}
+        "CONSENSUS_WEIGHTS": {"ai_forecast": 0.5, "classic_strategies": 0.3, "sentiment_kg": 0.1, "on_chain_data": 0.1},
+        "strategies": {
+            "breakout": {
+                "window": 15
+            },
+            "mean_reversion": {
+                "window": 50,
+                "std_dev_multiplier": 1.9,
+                "confirmation_buffer_std_dev_fraction": 0.05
+            },
+            "ma_crossover": {
+                "timeframe_params": {
+                    "default": {"short_window": 15, "long_window": 35},
+                    "low": {"short_window": 10, "long_window": 25},
+                    "high": {"short_window": 50, "long_window": 200}
+                }
+            }
+        }
     }
 
 

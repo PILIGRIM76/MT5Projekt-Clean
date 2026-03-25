@@ -7,7 +7,7 @@ import time as standard_time
 import torch
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, timezone
 from typing import Optional, Dict, List, Any, Tuple
 import asyncio
 import sys
@@ -365,13 +365,16 @@ class TradingSystem(QObject):
         self.training_thread = threading.Thread(target=self._training_loop, daemon=True, name="TrainingThread")
         self.vector_db_cleanup_thread = threading.Thread(target=self._vector_db_cleanup_loop, daemon=True,
                                                          name="VectorDBCleanupThread")
+        self.symbol_monitor_thread = threading.Thread(target=self._symbol_performance_monitor_loop, daemon=True,
+                                                      name="SymbolMonitorThread")
 
         threads_to_start = {
             "History Sync": self.history_sync_thread, "Trading": self.trading_thread,
             "Monitoring": self.monitoring_thread, "Uptime": self.uptime_thread,
             "Orchestrator": self.orchestrator_thread, "DB Writer": self.db_writer_thread,
             "XAI Worker": self.xai_worker_thread, "Training": self.training_thread,
-            "VectorDB Cleanup": self.vector_db_cleanup_thread
+            "VectorDB Cleanup": self.vector_db_cleanup_thread,
+            "Symbol Monitor": self.symbol_monitor_thread
         }
 
         for name, thread in threads_to_start.items():
@@ -393,6 +396,31 @@ class TradingSystem(QObject):
                 logger.critical("Не удалось подключиться к MT5.")
                 if self.gui: self.gui.bridge.initialization_failed.emit()
                 return
+            
+            # === ПРОВЕРКА АВТОТОРГОВЛИ ===
+            try:
+                auto_trading_enabled = mt5.TerminalInfo(mt5.TERMINAL_TRADE_ALLOWED)
+                if not auto_trading_enabled:
+                    logger.critical("=" * 60)
+                    logger.critical("⚠️  АВТОТОРГОВЛЯ ОТКЛЮЧЕНА В MT5!")
+                    logger.critical("=" * 60)
+                    logger.critical("Система НЕ сможет открывать сделки!")
+                    logger.critical("")
+                    logger.critical("Чтобы включить:")
+                    logger.critical("  1. Откройте MetaTrader 5")
+                    logger.critical("  2. Нажмите кнопку 'Algo Trading' (или Ctrl+E)")
+                    logger.critical("  3. Убедитесь, что горит зелёный индикатор")
+                    logger.critical("=" * 60)
+                    
+                    # Отправляем уведомление в GUI
+                    if self.gui and hasattr(self.gui, 'bridge'):
+                        self.gui.bridge.update_status.emit(
+                            "⚠️ АВТОТОРГОВЛЯ ОТКЛЮЧЕНА! Включите в MT5 (Ctrl+E)",
+                            True
+                        )
+            except Exception as e:
+                logger.warning(f"Не удалось проверить статус автоторговли: {e}")
+            # ============================
 
         if not self.is_heavy_init_complete:
             self.initialize_heavy_components()
@@ -530,8 +558,16 @@ class TradingSystem(QObject):
             # 2. Сбор новостей (Асинхронно)
             news_task = None
             now = datetime.now()
-            if not self.news_cache or (self.last_news_fetch_time and (
-                    now - self.last_news_fetch_time).total_seconds() > self.config.NEWS_CACHE_DURATION_MINUTES * 60):
+            # Загружаем новости, если кэш пуст ИЛИ прошло больше NEWS_CACHE_DURATION_MINUTES
+            should_fetch_news = (
+                not self.news_cache or 
+                len(self.news_cache) == 0 or
+                (self.last_news_fetch_time is None) or
+                (now - self.last_news_fetch_time).total_seconds() > self.config.NEWS_CACHE_DURATION_MINUTES * 60
+            )
+            
+            if should_fetch_news:
+                logger.info(f"[News] Загрузка новостей (кэш: {len(self.news_cache) if self.news_cache else 0} записей, last_fetch: {self.last_news_fetch_time})")
                 news_task = asyncio.create_task(self.data_aggregator.aggregate_all_sources_async())
                 self.last_news_fetch_time = now
 
@@ -558,6 +594,11 @@ class TradingSystem(QObject):
                 data_dict_raw = results[0]
                 news_result_tuple = results[1] if news_task else None
 
+                # Проверяем, не вернула ли новость ошибку
+                if news_result_tuple and isinstance(news_result_tuple, Exception):
+                    logger.error(f"[VectorDB] Ошибка при загрузке новостей: {news_result_tuple}")
+                    news_result_tuple = None
+
                 # Если данные не пришли — выходим
                 if not data_dict_raw or isinstance(data_dict_raw, Exception):
                     logger.warning(f"run_cycle: Данные из MT5 не получены. Ошибка: {data_dict_raw}")
@@ -581,30 +622,41 @@ class TradingSystem(QObject):
 
             # Обработка новостей для VectorDB (с максимальной защитой от крашей)
             try:
+                # Отладочные логи
+                has_news = news_result_tuple is not None and not isinstance(news_result_tuple, Exception)
+                news_count = len(news_result_tuple[0]) if has_news else 0
+                vdb_ready = self.vector_db_manager.is_ready() if self.vector_db_manager else False
+                
+                logger.info(f"[VectorDB-DEBUG] has_news={has_news}, news_count={news_count}, vdb_ready={vdb_ready}")
+                
                 if news_result_tuple and not isinstance(news_result_tuple, Exception):
                     all_items, _, _ = news_result_tuple
-                    if all_items and self.vector_db_manager and self.vector_db_manager.is_ready():
-                        logger.info(f"[VectorDB] Получено {len(all_items)} новостей для обработки")
-                        
+                    logger.info(f"[VectorDB] Получено {len(all_items)} новостей для обработки")
+                    
+                    if not all_items:
+                        logger.warning("[VectorDB] Список новостей пуст")
+                    elif not self.vector_db_manager:
+                        logger.warning("[VectorDB] vector_db_manager = None")
+                    elif not self.vector_db_manager.is_ready():
+                        logger.warning("[VectorDB] VectorDB не готов (is_ready=False)")
+                    else:
                         # Ограничиваем количество новостей для обработки (защита от перегрузки)
-                        max_news_per_cycle = 5
+                        max_news_per_cycle = 20  # Увеличено с 5 до 20
                         if len(all_items) > max_news_per_cycle:
                             logger.warning(f"[VectorDB] Ограничение: обработка только {max_news_per_cycle} из {len(all_items)} новостей")
                             all_items = all_items[:max_news_per_cycle]
-                        
+
                         # Запускаем фоновую обработку новостей с защитой от ошибок
                         try:
                             asyncio.create_task(self._process_news_background(all_items))
                             logger.info(f"[VectorDB] Фоновая обработка {len(all_items)} новостей запущена")
                         except Exception as news_error:
                             logger.error(f"[VectorDB] Ошибка при запуске фоновой обработки: {news_error}", exc_info=True)
-                    else:
-                        if not all_items:
-                            logger.debug("[VectorDB] Новостей для обработки нет")
-                        elif not self.vector_db_manager or not self.vector_db_manager.is_ready():
-                            logger.debug("[VectorDB] VectorDB не готов, пропуск обработки новостей")
                 else:
-                    logger.debug("[VectorDB] Новости не получены или произошла ошибка")
+                    if isinstance(news_result_tuple, Exception):
+                        logger.error(f"[VectorDB] Новости вернули ошибку: {news_result_tuple}")
+                    else:
+                        logger.warning("[VectorDB] Новости не получены (news_result_tuple = None)")
             except Exception as e:
                 logger.error(f"[VectorDB] Критическая ошибка при обработке новостей: {e}", exc_info=True)
                 # Продолжаем работу системы даже при ошибке обработки новостей
@@ -616,7 +668,13 @@ class TradingSystem(QObject):
             self.start_performance_timer("rank_symbols")
             data_dict = {key: df for key, df in data_dict_raw.items()}
             ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict)
-            logger.info(f"[Orchestrator] Ранжирование завершено. Топ символов: {len(ranked_symbols)}")
+            
+            # === ТОРГОВЛЯ ВСЕМИ ИНСТРУМЕНТАМИ ===
+            # Используем ВСЕ доступные символы вместо топ-N
+            # ranked_symbols уже содержит все символы благодаря TOP_N_SYMBOLS = 18
+            logger.info(f"[Orchestrator] Ранжирование завершено. Торгую всеми {len(ranked_symbols)} символами из {len(full_ranked_list)} доступных")
+            
+            # === ТОРГОВЛЯ ВСЕМИ ИНСТРУМЕНТАМИ ===
 
             # --- ВАЖНО: Сохраняем список для R&D ---
             self.latest_full_ranked_list = full_ranked_list
@@ -755,8 +813,8 @@ class TradingSystem(QObject):
             if is_forex_weekend:
                 # В выходные фильтруем только 24/7 инструменты (криптовалюты)
                 original_count = len(ranked_symbols)
-                ranked_symbols = [
-                    s for s in ranked_symbols 
+                crypto_symbols = [
+                    s for s in ranked_symbols
                     if any([
                         'BTC' in s.upper(),
                         'BITCOIN' in s.upper(),
@@ -766,8 +824,18 @@ class TradingSystem(QObject):
                         'USDT' in s.upper(),
                     ])
                 ]
-                if ranked_symbols:
-                    logger.info(f"[Weekend Mode] Forex рынок закрыт. Торговля только 24/7 инструментами: {ranked_symbols} (было {original_count}, осталось {len(ranked_symbols)})")
+                
+                # Проверяем, разрешены ли классические стратегии в выходные
+                weekend_classic_enabled = getattr(self.config, 'WEEKEND_CLASSIC_STRATEGIES_ENABLED', True)
+                
+                if crypto_symbols:
+                    ranked_symbols = crypto_symbols
+                    if weekend_classic_enabled:
+                        logger.info(f"[Weekend Mode] Forex рынок закрыт. Торговля криптовалютами: {ranked_symbols} (было {original_count}, осталось {len(ranked_symbols)})")
+                        logger.info(f"[Weekend Mode] Классические стратегии РАЗРЕШЕНЫ (Breakout, MA Crossover, Mean Reversion)")
+                        logger.info(f"[Weekend Mode] AI-модели также участвуют в торговле (сниженные пороги для крипты)")
+                    else:
+                        logger.info(f"[Weekend Mode] Forex рынок закрыт. Торговля только 24/7 инструментами: {ranked_symbols} (было {original_count}, осталось {len(ranked_symbols)})")
                 else:
                     logger.debug(f"[Weekend Mode] Нет доступных 24/7 инструментов для торговли в выходные")
                     self.end_performance_timer("run_cycle_total")
@@ -830,6 +898,98 @@ class TradingSystem(QObject):
                     logger.error(f"[VectorDB] Ошибка в цикле очистки: {e}")
             self.stop_event.wait(cleanup_interval)
         logger.info("[VectorDB] Цикл обслуживания остановлен.")
+
+    def _symbol_performance_monitor_loop(self):
+        """
+        Фоновый цикл для автоматического анализа производительности символов.
+        Исключает убыточные символы и включает обратно прибыльные.
+        Интервал: каждые 6 часов (или после 50 новых сделок).
+        """
+        logger.info("=== Запуск мониторинга производительности символов ===")
+        check_interval = 6 * 3600  # 6 часов
+        last_trade_count = 0
+        
+        self.stop_event.wait(300)  # Первая проверка через 5 минут после запуска
+        
+        while not self.stop_event.is_set():
+            try:
+                # Проверка количества новых сделок
+                current_trade_count = len(self.trade_history)
+                new_trades = current_trade_count - last_trade_count
+                
+                # Запускаем анализ если прошло 6 часов ИЛИ есть 50+ новых сделок
+                if new_trades >= 50 or (self.stop_event.wait(check_interval) and not self.stop_event.is_set()):
+                    logger.info("[SYMBOL-MONITOR] Запуск анализа производительности символов...")
+                    
+                    # 1. Получаем текущие исключенные символы
+                    current_excluded = set(self.config.EXCLUDED_SYMBOLS) if hasattr(self.config, 'EXCLUDED_SYMBOLS') else set()
+                    
+                    # 2. Анализируем символы на исключение
+                    candidates_for_exclusion = self.db_manager.get_symbols_for_auto_exclusion(
+                        min_trades=10,
+                        max_loss_threshold=-500.0,
+                        profit_factor_threshold=0.8,
+                        win_rate_threshold=0.40
+                    )
+                    
+                    # 3. Анализируем исключенные символы на включение
+                    candidates_for_inclusion = self.db_manager.get_symbols_for_auto_inclusion(
+                        excluded_symbols=list(current_excluded),
+                        min_trades=5,
+                        profit_factor_threshold=1.2,
+                        win_rate_threshold=0.55
+                    )
+                    
+                    # 4. Применяем исключения
+                    symbols_to_exclude = []
+                    for candidate in candidates_for_exclusion:
+                        symbol = candidate['symbol']
+                        if symbol not in current_excluded:
+                            symbols_to_exclude.append(symbol)
+                            logger.critical(f"[SYMBOL-MONITOR] ИСКЛЮЧЕНИЕ: {symbol} - "
+                                          f"Убыток: {candidate['total_profit']:.2f}, "
+                                          f"PF: {candidate['profit_factor']:.2f}, "
+                                          f"WR: {candidate['win_rate']:.2f} | "
+                                          f"Причины: {', '.join(candidate['reasons'])}")
+                    
+                    # 5. Применяем включения
+                    symbols_to_include = []
+                    for candidate in candidates_for_inclusion:
+                        symbol = candidate['symbol']
+                        if symbol in current_excluded:
+                            symbols_to_include.append(symbol)
+                            logger.critical(f"[SYMBOL-MONITOR] ВКЛЮЧЕНИЕ: {symbol} - "
+                                          f"Прибыль: {candidate['total_profit']:.2f}, "
+                                          f"PF: {candidate['profit_factor']:.2f}, "
+                                          f"WR: {candidate['win_rate']:.2f} | "
+                                          f"Причины: {', '.join(candidate['reasons'])}")
+                    
+                    # 6. Обновляем конфигурацию
+                    if symbols_to_exclude or symbols_to_include:
+                        new_excluded = list(current_excluded)
+                        new_excluded.extend(symbols_to_exclude)
+                        new_excluded = [s for s in new_excluded if s not in symbols_to_include]
+                        new_excluded = list(set(new_excluded))  # Удаляем дубликаты
+                        
+                        # Обновляем конфигурацию
+                        self.config.EXCLUDED_SYMBOLS = new_excluded
+                        self.data_provider.excluded_symbols = new_excluded
+                        
+                        logger.critical(f"[SYMBOL-MONITOR] ОБНОВЛЕНО: Исключенные символы = {new_excluded}")
+                        
+                        # Отправляем уведомление в GUI
+                        if self.gui:
+                            self._safe_gui_update('update_status', 
+                                f"Авто-обновление символов: -{len(symbols_to_exclude)} +{len(symbols_to_include)}",
+                                is_error=False)
+                    
+                    last_trade_count = current_trade_count
+                    
+            except Exception as e:
+                logger.error(f"[SYMBOL-MONITOR] Ошибка в цикле мониторинга: {e}", exc_info=True)
+                self.stop_event.wait(60)
+        
+        logger.info("[SYMBOL-MONITOR] Цикл мониторинга символов остановлен.")
 
     # --- ОСТАЛЬНЫЕ МЕТОДЫ (БЕЗ ИЗМЕНЕНИЙ) ---
     def _continuous_training_cycle(self):
@@ -1063,11 +1223,12 @@ class TradingSystem(QObject):
         self.web_server.broadcast_market_regime(regime)
 
     def get_vector_db_stats(self) -> Dict[str, Any]:
-        if not self.vector_db_manager: 
+        if not self.vector_db_manager:
             logger.debug("[VectorDB] Менеджер не инициализирован")
             return {"is_ready": False, "count": 0}
         count = 0
-        if self.vector_db_manager.index: count = self.vector_db_manager.index.ntotal
+        if hasattr(self.vector_db_manager, 'index') and self.vector_db_manager.index:
+            count = self.vector_db_manager.index.ntotal
         is_ready = self.vector_db_manager.is_ready()
         logger.info(f"[VectorDB] Статистика: готов={is_ready}, документов={count}")
         return {"is_ready": is_ready, "count": count}
@@ -1557,10 +1718,17 @@ class TradingSystem(QObject):
                                 source = item.get('source', 'unknown')
                                 timestamp_iso = item.get('timestamp')
                                 if hasattr(timestamp_iso, 'isoformat'):
-                                    timestamp = timestamp_iso.isoformat()
+                                    # Проверяем, есть ли timezone
+                                    if timestamp_iso.tzinfo is None:
+                                        # NAIVE datetime - добавляем UTC timezone
+                                        timestamp = timestamp_iso.replace(tzinfo=timezone.utc).isoformat()
+                                    else:
+                                        # AWARE datetime - просто конвертируем
+                                        timestamp = timestamp_iso.isoformat()
                                 else:
                                     # datetime уже импортирован глобально
-                                    timestamp = timestamp_iso if timestamp_iso else datetime.now().isoformat()
+                                    # Используем timezone-aware datetime
+                                    timestamp = timestamp_iso if timestamp_iso else datetime.now(timezone.utc).isoformat()
                             else:
                                 logger.warning(f"Неподдерживаемый тип новости: {type(item)}")
                                 return
@@ -1783,38 +1951,83 @@ class TradingSystem(QObject):
         except Exception as e:
             logging.error(f"Ошибка при переинициализации компонентов: {e}", exc_info=True)
 
-    def _validate_model_metrics(self, backtest_results: Dict) -> bool:
+    def _validate_model_metrics(self, backtest_results: Dict, symbol: str = "UNKNOWN") -> bool:
         """
         CRITICAL: Reject models that don't meet minimum profitability criteria.
         Это защита от убыточных моделей на реальном счёте.
+        
+        Args:
+            backtest_results: Словарь с результатами бэктеста
+            symbol: Название символа для определения типа актива (crypto/forex)
         """
         profit_factor = backtest_results.get('profit_factor', 0)
         win_rate = backtest_results.get('win_rate', 0)
         sharpe_ratio = backtest_results.get('sharpe_ratio', 0)
         max_drawdown = backtest_results.get('max_drawdown', 100)
         total_trades = backtest_results.get('total_trades', 0)
-        
+
+        # Проверяем, является ли символ криптовалютой
+        is_crypto = any([
+            'BTC' in symbol.upper(),
+            'BITCOIN' in symbol.upper(),
+            'ETH' in symbol.upper(),
+            'ETHEREUM' in symbol.upper(),
+            'CRYPTO' in symbol.upper(),
+            'USDT' in symbol.upper(),
+        ])
+
+        # Проверяем временный режим со сниженными порогами
+        relaxed_mode = getattr(self.config, 'TEMPORARY_RELAXED_MODE', False)
+
+        # Определяем пороги в зависимости от типа актива
+        if is_crypto and hasattr(self.config, 'CRYPTO_THRESHOLDS'):
+            # Используем сниженные пороги для криптовалют
+            thresholds = self.config.CRYPTO_THRESHOLDS
+            pf_threshold = thresholds.get('profit_factor', 1.2)
+            wr_threshold = thresholds.get('win_rate', 0.35)
+            sharpe_threshold = thresholds.get('sharpe_ratio', 0.5)
+            dd_threshold = thresholds.get('max_drawdown', 15.0)
+            trades_threshold = thresholds.get('total_trades', 20)
+            logger.info(f"[CRYPTO MODE] {symbol}: используются сниженные пороги (PF>{pf_threshold}, WR>{wr_threshold*100}%, DD<{dd_threshold}%)")
+        elif relaxed_mode and hasattr(self.config, 'FOREX_THRESHOLDS'):
+            # Временный режим: используем сниженные пороги для Forex
+            thresholds = self.config.FOREX_THRESHOLDS
+            pf_threshold = thresholds.get('profit_factor', 1.2)
+            wr_threshold = thresholds.get('win_rate', 0.35)
+            sharpe_threshold = thresholds.get('sharpe_ratio', 0.5)
+            dd_threshold = thresholds.get('max_drawdown', 12.0)
+            trades_threshold = thresholds.get('total_trades', 30)
+            logger.info(f"[RELAXED MODE] {symbol}: временные сниженные пороги (PF>{pf_threshold}, WR>{wr_threshold*100}%, DD<{dd_threshold}%)")
+        else:
+            # Стандартные пороги для Forex
+            pf_threshold = 1.5
+            wr_threshold = 0.40
+            sharpe_threshold = 1.0
+            dd_threshold = 10.0
+            trades_threshold = 50
+            logger.info(f"[STANDARD MODE] {symbol}: стандартные пороги (PF>{pf_threshold}, WR>{wr_threshold*100}%, DD<{dd_threshold}%)")
+
         # CRITICAL THRESHOLDS - модель должна пройти ВСЕ проверки
-        if profit_factor < 1.5:
-            logger.critical(f"❌ MODEL REJECTED: Profit Factor {profit_factor:.2f} < 1.5 (убыточная модель)")
+        if profit_factor < pf_threshold:
+            logger.critical(f"❌ MODEL REJECTED: Profit Factor {profit_factor:.2f} < {pf_threshold} (убыточная модель)")
             return False
-        
-        if win_rate < 0.40:
-            logger.critical(f"❌ MODEL REJECTED: Win Rate {win_rate:.2%} < 40% (низкая точность)")
+
+        if win_rate < wr_threshold:
+            logger.critical(f"❌ MODEL REJECTED: Win Rate {win_rate:.2%} < {wr_threshold*100}% (низкая точность)")
             return False
-        
-        if sharpe_ratio < 1.0:
-            logger.critical(f"❌ MODEL REJECTED: Sharpe Ratio {sharpe_ratio:.2f} < 1.0 (плохое соотношение риск/доходность)")
+
+        if sharpe_ratio < sharpe_threshold:
+            logger.critical(f"❌ MODEL REJECTED: Sharpe Ratio {sharpe_ratio:.2f} < {sharpe_threshold} (плохое соотношение риск/доходность)")
             return False
-        
-        if max_drawdown > 10.0:
-            logger.critical(f"❌ MODEL REJECTED: Max Drawdown {max_drawdown:.2f}% > 10% (слишком рискованная)")
+
+        if max_drawdown > dd_threshold:
+            logger.critical(f"❌ MODEL REJECTED: Max Drawdown {max_drawdown:.2f}% > {dd_threshold}% (слишком рискованная)")
             return False
-        
-        if total_trades < 50:
-            logger.critical(f"❌ MODEL REJECTED: Total Trades {total_trades} < 50 (недостаточно данных)")
+
+        if total_trades < trades_threshold:
+            logger.critical(f"❌ MODEL REJECTED: Total Trades {total_trades} < {trades_threshold} (недостаточно данных)")
             return False
-        
+
         logger.critical(f"✅ MODEL ACCEPTED: PF={profit_factor:.2f}, WR={win_rate:.2%}, Sharpe={sharpe_ratio:.2f}, DD={max_drawdown:.1f}%, Trades={total_trades}")
         return True
 
@@ -1990,9 +2203,11 @@ class TradingSystem(QObject):
                                       risk_config=self.config.model_dump())
             backtest_report = backtester.run()
             logger.warning(f"Полный отчет о производительности для нового чемпиона: {backtest_report}")
-            
-            # CRITICAL: Validate model before accepting
-            if not self._validate_model_metrics(backtest_report):
+
+            # CRITICAL: Validate model before accepting (нужен symbol для определения порогов)
+            # Получаем символ из компонентов победителя
+            winner_symbol = winner_components.get('symbol', 'UNKNOWN')
+            if not self._validate_model_metrics(backtest_report, winner_symbol):
                 logger.critical(f"!!! МОДЕЛЬ ID {best_challenger_id} ОТКЛОНЕНА ВАЛИДАЦИЕЙ !!!")
                 logger.critical("Модель не будет использоваться для торговли. Требуется переобучение с большим количеством данных.")
                 return
