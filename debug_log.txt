@@ -1,0 +1,21 @@
+2026-03-26 12:58:19 | INFO     | genesis | <module>:70 | ============================================================
+26-Mar-26 12:58:19 - ============================================================
+2026-03-26 12:58:19 | INFO     | genesis | <module>:71 |   Genesis Trading System - Запуск
+26-Mar-26 12:58:19 -   Genesis Trading System - Запуск
+2026-03-26 12:58:19 | INFO     | genesis | <module>:72 | ============================================================
+26-Mar-26 12:58:19 - ============================================================
+2026-03-26 12:58:19 | INFO     | genesis | <module>:73 | Версия Python: 3.14.2 (tags/v3.14.2:df79316, Dec  5 2025, 17:18:21) [MSC v.1944 64 bit (AMD64)]
+26-Mar-26 12:58:19 - Версия Python: 3.14.2 (tags/v3.14.2:df79316, Dec  5 2025, 17:18:21) [MSC v.1944 64 bit (AMD64)]
+2026-03-26 12:58:19 | INFO     | genesis | <module>:74 | Путь к скрипту: F:\MT5Qoder\MT5Projekt-Clean\main_pyside.py
+26-Mar-26 12:58:19 - Путь к скрипту: F:\MT5Qoder\MT5Projekt-Clean\main_pyside.py
+26-Mar-26 12:58:19 - Конфигурация загружена из F:\MT5Qoder\MT5Projekt-Clean\configs\settings.json
+26-Mar-26 12:58:19 - Переменные окружения загружены из F:\MT5Qoder\MT5Projekt-Clean\configs\.env
+26-Mar-26 12:58:19 - Конфигурация успешно прошла валидацию Pydantic.
+26-Mar-26 12:58:19 - Конфигурация загружена из F:\MT5Qoder\MT5Projekt-Clean\configs\settings.json
+26-Mar-26 12:58:19 - Переменные окружения загружены из F:\MT5Qoder\MT5Projekt-Clean\configs\.env
+26-Mar-26 12:58:19 - Конфигурация успешно прошла валидацию Pydantic.
+26-Mar-26 12:58:19 - Звук 'trade_open' успешно загружен из trade_open.mp3
+26-Mar-26 12:58:19 - Звук 'error' успешно загружен из error.mp3
+26-Mar-26 12:58:19 - Звук 'system_start' успешно загружен из system_start.mp3
+26-Mar-26 12:58:19 - Звук 'system_stop' успешно загружен из system_stop.mp3
+26-Mar-26 12:58:19 - Звук 'alert' успешно загружен из alert.mp3

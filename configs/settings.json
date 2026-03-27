@@ -102,7 +102,7 @@
   "MAX_PORTFOLIO_VAR_PERCENT": 3.0,
   "MAX_PROFIT_PER_TRADE_PERCENT": 20.0,
   "PROFIT_TARGET_MODE": "manual",
-  "PROFIT_TARGET_MANUAL_PERCENT": 5.0,
+  "PROFIT_TARGET_MANUAL_PERCENT": 10.0,
   "REENTRY_COOLDOWN_AFTER_PROFIT": 10,
   "REENTRY_COOLDOWN_AFTER_LOSS": 30,
   "REENTRY_COOLDOWN_AFTER_BREAKEVEN": 45,
@@ -119,11 +119,11 @@
     "INFLATION"
   ],
   "STRATEGY_REGIME_MAPPING": {
-    "Default": "AI_Model",
+    "Default": "MovingAverageCrossoverStrategy",
     "High Volatility Range": "BreakoutStrategy",
     "Low Volatility Range": "MeanReversionStrategy",
     "Strong Trend": "MovingAverageCrossoverStrategy",
-    "Weak Trend": "AI_Model"
+    "Weak Trend": "MovingAverageCrossoverStrategy"
   },
   "STRATEGY_WEIGHTS": {
     "BreakoutStrategy": 1.0,
@@ -217,7 +217,7 @@
   "DATABASE_NAME": "trading_system.db",
   "LOGS_FOLDER": "F:/Enjen/database\\logs",
   "TRADE_INTERVAL_SECONDS": 15,
-  "TRAINING_INTERVAL_SECONDS": 86400,
+  "TRAINING_INTERVAL_SECONDS": 1800,
   "EXCLUDED_SYMBOLS": [
     "USDRUB",
     "EURRUB"
@@ -295,7 +295,7 @@
   },
   "orchestrator": {
     "decision_interval_seconds": 14400,
-    "training_interval_seconds": 604800
+    "training_interval_seconds": 1800
   },
   "risk": {
     "confidence_risk_map": {
@@ -335,7 +335,7 @@
   },
   "HF_MODELS_CACHE_DIR": "F:/Enjen/hub",
   "vector_db": {
-    "enabled": false,
+    "enabled": true,
     "path": "vector_db",
     "collection_name": "news_and_events",
     "embedding_model": "all-MiniLM-L6-v2",
@@ -364,7 +364,7 @@
   "STRATEGY_MIN_WIN_RATE_THRESHOLD": 0.45,
   "orchestrator_settings": {
     "decision_interval_seconds": 14400,
-    "training_interval_seconds": 604800
+    "training_interval_seconds": 1800
   },
   "ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION": false,
   "concept_drift": {
@@ -385,8 +385,8 @@
     "max_symbols": 30,
     "max_workers": 5
   },
-  "PROFIT_MODE": "manual",
+  "PROFIT_MODE": "auto",
   "TRADE_INTENSITY": "medium",
-  "REENTRY_SAME_PAIR_MODE": "allowed",
+  "REENTRY_SAME_PAIR_MODE": "cooldown",
   "REENTRY_SAME_PAIR_COOLDOWN_MINUTES": 30
 }

@@ -34,16 +34,26 @@ class VectorDBManager:
 
     def __init__(self, config: VectorDBSettings, db_root_path=None):
         self.config = config
-        # ... (пропуск инициализации переменных) ...
-
+        
         # --- ИСПРАВЛЕНИЕ ЛОГИКИ ПУТИ ---
         if db_root_path is not None:
             # Используем ПЕРЕДАННЫЙ полный путь (из TradingSystem)
-            self.db_path = db_root_path
+            self.db_path = Path(db_root_path)
         else:
             # Используем путь из конфига (для автономного запуска vector.py)
             self.db_path = Path(self.config.path).resolve()
         # -------------------------------
+        
+        # === СОЗДАНИЕ ДИРЕКТОРИИ ===
+        try:
+            self.db_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[VectorDB] Директория создана/проверена: {self.db_path}")
+        except Exception as e:
+            logger.error(f"[VectorDB] Ошибка создания директории: {e}")
+            if hasattr(config, 'enabled'):
+                config.enabled = False
+            return
+        # ===========================
 
         self.index_file = self.db_path / "faiss.index"
         self.meta_file = self.db_path / "faiss.meta"
@@ -54,16 +64,14 @@ class VectorDBManager:
             self.config.enabled = False
             return
 
-        # --- ИСПРАВЛЕНИЕ СИНТАКСИСА: Оборачиваем в try/except ---
+        # --- ИСПРАВЛЕНИЕ: Оборачиваем в try/except ---
         if self.config.enabled:
             try:
-                # ... (остальной код) ...
                 self._load()
                 logger.info(f"VectorDBManager (FAISS) инициализирован. Загружено {len(self.documents)} документов.")
 
             except Exception as e:
-                # ... (остальной код) ...
-                logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось создать папку VectorDB или проверить права: {e}")
+                logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить/создать VectorDB: {e}")
                 self.config.enabled = False
                 return
 
@@ -183,6 +191,8 @@ class VectorDBManager:
             if self.index is None:
                 self.index = faiss.IndexFlatL2(self.dimension)
                 logger.warning(f"Файлы индекса не найдены. Создан новый ПУСТОЙ индекс FAISS (D={self.dimension}).")
+                # Сохраняем пустой индекс чтобы он был готов к работе
+                self._save()
 
 
         except Exception as e:

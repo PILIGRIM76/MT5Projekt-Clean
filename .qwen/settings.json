@@ -23,7 +23,9 @@
       "Bash(git push *)",
       "Bash(git tag *)",
       "Bash(echo.)",
-      "Bash(copy *)"
+      "Bash(copy *)",
+      "Bash(select-object *)",
+      "Bash(true)"
     ]
   },
   "$version": 3

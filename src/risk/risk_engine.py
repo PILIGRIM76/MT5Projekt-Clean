@@ -37,19 +37,23 @@ class RiskEngine:
         self.default_capital_allocation: Dict[str, float] = {}
 
         if self.trading_system:
-            strategy_class_names = [s.__class__.__name__ for s in self.trading_system.strategies]
-            all_strategies = ["AI_Model", "RLTradeManager"] + strategy_class_names
+            strategy_class_names = [
+                s.__class__.__name__ for s in self.trading_system.strategies]
+            all_strategies = ["AI_Model",
+                              "RLTradeManager"] + strategy_class_names
             all_strategies = sorted(list(set(all_strategies)))
 
             if all_strategies:
                 # Инициализируем default_capital_allocation равномерно
                 equal_share = 1.0 / len(all_strategies)
-                self.default_capital_allocation = {name: equal_share for name in all_strategies}
+                self.default_capital_allocation = {
+                    name: equal_share for name in all_strategies}
 
                 # Инициализируем матрицу, используя default_capital_allocation
                 regime_names = ["Strong Trend", "Weak Trend", "High Volatility Range", "Low Volatility Range",
                                 "Default"]
-                self.capital_allocation = {regime: self.default_capital_allocation.copy() for regime in regime_names}
+                self.capital_allocation = {
+                    regime: self.default_capital_allocation.copy() for regime in regime_names}
         # ------------------------------------------------------------------
 
         self.base_risk_per_trade_percent = self.config.RISK_PERCENTAGE
@@ -70,7 +74,8 @@ class RiskEngine:
         self.volatility_forecaster = VolatilityForecaster()
         self.stress_tester = StressTester(config)  # Инициализация StressTester
 
-        logger.info("RiskEngine (v12 - Cognitive) инициализирован с доступом к Графу Знаний.")
+        logger.info(
+            "RiskEngine (v12 - Cognitive) инициализирован с доступом к Графу Знаний.")
 
     def _update_toxic_regimes_cache(self):
         """
@@ -80,7 +85,8 @@ class RiskEngine:
         if current_time - self.last_toxic_regime_update > self.toxic_regime_update_interval:
 
             # 1. Получаем режимы, которые исторически убыточны (PnL < 0)
-            toxic_regimes_from_db = self.trading_system.db_manager.get_toxic_regimes(last_n_trades=100)
+            toxic_regimes_from_db = self.trading_system.db_manager.get_toxic_regimes(
+                last_n_trades=100)
 
             # 2. Добавляем проверку на историческую просадку (Max Drawdown > 10%)
             final_toxic_list = []
@@ -100,9 +106,11 @@ class RiskEngine:
                 if regime in toxic_regimes_from_db or is_historically_toxic:
                     final_toxic_list.append(regime)
 
-            self.toxic_regimes_cache = list(set(final_toxic_list))  # Убираем дубликаты
+            self.toxic_regimes_cache = list(
+                set(final_toxic_list))  # Убираем дубликаты
             self.last_toxic_regime_update = current_time
-            logger.warning(f"[RiskEngine] Обновлен кэш токсичных режимов: {self.toxic_regimes_cache}")
+            logger.warning(
+                f"[RiskEngine] Обновлен кэш токсичных режимов: {self.toxic_regimes_cache}")
 
     def _find_nearest_swing(self, df: pd.DataFrame, trade_type: SignalType, window: int = 20) -> Optional[float]:
         """
@@ -136,7 +144,8 @@ class RiskEngine:
             for strategy, weight in allocation.items():
                 if weight > 0.01:  # Считаем активной, если вес > 1%
                     # Суммируем вес, чтобы учесть, что стратегия может быть активна в нескольких режимах
-                    active_strategies[strategy] = active_strategies.get(strategy, 0) + weight
+                    active_strategies[strategy] = active_strategies.get(
+                        strategy, 0) + weight
 
         strategy_names = list(active_strategies.keys())
 
@@ -222,7 +231,8 @@ class RiskEngine:
             )
             return False
 
-        logger.info(f"[{symbol}] Проверка по графу знаний пройдена, значимых событий не найдено.")
+        logger.info(
+            f"[{symbol}] Проверка по графу знаний пройдена, значимых событий не найдено.")
         return True
 
     def get_dynamic_risk_percentage(self, account_info, trade_history: List) -> float:
@@ -234,10 +244,12 @@ class RiskEngine:
             # Предполагаем, что TradingSystem хранит статус AnomalyDetector
             # В реальной системе TradingSystem должен иметь метод get_anomaly_status()
             # Здесь мы имитируем проверку, используя заглушку
-            is_anomaly_active, _ = self.trading_system.anomaly_detector.predict(self.trading_system.get_dummy_df())
+            is_anomaly_active, _ = self.trading_system.anomaly_detector.predict(
+                self.trading_system.get_dummy_df())
 
         if is_anomaly_active:
-            logger.critical(f"!!! АНОМАЛИЯ АКТИВНА. Риск снижен множителем: {self.toxic_regime_risk_multiplier}")
+            logger.critical(
+                f"!!! АНОМАЛИЯ АКТИВНА. Риск снижен множителем: {self.toxic_regime_risk_multiplier}")
             return min_risk * self.toxic_regime_risk_multiplier
 
         last_n_trades = trade_history[-self.risk_config.recent_trades_for_dynamic_risk:]
@@ -245,7 +257,8 @@ class RiskEngine:
             return min_risk
 
             # Проверяем, является ли элемент объектом с атрибутом .profit, или просто числом
-        recent_profit = sum(trade.profit if hasattr(trade, 'profit') else trade for trade in last_n_trades)
+        recent_profit = sum(trade.profit if hasattr(
+            trade, 'profit') else trade for trade in last_n_trades)
 
         current_drawdown_percent = 0
         if account_info.equity < account_info.balance:
@@ -254,18 +267,22 @@ class RiskEngine:
 
         if current_drawdown_percent > self.risk_config.drawdown_sensitivity_threshold or recent_profit < 0:
 
-            logger.warning(f"Обнаружена просадка или серия убытков. Риск снижен до минимума: {min_risk}%")
+            logger.warning(
+                f"Обнаружена просадка или серия убытков. Риск снижен до минимума: {min_risk}%")
             return min_risk
         elif recent_profit > 0:
-            calculated_risk = min_risk + (recent_profit / account_info.balance) * 100
+            calculated_risk = min_risk + \
+                (recent_profit / account_info.balance) * 100
             dynamic_risk = min(max_risk, calculated_risk)
-            logger.info(f"Система в плюсе. Динамический риск установлен на: {dynamic_risk:.2f}%")
+            logger.info(
+                f"Система в плюсе. Динамический риск установлен на: {dynamic_risk:.2f}%")
             return dynamic_risk
         return self.base_risk_per_trade_percent
 
     def check_daily_drawdown(self, account_info) -> bool:
         if not account_info:
-            logger.error("Не передана информация о счете для проверки просадки.")
+            logger.error(
+                "Не передана информация о счете для проверки просадки.")
             return False
 
         today_start = datetime.combine(date.today(), time.min)
@@ -274,22 +291,27 @@ class RiskEngine:
         # --- Использование mt5_lock и инициализация MT5 ---
         with self.mt5_lock:
             if not mt5.initialize(path=self.config.MT5_PATH):
-                logger.error("check_daily_drawdown: Не удалось инициализировать MT5.")
+                logger.error(
+                    "check_daily_drawdown: Не удалось инициализировать MT5.")
                 return True  # Возвращаем True, чтобы не блокировать торговлю из-за ошибки проверки
             try:
-                history_deals = mt5.history_deals_get(today_start, datetime.now())
+                history_deals = mt5.history_deals_get(
+                    today_start, datetime.now())
             except Exception as e:
-                logger.error(f"Ошибка при получении истории сделок в check_daily_drawdown: {e}")
+                logger.error(
+                    f"Ошибка при получении истории сделок в check_daily_drawdown: {e}")
             finally:
                 mt5.shutdown()
 
         if history_deals is None:
-            logger.warning("Не удалось получить историю сделок для расчета просадки.")
+            logger.warning(
+                "Не удалось получить историю сделок для расчета просадки.")
             return True
 
         deals_to_check = history_deals
         if self.ignore_historical_dd and self.system_start_time:
-            deals_to_check = [d for d in history_deals if datetime.fromtimestamp(d.time) >= self.system_start_time]
+            deals_to_check = [d for d in history_deals if datetime.fromtimestamp(
+                d.time) >= self.system_start_time]
 
         daily_profit = sum(deal.profit for deal in deals_to_check)
 
@@ -312,12 +334,14 @@ class RiskEngine:
             if len(returns.columns) > 1:
                 self.correlation_matrix = returns.corr()
                 self.covariance_matrix = returns.cov()
-                logger.info(f"Матрицы корреляции и ковариации обновлены для {len(returns.columns)} символов.")
+                logger.info(
+                    f"Матрицы корреляции и ковариации обновлены для {len(returns.columns)} символов.")
             else:
                 self.correlation_matrix = None
                 self.covariance_matrix = None
         except Exception as e:
-            logger.error(f"Не удалось обновить матрицы корреляции/ковариации: {e}")
+            logger.error(
+                f"Не удалось обновить матрицы корреляции/ковариации: {e}")
             self.correlation_matrix = None
             self.covariance_matrix = None
 
@@ -330,26 +354,32 @@ class RiskEngine:
             if pos.symbol in self.correlation_matrix.columns:
                 correlation = self.correlation_matrix.loc[new_symbol, pos.symbol]
                 is_same_direction = (new_signal_type == SignalType.BUY and pos.type == mt5.ORDER_TYPE_BUY) or \
-                                    (new_signal_type == SignalType.SELL and pos.type == mt5.ORDER_TYPE_SELL)
+                                    (new_signal_type == SignalType.SELL and pos.type ==
+                                     mt5.ORDER_TYPE_SELL)
 
                 if is_same_direction and correlation > self.correlation_threshold:
                     logger.warning(
                         f"Сделка по {new_symbol} ({new_signal_type.name}) заблокирована. Высокая корреляция ({correlation:.2f}) с открытой позицией по {pos.symbol}.")
                     return False
         return True
+
     def get_portfolio_volatility(self, open_positions: List, new_trade_candidate: Dict[str, Any]) -> Optional[float]:
-        if self.covariance_matrix is None or self.covariance_matrix.empty: return 0.0
+        if self.covariance_matrix is None or self.covariance_matrix.empty:
+            return 0.0
         portfolio_symbols = [pos.symbol for pos in open_positions]
         portfolio_symbols.append(new_trade_candidate['symbol'])
         unique_symbols = sorted(list(set(portfolio_symbols)))
         if not all(s in self.covariance_matrix.columns for s in unique_symbols):
-            logger.warning("Некоторые символы портфеля отсутствуют в ковариационной матрице. Расчет пропущен.")
+            logger.warning(
+                "Некоторые символы портфеля отсутствуют в ковариационной матрице. Расчет пропущен.")
             return 0.0
         num_assets = len(unique_symbols)
         weights = np.array([1 / num_assets] * num_assets)
-        sub_cov_matrix = self.covariance_matrix.loc[unique_symbols, unique_symbols]
+        sub_cov_matrix = self.covariance_matrix.loc[unique_symbols,
+                                                    unique_symbols]
         try:
-            portfolio_variance = np.dot(weights.T, np.dot(sub_cov_matrix, weights))
+            portfolio_variance = np.dot(
+                weights.T, np.dot(sub_cov_matrix, weights))
             return np.sqrt(portfolio_variance)
         except Exception as e:
             logger.error(f"Ошибка при расчете волатильности портфеля: {e}")
@@ -365,7 +395,7 @@ class RiskEngine:
     def calculate_position_size(self, symbol: str, df: pd.DataFrame, account_info,
                                 trade_type: SignalType, confidence: str = 'medium',
                                 trade_history: List = None, strategy_name: str = "AI_Model") -> Tuple[
-        Optional[float], Optional[float]]:
+            Optional[float], Optional[float]]:
         if not account_info:
             logger.error(f"[{symbol}] БЛОКИРОВКА: Account info is None.")
             return None, None
@@ -378,11 +408,11 @@ class RiskEngine:
         connector = self.trading_system.terminal_connector
         with self.mt5_lock:
             if not connector.initialize(path=self.config.MT5_PATH):
-                return None
+                return None, None
             symbol_info = connector.symbol_info(symbol)
             connector.shutdown()
         if not symbol_info:
-            return None
+            return None, None
         # Получаем минимальное расстояние в цене (10 пипсов)
         min_distance_price = 10 * symbol_info.point
         # ------------------------------------------------------------------
@@ -397,14 +427,17 @@ class RiskEngine:
         # Используем final_sl_in_price для расчета лота
         stop_loss_in_price_for_lot = final_sl_in_price
         if base_sl_in_price <= 0:
-            logger.error(f"[{symbol}] БЛОКИРОВКА: Рассчитанный SL_in_price <= 0.")
+            logger.error(
+                f"[{symbol}] БЛОКИРОВКА: Рассчитанный SL_in_price <= 0.")
             return None, None
         final_sl_in_price = base_sl_in_price
         stop_loss_in_price = final_sl_in_price
         # -----------------------------------------------------------
         # 2. Определение риска на сделку (в валюте депозита)
-        current_regime = self.trading_system._get_current_market_regime_name() if self.trading_system else "Default"
-        regime_weights = self.capital_allocation.get(current_regime, self.default_capital_allocation)
+        current_regime = self.trading_system._get_current_market_regime_name(
+        ) if self.trading_system else "Default"
+        regime_weights = self.capital_allocation.get(
+            current_regime, self.default_capital_allocation)
         # --- ПАТЧ: Определение базового ключа для аллокации ---
         strategy_key = strategy_name
         if strategy_name.startswith("AI_MF_Consensus") or strategy_name.startswith("AI_Model_Confirmed_by_"):
@@ -414,14 +447,17 @@ class RiskEngine:
         # ----------------------------------------------------
         allocation_for_strategy = regime_weights.get(strategy_key, 0.0)
         if allocation_for_strategy <= 0:
-            logger.critical(f"[{symbol}] БЛОКИРОВКА: Allocation <= 0.0. Режим: {current_regime}. Ключ: {strategy_key}")
+            logger.critical(
+                f"[{symbol}] БЛОКИРОВКА: Allocation <= 0.0. Режим: {current_regime}. Ключ: {strategy_key}")
             return None, None
         # --- RISK.1: ВЫЗОВ PRE-MORTEM АНАЛИЗА ---
         if not self.run_pre_mortem_analysis(df, stop_loss_in_price, trade_type):
-            logger.critical(f"[{symbol}] БЛОКИРОВКА: Сделка заблокирована Pre-Mortem анализом.")
+            logger.critical(
+                f"[{symbol}] БЛОКИРОВКА: Сделка заблокирована Pre-Mortem анализом.")
             return None, None
         # ----------------------------------------
-        risk_amount = account_info.balance * self.config.RISK_PERCENTAGE / 100.0 * allocation_for_strategy
+        risk_amount = account_info.balance * \
+            self.config.RISK_PERCENTAGE / 100.0 * allocation_for_strategy
         # 3. Расчет объема лота
         with self.mt5_lock:
             # --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 1: Проверка инициализации MT5 ---
@@ -432,7 +468,8 @@ class RiskEngine:
             try:
                 symbol_info = mt5.symbol_info(symbol)
                 if not symbol_info:
-                    logger.error(f"[{symbol}] БЛОКИРОВКА: Не удалось получить symbol_info.")
+                    logger.error(
+                        f"[{symbol}] БЛОКИРОВКА: Не удалось получить symbol_info.")
                     return None, None
                 tick_size = symbol_info.trade_tick_size
                 quote_currency = symbol_info.currency_profit
@@ -445,7 +482,8 @@ class RiskEngine:
                 tick_value_in_account_currency = symbol_info.trade_tick_value * conversion_rate
                 # --- КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ НУЛЕВЫХ ЗНАЧЕНИЙ ---
                 if tick_size <= 0:
-                    logger.error(f"[{symbol}] БЛОКИРОВКА: tick_size <= 0 ({tick_size}).")
+                    logger.error(
+                        f"[{symbol}] БЛОКИРОВКА: tick_size <= 0 ({tick_size}).")
                     return None, None
                 if tick_value_in_account_currency <= 0:
                     logger.error(
@@ -455,7 +493,8 @@ class RiskEngine:
                 sl_points = stop_loss_in_price / tick_size
                 denominator = sl_points * tick_value_in_account_currency
                 if denominator == 0:
-                    logger.error(f"[{symbol}] БЛОКИРОВКА: Знаменатель лота равен нулю (sl_points={sl_points}).")
+                    logger.error(
+                        f"[{symbol}] БЛОКИРОВКА: Знаменатель лота равен нулю (sl_points={sl_points}).")
                     return None, None
                 lot_size = risk_amount / denominator
                 # Нормализация лота
@@ -466,20 +505,23 @@ class RiskEngine:
                 if step is None or step == 0:
                     # Устанавливаем минимальный шаг лота для крипто/акций
                     step = 0.01
-                    logger.warning(f"[{symbol}] volume_step был None/0. Установлено безопасное значение: {step}")
+                    logger.warning(
+                        f"[{symbol}] volume_step был None/0. Установлено безопасное значение: {step}")
                 # Также убедимся, что lot_size - float
                 lot_size = float(lot_size)
                 # ----------------------------------------------------------------------
                 if step > 0:
                     import math
-                    decimals = int(max(0, -math.log10(step))) if step < 1 else 0
+                    decimals = int(max(0, -math.log10(step))
+                                   ) if step < 1 else 0
                     lot_size = round(round(lot_size / step) * step, decimals)
                     logger.info(
                         f"[{symbol}] РАСЧЕТ ЛОТА: Risk=${risk_amount:.2f}, SL_Price={stop_loss_in_price:.5f}, Final Lot={lot_size:.2f}")
                     # !!! ФИНАЛЬНЫЙ ВОЗВРАТ !!!
                     return lot_size, stop_loss_in_price
             except Exception as e:
-                logger.error(f"Ошибка расчета лота для {symbol}: {e}", exc_info=True)
+                logger.error(
+                    f"Ошибка расчета лота для {symbol}: {e}", exc_info=True)
                 return None, None
             finally:
                 mt5.shutdown()  # <-- ГАРАНТИРОВАННОЕ ЗАКРЫТИЕ
@@ -505,11 +547,13 @@ class RiskEngine:
         portfolio_returns = portfolio_returns_df.dropna()
 
         if len(portfolio_returns) < 30:
-            logger.warning(f"Недостаточно данных ({len(portfolio_returns)}) для надежного расчета VaR.")
+            logger.warning(
+                f"Недостаточно данных ({len(portfolio_returns)}) для надежного расчета VaR.")
             return None
 
         try:
-            garch_model = arch_model(portfolio_returns * 100, vol='Garch', p=1, q=1, rescale=False)
+            garch_model = arch_model(
+                portfolio_returns * 100, vol='Garch', p=1, q=1, rescale=False)
             garch_fit = garch_model.fit(disp='off', show_warning=False)
 
             forecast = garch_fit.forecast(horizon=1)
@@ -519,7 +563,8 @@ class RiskEngine:
             z_score = norm.ppf(confidence_level)
             var = z_score * predicted_std
 
-            logger.info(f"Расчетный портфельный VaR ({confidence_level * 100:.0f}%): {var:.2%}")
+            logger.info(
+                f"Расчетный портфельный VaR ({confidence_level * 100:.0f}%): {var:.2%}")
             return var
         except Exception as e:
             logger.error(f"Ошибка при расчете VaR: {e}")
@@ -536,14 +581,17 @@ class RiskEngine:
         # 2. Собираем информацию о текущем портфеле.
         # Примечание: open_positions может содержать объекты Position, а не dicts.
         # Мы используем атрибуты, если это объекты MT5/SimPosition.
-        open_positions_dicts = [{'symbol': p.symbol, 'volume': p.volume, 'profit': p.profit} for p in open_positions]
+        open_positions_dicts = [
+            {'symbol': p.symbol, 'volume': p.volume, 'profit': p.profit} for p in open_positions]
 
         # 3. Расчет портфельного VaR (если не передан)
         if portfolio_var is None:
-            portfolio_var = self.calculate_portfolio_var(open_positions_dicts, data_dict)
+            portfolio_var = self.calculate_portfolio_var(
+                open_positions_dicts, data_dict)
 
         if portfolio_var is None:
-            logger.warning("Не удалось рассчитать портфельный VaR. Хеджирование пропущено.")
+            logger.warning(
+                "Не удалось рассчитать портфельный VaR. Хеджирование пропущено.")
             return None
 
         # 4. Проверка условия хеджирования (TZ 3.3)
@@ -555,7 +603,8 @@ class RiskEngine:
         logger.critical(
             f"!!! ПОРТФЕЛЬНЫЙ РИСК ПРЕВЫШЕН !!! VaR = {portfolio_var:.2%}. Лимит = {self.max_portfolio_var_percent}%. Поиск хеджирующей позиции.")
 
-        excess_risk_percent = (portfolio_var * 100) - self.max_portfolio_var_percent
+        excess_risk_percent = (portfolio_var * 100) - \
+            self.max_portfolio_var_percent
 
         # 1. Выбираем хеджирующий инструмент (DXY или VIX)
         # Используем H4 для DXY, так как это более стабильный ТФ для макро-анализа
@@ -563,7 +612,8 @@ class RiskEngine:
         df_hedge = data_dict.get(f"{hedge_symbol}_H4")
 
         if df_hedge is None:
-            logger.warning(f"Не удалось получить данные для хеджирующего символа {hedge_symbol}.")
+            logger.warning(
+                f"Не удалось получить данные для хеджирующего символа {hedge_symbol}.")
             return None
 
         # 2. Прогнозируем волатильность хеджирующего инструмента (для Delta)
@@ -571,7 +621,8 @@ class RiskEngine:
         hedge_volatility = df_hedge['ATR_14'].iloc[-1] if 'ATR_14' in df_hedge.columns else 0.001
 
         if hedge_volatility == 0:
-            logger.warning("Волатильность хеджирующего инструмента равна 0. Хеджирование пропущено.")
+            logger.warning(
+                "Волатильность хеджирующего инструмента равна 0. Хеджирование пропущено.")
             return None
 
         # 3. Расчет необходимого лота (Delta Hedging)

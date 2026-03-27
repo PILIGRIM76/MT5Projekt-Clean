@@ -32,7 +32,8 @@ class MarketScreener:
 
         with self.mt5_lock:
             if not mt5.initialize(path=self.config.MT5_PATH):
-                logger.error("MarketScreener: Не удалось подключиться к MT5 для расчета ликвидности.")
+                logger.error(
+                    "MarketScreener: Не удалось подключиться к MT5 для расчета ликвидности.")
                 return [], []
 
             try:
@@ -58,11 +59,13 @@ class MarketScreener:
                     elif normalized_atr > ideal_max_vol:
                         distance = normalized_atr - ideal_max_vol
                         max_distance = (ideal_max_vol - ideal_min_vol) * 3
-                        volatility_score = max(0.0, 1.0 - distance / max_distance) if max_distance > 0 else 0.0
+                        volatility_score = max(
+                            0.0, 1.0 - distance / max_distance) if max_distance > 0 else 0.0
                     else:
                         distance = ideal_min_vol - normalized_atr
                         max_distance = (ideal_max_vol - ideal_min_vol) * 2
-                        volatility_score = max(0.0, 1.0 - distance / max_distance) if max_distance > 0 else 0.0
+                        volatility_score = max(
+                            0.0, 1.0 - distance / max_distance) if max_distance > 0 else 0.0
 
                     adx = df['ADX_14'].iloc[-1]
                     trend_score = 1.0 if adx > adx_threshold else 0.5
@@ -77,7 +80,7 @@ class MarketScreener:
                                               1.0 - (spread_pips - ideal_max_spread_pips) / (ideal_max_spread_pips * 4))
 
                     total_score = (volatility_score * vol_weight) + (trend_score * trend_weight) + (
-                                liquidity_score * liq_weight)
+                        liquidity_score * liq_weight)
 
                     current_item_data = {
                         "symbol": symbol, "total_score": total_score, "volatility_score": volatility_score,
@@ -96,7 +99,14 @@ class MarketScreener:
         ranked_list = list(symbol_scores.values())
         ranked_list.sort(key=lambda x: x['total_score'], reverse=True)
         top_n = self.config.TOP_N_SYMBOLS
-        top_symbols_names = [item['symbol'] for item in ranked_list[:top_n]]
+
+        if top_n is None or top_n <= 0:
+            # Если top_n <=0, торгуем всеми доступными символами (из whitelist)
+            top_symbols_names = [item['symbol'] for item in ranked_list]
+        else:
+            top_symbols_names = [item['symbol']
+                                 for item in ranked_list[:top_n]]
+
         for i, item in enumerate(ranked_list):
             item['rank'] = i + 1
 
