@@ -27,7 +27,9 @@
       "Bash(select-object *)",
       "Bash(true)",
       "Bash(echo *)",
-      "Bash(часть *)"
+      "Bash(часть *)",
+      "Bash(git rm *)",
+      "Bash(git *)"
     ]
   },
   "$version": 3

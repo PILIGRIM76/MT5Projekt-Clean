@@ -1159,7 +1159,11 @@ class SettingsWindow(QDialog):
         # Включить Telegram
         self.telegram_enabled_checkbox = QCheckBox("Включить Telegram уведомления")
         self.telegram_enabled_checkbox.setToolTip(
-            "Включает отправку торговых сигналов и критических событий в Telegram."
+            "Включает отправку торговых сигналов и критических событий в Telegram.\n\n"
+            "✓ INFO — торговые сигналы\n"
+            "✓ WARNING — предупреждения системы\n"
+            "✓ ERROR — ошибки торговли\n"
+            "✓ CRITICAL — критические события (Circuit Breaker, потеря MT5)"
         )
         telegram_layout.addWidget(self.telegram_enabled_checkbox, 0, 0, 1, 3)
 
@@ -1168,7 +1172,12 @@ class SettingsWindow(QDialog):
         self.telegram_token_edit = QLineEdit()
         self.telegram_token_edit.setEchoMode(QLineEdit.Password)
         self.telegram_token_edit.setToolTip(
-            "Токен бота от @BotFather.\n"
+            "Токен бота от @BotFather.\n\n"
+            "Как получить:\n"
+            "1. Найдите @BotFather в Telegram\n"
+            "2. Отправьте /newbot\n"
+            "3. Введите имя бота\n"
+            "4. Скопируйте полученный токен\n\n"
             "Пример: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
         )
         telegram_layout.addWidget(self.telegram_token_edit, 1, 1)
@@ -1176,7 +1185,7 @@ class SettingsWindow(QDialog):
         # Кнопка показать/скрыть токен
         self.telegram_token_toggle_btn = QPushButton("👁️")
         self.telegram_token_toggle_btn.setFixedWidth(40)
-        self.telegram_token_toggle_btn.setToolTip("Показать/скрыть токен")
+        self.telegram_token_toggle_btn.setToolTip("Показать или скрыть токен бота")
         self.telegram_token_toggle_btn.clicked.connect(
             lambda: self._toggle_password_visibility(self.telegram_token_edit, self.telegram_token_toggle_btn)
         )
@@ -1186,16 +1195,24 @@ class SettingsWindow(QDialog):
         telegram_layout.addWidget(QLabel("Chat ID:"), 2, 0)
         self.telegram_chat_id_edit = QLineEdit()
         self.telegram_chat_id_edit.setToolTip(
-            "ID чата для отправки уведомлений.\n"
-            "Узнать через @userinfobot или @getmyid_bot."
+            "ID чата для отправки уведомлений.\n\n"
+            "Как получить:\n"
+            "1. Найдите @userinfobot или @getmyid_bot\n"
+            "2. Нажмите Start\n"
+            "3. Скопируйте ваш ID\n\n"
+            "Для группы: добавьте бота в группу и отправьте сообщение"
         )
         telegram_layout.addWidget(self.telegram_chat_id_edit, 2, 1)
 
         # Кнопка тестирования
         self.test_telegram_btn = QPushButton("🧪 Тестировать Telegram")
         self.test_telegram_btn.setToolTip(
-            "Отправляет тестовое сообщение в указанный чат.\n"
-            "Убедитесь, что бот добавлен в чат или имеет доступ к ЛС."
+            "Отправляет тестовое сообщение в указанный чат.\n\n"
+            "Проверьте:\n"
+            "✓ Бот добавлен в чат (для групп)\n"
+            "✓ Токен и Chat ID введены верно\n"
+            "✓ Есть подключение к интернету\n\n"
+            "Если не работает — проверьте логи."
         )
         self.test_telegram_btn.clicked.connect(self._test_telegram_connection)
         telegram_layout.addWidget(self.test_telegram_btn, 3, 0, 1, 3)
@@ -1210,6 +1227,7 @@ class SettingsWindow(QDialog):
         )
         telegram_help.setWordWrap(True)
         telegram_help.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
+        telegram_help.setToolTip("Следуйте инструкции для быстрой настройки Telegram уведомлений")
         telegram_layout.addWidget(telegram_help, 4, 0, 1, 3)
 
         layout.addWidget(telegram_group)
@@ -1222,7 +1240,10 @@ class SettingsWindow(QDialog):
         # Включить Email
         self.email_enabled_checkbox = QCheckBox("Включить Email уведомления")
         self.email_enabled_checkbox.setToolTip(
-            "Включает отправку торговых отчётов и критических событий на Email."
+            "Включает отправку торговых отчётов и критических событий на Email.\n\n"
+            "✓ Дневной дайджест — сводка за день\n"
+            "✓ ERROR — ошибки системы\n"
+            "✓ CRITICAL — критические события"
         )
         email_layout.addWidget(self.email_enabled_checkbox, 0, 0, 1, 3)
 
@@ -1231,11 +1252,12 @@ class SettingsWindow(QDialog):
         self.email_smtp_edit = QLineEdit()
         self.email_smtp_edit.setPlaceholderText("smtp.gmail.com")
         self.email_smtp_edit.setToolTip(
-            "SMTP сервер вашего почтового провайдера.<br>"
-            "Примеры:<br>"
-            "• Gmail: smtp.gmail.com:587<br>"
-            "• Yandex: smtp.yandex.ru:465<br>"
-            "• Mail.ru: smtp.mail.ru:465"
+            "SMTP сервер вашего почтового провайдера.\n\n"
+            "Примеры:\n"
+            "• Gmail: smtp.gmail.com\n"
+            "• Yandex: smtp.yandex.ru\n"
+            "• Mail.ru: smtp.mail.ru\n"
+            "• Outlook: smtp.office365.com"
         )
         email_layout.addWidget(self.email_smtp_edit, 1, 1)
 
@@ -1244,14 +1266,23 @@ class SettingsWindow(QDialog):
         self.email_port_edit = QSpinBox()
         self.email_port_edit.setRange(1, 65535)
         self.email_port_edit.setValue(587)
-        self.email_port_edit.setToolTip("Порт SMTP сервера (587 для TLS, 465 для SSL).")
+        self.email_port_edit.setToolTip(
+            "Порт SMTP сервера.\n\n"
+            "• 587 — TLS (рекомендуется)\n"
+            "• 465 — SSL\n"
+            "• 25 — без шифрования (не рекомендуется)"
+        )
         email_layout.addWidget(self.email_port_edit, 2, 1)
 
         # Email From
         email_layout.addWidget(QLabel("Отправитель (Email):"), 3, 0)
         self.email_from_edit = QLineEdit()
         self.email_from_edit.setPlaceholderText("your_email@gmail.com")
-        self.email_from_edit.setToolTip("Ваш Email адрес для отправки.")
+        self.email_from_edit.setToolTip(
+            "Ваш Email адрес для отправки уведомлений.\n\n"
+            "Должен совпадать с аккаунтом,\n"
+            "который используется для аутентификации."
+        )
         email_layout.addWidget(self.email_from_edit, 3, 1)
 
         # Password
@@ -1259,15 +1290,18 @@ class SettingsWindow(QDialog):
         self.email_password_edit = QLineEdit()
         self.email_password_edit.setEchoMode(QLineEdit.Password)
         self.email_password_edit.setToolTip(
-            "Пароль приложения (не основной пароль!).<br>"
-            "Для Gmail: настройте 'Пароли приложений' в аккаунте Google."
+            "Пароль приложения (не основной пароль!).\n\n"
+            "Как получить:\n"
+            "• Gmail: Безопасность → Пароли приложений\n"
+            "• Yandex: Безопасность → Пароли приложений\n"
+            "• Mail.ru: Безопасность → Пароли для внешних приложений"
         )
         email_layout.addWidget(self.email_password_edit, 4, 1)
         
         # Кнопка показать/скрыть пароль
         self.email_password_toggle_btn = QPushButton("👁️")
         self.email_password_toggle_btn.setFixedWidth(40)
-        self.email_password_toggle_btn.setToolTip("Показать/скрыть пароль")
+        self.email_password_toggle_btn.setToolTip("Показать или скрыть пароль")
         self.email_password_toggle_btn.clicked.connect(
             lambda: self._toggle_password_visibility(self.email_password_edit, self.email_password_toggle_btn)
         )
@@ -1277,14 +1311,22 @@ class SettingsWindow(QDialog):
         email_layout.addWidget(QLabel("Получатели (через запятую):"), 5, 0)
         self.email_recipients_edit = QLineEdit()
         self.email_recipients_edit.setPlaceholderText("recipient1@example.com, recipient2@example.com")
-        self.email_recipients_edit.setToolTip("Список Email адресов для получения уведомлений.")
+        self.email_recipients_edit.setToolTip(
+            "Список Email адресов для получения уведомлений.\n\n"
+            "Можно указать несколько адресов через запятую:\n"
+            "admin@example.com, trader@example.com"
+        )
         email_layout.addWidget(self.email_recipients_edit, 5, 1)
 
         # Кнопка тестирования
         self.test_email_btn = QPushButton("🧪 Тестировать Email")
         self.test_email_btn.setToolTip(
-            "Отправляет тестовое письмо на указанный адрес.\n"
-            "Проверьте папку 'Спам', если письмо не пришло."
+            "Отправляет тестовое письмо на указанный адрес.\n\n"
+            "Проверьте:\n"
+            "✓ SMTP сервер и порт\n"
+            "✓ Логин и пароль приложения\n"
+            "✓ Подключение к интернету\n\n"
+            "Если не работает — проверьте папку 'Спам'."
         )
         self.test_email_btn.clicked.connect(self._test_email_connection)
         email_layout.addWidget(self.test_email_btn, 6, 0, 1, 3)
@@ -1299,6 +1341,7 @@ class SettingsWindow(QDialog):
         )
         email_help.setWordWrap(True)
         email_help.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
+        email_help.setToolTip("Следуйте инструкции для быстрой настройки Email уведомлений")
         email_layout.addWidget(email_help, 7, 0, 1, 3)
 
         layout.addWidget(email_group)
@@ -1311,7 +1354,11 @@ class SettingsWindow(QDialog):
         # Включить тихие часы
         self.quiet_hours_enabled_checkbox = QCheckBox("Включить тихие часы")
         self.quiet_hours_enabled_checkbox.setToolTip(
-            "Отключает уведомления (кроме CRITICAL) в указанное время."
+            "Отключает уведомления (кроме CRITICAL) в указанное время.\n\n"
+            "Полезно для:\n"
+            "• Ночного времени\n"
+            "• Выходных дней\n"
+            "• Отпуска"
         )
         quiet_hours_layout.addWidget(self.quiet_hours_enabled_checkbox, 0, 0, 1, 3)
 
@@ -1320,6 +1367,10 @@ class SettingsWindow(QDialog):
         self.quiet_hours_start_edit = QTimeEdit()
         self.quiet_hours_start_edit.setTime(QTime(22, 0))
         self.quiet_hours_start_edit.setDisplayFormat("HH:mm")
+        self.quiet_hours_start_edit.setToolTip(
+            "Время начала тихих часов.\n\n"
+            "Рекомендуется: 22:00"
+        )
         quiet_hours_layout.addWidget(self.quiet_hours_start_edit, 1, 1)
 
         # Конец
@@ -1327,6 +1378,10 @@ class SettingsWindow(QDialog):
         self.quiet_hours_end_edit = QTimeEdit()
         self.quiet_hours_end_edit.setTime(QTime(8, 0))
         self.quiet_hours_end_edit.setDisplayFormat("HH:mm")
+        self.quiet_hours_end_edit.setToolTip(
+            "Время окончания тихих часов.\n\n"
+            "Рекомендуется: 08:00"
+        )
         quiet_hours_layout.addWidget(self.quiet_hours_end_edit, 2, 1)
 
         layout.addWidget(quiet_hours_group)
@@ -1339,7 +1394,12 @@ class SettingsWindow(QDialog):
         # Включить дайджест
         self.digest_enabled_checkbox = QCheckBox("Включить дневной дайджест")
         self.digest_enabled_checkbox.setToolTip(
-            "Отправляет сводку за день в указанное время."
+            "Отправляет сводку за день в указанное время.\n\n"
+            "Содержит:\n"
+            "• Количество сделок\n"
+            "• Общий PnL\n"
+            "• Win Rate\n"
+            "• Статус системы"
         )
         digest_layout.addWidget(self.digest_enabled_checkbox, 0, 0, 1, 3)
 
@@ -1348,6 +1408,10 @@ class SettingsWindow(QDialog):
         self.digest_time_edit = QTimeEdit()
         self.digest_time_edit.setTime(QTime(20, 0))
         self.digest_time_edit.setDisplayFormat("HH:mm")
+        self.digest_time_edit.setToolTip(
+            "Время отправки дневного дайджеста.\n\n"
+            "Рекомендуется: 20:00 (после закрытия торгов)"
+        )
         digest_layout.addWidget(self.digest_time_edit, 1, 1)
 
         layout.addWidget(digest_group)
