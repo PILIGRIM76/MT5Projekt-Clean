@@ -63,7 +63,7 @@ from src.analysis.gp_rd_manager import GPRDManager
 from src.analysis.nlp_processor import CausalNLPProcessor
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
 from src.analysis.drift_detector import ConceptDriftManager
-from src.core.interfaces import MT5Connector, ITerminalConnector
+from src.core.interfaces import ITerminalConnector
 from src.web.server import WebServer, WebLogHandler
 from src.web.data_models import SystemStatus, Position
 
@@ -159,8 +159,9 @@ class TradingSystem(QObject):
         self.performance_metrics = {}
         self._perf_lock = threading.Lock()
 
-        # --- Коннектор ---
-        self.terminal_connector: ITerminalConnector = MT5Connector()
+        # --- Коннектор (инициализируется позже в _initialize_components) ---
+        # self.terminal_connector: ITerminalConnector = None
+        self.terminal_connector = None  # Будет инициализирован как MT5 wrapper
 
         # --- Тяжелые объекты (инициализируются позже) ---
         self.db_manager = None

@@ -1,133 +1,593 @@
 # src/core/interfaces.py
-from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any, Union
-from datetime import datetime
-import MetaTrader5 as mt5
+"""
+Интерфейсы для основных компонентов Trading System.
 
+Обеспечивает:
+- Четкие контракты между компонентами
+- Возможность мокирования для тестов
+- Слабую связанность через Dependency Injection
+"""
+
+from abc import ABC, abstractmethod
+from typing import Optional, List, Dict, Any, Callable
+from datetime import datetime
+import pandas as pd
+
+
+# ===========================================
+# MT5 Connector Interface
+# ===========================================
 
 class ITerminalConnector(ABC):
-    """
-    Абстрактный интерфейс для взаимодействия с торговым терминалом.
-    Позволяет подменять реальный MT5 на симулятор (SimulatedBroker).
-    """
+    """Интерфейс для подключения к торговому терминалу."""
 
     @abstractmethod
-    def initialize(self, path: str = None, login: int = None, password: str = None, server: str = None) -> bool:
-        """Инициализация подключения к терминалу."""
+    def initialize(self) -> bool:
+        """
+        Инициализация подключения.
+        
+        Returns:
+            True если успешно
+        """
         pass
 
     @abstractmethod
-    def shutdown(self):
-        """Закрытие подключения."""
+    def shutdown(self) -> bool:
+        """
+        Завершение подключения.
+        
+        Returns:
+            True если успешно
+        """
         pass
 
     @abstractmethod
-    def get_account_info(self):
-        """Получение информации о счете (баланс, эквити и т.д.)."""
+    def is_connected(self) -> bool:
+        """
+        Проверка подключения.
+        
+        Returns:
+            True если подключено
+        """
         pass
 
     @abstractmethod
-    def get_positions(self, symbol: str = None, ticket: int = None):
-        """Получение открытых позиций."""
+    def get_account_info(self) -> Dict[str, Any]:
+        """
+        Получение информации об аккаунте.
+        
+        Returns:
+            Данные аккаунта
+        """
+        pass
+
+
+# Примечание: MT5Connector - это интерфейс, а не реализация
+# Реализация находится в src.core.mt5_connector
+# Этот класс здесь только для типизации и документации
+
+
+# ===========================================
+# Data Provider Interface
+# ===========================================
+
+class IDataProvider(ABC):
+    """Интерфейс для получения рыночных данных."""
+
+    @abstractmethod
+    def get_historical_data(
+        self,
+        symbol: str,
+        timeframe: int,
+        start_date: datetime,
+        end_date: datetime
+    ) -> pd.DataFrame:
+        """
+        Получение исторических данных.
+        
+        Args:
+            symbol: Торговый инструмент
+            timeframe: Таймфрейм (константа MT5)
+            start_date: Начало периода
+            end_date: Конец периода
+            
+        Returns:
+            DataFrame с данными OHLCV
+        """
         pass
 
     @abstractmethod
-    def get_orders(self, ticket: int = None, symbol: str = None):
-        """Получение активных ордеров."""
+    def get_realtime_quotes(self, symbols: List[str]) -> Dict[str, dict]:
+        """
+        Получение котировок реального времени.
+        
+        Args:
+            symbols: Список инструментов
+            
+        Returns:
+            Словарь {symbol: quote_data}
+        """
         pass
 
     @abstractmethod
-    def get_history_orders(self, ticket: int = None, position: int = None):
-        """Получение истории ордеров."""
+    def get_news(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Получение новостей.
+        
+        Args:
+            limit: Максимальное количество
+            
+        Returns:
+            Список новостей
+        """
         pass
 
     @abstractmethod
-    def get_history_deals(self, date_from: datetime = None, date_to: datetime = None, ticket: int = None):
-        """Получение истории сделок."""
+    def refresh_rates(self, symbols: List[str]) -> bool:
+        """
+        Обновление котировок.
+        
+        Args:
+            symbols: Список инструментов для обновления
+            
+        Returns:
+            True если успешно
+        """
+        pass
+
+
+# ===========================================
+# Database Manager Interfaces
+# ===========================================
+
+class IDatabaseManager(ABC):
+    """Интерфейс для работы с основной БД."""
+
+    @abstractmethod
+    def save_trade(self, trade_data: Dict[str, Any]) -> int:
+        """
+        Сохранение сделки.
+        
+        Args:
+            trade_data: Данные сделки
+            
+        Returns:
+            ID сохраненной сделки
+        """
         pass
 
     @abstractmethod
-    def symbol_info(self, symbol: str):
-        """Получение спецификации инструмента."""
+    def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict]:
+        """
+        Получение истории сделок.
+        
+        Args:
+            symbol: Фильтр по инструменту
+            limit: Максимальное количество
+            
+        Returns:
+            Список сделок
+        """
         pass
 
     @abstractmethod
-    def symbol_info_tick(self, symbol: str):
-        """Получение последнего тика (цены) по инструменту."""
+    def get_strategy_performance(self, strategy_name: str) -> Dict[str, Any]:
+        """
+        Получение статистики стратегии.
+        
+        Args:
+            strategy_name: Название стратегии
+            
+        Returns:
+            Статистика производительности
+        """
         pass
 
     @abstractmethod
-    def order_send(self, request: dict):
-        """Отправка торгового запроса."""
+    def get_open_positions(self) -> List[Dict]:
+        """
+        Получение открытых позиций.
+        
+        Returns:
+            Список открытых позиций
+        """
+        pass
+
+
+class IVectorDBManager(ABC):
+    """Интерфейс для работы с векторной БД."""
+
+    @abstractmethod
+    def add_documents(self, documents: List[Dict[str, Any]]) -> bool:
+        """
+        Добавление документов.
+        
+        Args:
+            documents: Список документов
+            
+        Returns:
+            True если успешно
+        """
         pass
 
     @abstractmethod
-    def order_check(self, request: dict):
-        """Проверка торгового запроса без отправки."""
+    def query_similar(
+        self,
+        query_text: str,
+        n_results: int = 5,
+        threshold: float = 0.5
+    ) -> List[Dict[str, Any]]:
+        """
+        Поиск похожих документов.
+        
+        Args:
+            query_text: Текст запроса
+            n_results: Количество результатов
+            threshold: Порог схожести
+            
+        Returns:
+            Список похожих документов
+        """
+        pass
+
+    @abstractmethod
+    def cleanup_old_documents(self, max_age_days: int = 90) -> int:
+        """
+        Очистка старых документов.
+        
+        Args:
+            max_age_days: Максимальный возраст в днях
+            
+        Returns:
+            Количество удаленных документов
+        """
         pass
 
 
-class MT5Connector(ITerminalConnector):
-    """
-    Реальная реализация коннектора, использующая библиотеку MetaTrader5.
-    Проксирует вызовы к функциям mt5.*.
-    """
+# ===========================================
+# Risk Engine Interface
+# ===========================================
 
-    def initialize(self, path: str = None, login: int = None, password: str = None, server: str = None) -> bool:
-        # Формируем словарь аргументов, исключая None, так как mt5.initialize не любит явные None
-        kwargs = {}
-        if path: kwargs['path'] = path
-        if login: kwargs['login'] = login
-        if password: kwargs['password'] = password
-        if server: kwargs['server'] = server
+class IRiskEngine(ABC):
+    """Интерфейс для управления рисками."""
 
-        return mt5.initialize(**kwargs)
+    @abstractmethod
+    def calculate_position_size(
+        self,
+        symbol: str,
+        df: pd.DataFrame,
+        account_info: Any,
+        trade_type: str,
+        confidence: str,
+        strategy_name: str
+    ) -> tuple:
+        """
+        Расчет размера позиции.
+        
+        Args:
+            symbol: Торговый инструмент
+            df: Данные для анализа
+            account_info: Информация об аккаунте
+            trade_type: Тип сделки (BUY/SELL)
+            confidence: Уровень уверенности
+            strategy_name: Название стратегии
+            
+        Returns:
+            (lot_size, stop_loss) или (None, None) если запрещено
+        """
+        pass
 
-    def shutdown(self):
-        mt5.shutdown()
+    @abstractmethod
+    def is_trade_safe(self, symbol: str, signal: Dict[str, Any]) -> bool:
+        """
+        Проверка безопасности сделки.
+        
+        Args:
+            symbol: Торговый инструмент
+            signal: Данные сигнала
+            
+        Returns:
+            True если сделка безопасна
+        """
+        pass
 
-    def get_account_info(self):
-        return mt5.account_info()
+    @abstractmethod
+    def calculate_portfolio_var(
+        self,
+        open_positions: List[Dict],
+        data_dict: Dict[str, pd.DataFrame]
+    ) -> Optional[float]:
+        """
+        Расчет VaR портфеля.
+        
+        Args:
+            open_positions: Открытые позиции
+            data_dict: Рыночные данные
+            
+        Returns:
+            Portfolio VaR в процентах
+        """
+        pass
 
-    def get_positions(self, symbol: str = None, ticket: int = None):
-        if ticket is not None:
-            return mt5.positions_get(ticket=ticket)
-        if symbol is not None:
-            return mt5.positions_get(symbol=symbol)
-        return mt5.positions_get()
+    @abstractmethod
+    def check_daily_drawdown(self) -> bool:
+        """
+        Проверка дневного лимита просадки.
+        
+        Returns:
+            True если лимит не превышен
+        """
+        pass
 
-    def get_orders(self, ticket: int = None, symbol: str = None):
-        if ticket is not None:
-            return mt5.orders_get(ticket=ticket)
-        if symbol is not None:
-            return mt5.orders_get(symbol=symbol)
-        return mt5.orders_get()
+    @abstractmethod
+    def check_correlation(self, symbol: str) -> bool:
+        """
+        Проверка корреляции с открытыми позициями.
+        
+        Args:
+            symbol: Торговый инструмент
+            
+        Returns:
+            True если корреляция в норме
+        """
+        pass
 
-    def get_history_orders(self, ticket: int = None, position: int = None):
-        if ticket is not None:
-            return mt5.history_orders_get(ticket=ticket)
-        if position is not None:
-            return mt5.history_orders_get(position=position)
-        return None
 
-    def get_history_deals(self, date_from: datetime = None, date_to: datetime = None, ticket: int = None):
-        # MT5 API позволяет получать сделки либо по датам, либо по тикету
-        if ticket is not None:
-            return mt5.history_deals_get(ticket=ticket)
+# ===========================================
+# Trading System Interfaces
+# ===========================================
 
-        if date_from and date_to:
-            return mt5.history_deals_get(date_from, date_to)
+class ITradingSystem(ABC):
+    """Интерфейс торговой системы."""
 
-        return None
+    @abstractmethod
+    def start(self) -> bool:
+        """
+        Запуск системы.
+        
+        Returns:
+            True если успешно
+        """
+        pass
 
-    def symbol_info(self, symbol: str):
-        return mt5.symbol_info(symbol)
+    @abstractmethod
+    def stop(self) -> bool:
+        """
+        Остановка системы.
+        
+        Returns:
+            True если успешно
+        """
+        pass
 
-    def symbol_info_tick(self, symbol: str):
-        return mt5.symbol_info_tick(symbol)
+    @abstractmethod
+    def execute_trade(self, signal: Dict[str, Any]) -> bool:
+        """
+        Исполнение торгового сигнала.
+        
+        Args:
+            signal: Данные сигнала
+            
+        Returns:
+            True если сделка исполнена
+        """
+        pass
 
-    def order_send(self, request: dict):
-        return mt5.order_send(request)
+    @abstractmethod
+    def close_position(self, ticket: int) -> bool:
+        """
+        Закрытие позиции.
+        
+        Args:
+            ticket: Номер тикета
+            
+        Returns:
+            True если успешно
+        """
+        pass
 
-    def order_check(self, request: dict):
-        return mt5.order_check(request)
+    @abstractmethod
+    def get_account_info(self) -> Dict[str, Any]:
+        """
+        Получение информации об аккаунте.
+        
+        Returns:
+            Данные аккаунта
+        """
+        pass
+
+
+# ===========================================
+# Strategy Interface
+# ===========================================
+
+class IStrategy(ABC):
+    """Интерфейс торговой стратегии."""
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Название стратегии."""
+        pass
+
+    @abstractmethod
+    def generate_signal(
+        self,
+        symbol: str,
+        df: pd.DataFrame,
+        context: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Генерация торгового сигнала.
+        
+        Args:
+            symbol: Торговый инструмент
+            df: Рыночные данные
+            context: Дополнительный контекст
+            
+        Returns:
+            Данные сигнала или None
+        """
+        pass
+
+    @abstractmethod
+    def get_parameters(self) -> Dict[str, Any]:
+        """
+        Получение параметров стратегии.
+        
+        Returns:
+            Словарь параметров
+        """
+        pass
+
+    @abstractmethod
+    def set_parameters(self, parameters: Dict[str, Any]) -> None:
+        """
+        Установка параметров стратегии.
+        
+        Args:
+            parameters: Новые параметры
+        """
+        pass
+
+
+# ===========================================
+# Model Factory Interface
+# ===========================================
+
+class IModelFactory(ABC):
+    """Интерфейс фабрики ML моделей."""
+
+    @abstractmethod
+    def create_model(self, model_type: str, **kwargs) -> Any:
+        """
+        Создание модели.
+        
+        Args:
+            model_type: Тип модели
+            **kwargs: Дополнительные параметры
+            
+        Returns:
+            Экземпляр модели
+        """
+        pass
+
+    @abstractmethod
+    def load_model(self, model_id: int) -> Any:
+        """
+        Загрузка модели из БД.
+        
+        Args:
+            model_id: ID модели
+            
+        Returns:
+            Загруженная модель
+        """
+        pass
+
+    @abstractmethod
+    def save_model(self, model: Any, symbol: str, timeframe: int) -> int:
+        """
+        Сохранение модели в БД.
+        
+        Args:
+            model: Модель для сохранения
+            symbol: Торговый инструмент
+            timeframe: Таймфрейм
+            
+        Returns:
+            ID сохраненной модели
+        """
+        pass
+
+
+# ===========================================
+# Event Bus Interface
+# ===========================================
+
+class IEventBus(ABC):
+    """Интерфейс шины событий."""
+
+    @abstractmethod
+    def subscribe(self, event_type: str, callback: callable) -> None:
+        """
+        Подписка на событие.
+        
+        Args:
+            event_type: Тип события
+            callback: Функция обратного вызова
+        """
+        pass
+
+    @abstractmethod
+    def publish(self, event_type: str, data: Dict[str, Any]) -> None:
+        """
+        Публикация события.
+        
+        Args:
+            event_type: Тип события
+            data: Данные события
+        """
+        pass
+
+    @abstractmethod
+    def unsubscribe(self, event_type: str, callback: callable) -> None:
+        """
+        Отписка от события.
+        
+        Args:
+            event_type: Тип события
+            callback: Функция обратного вызова
+        """
+        pass
+
+
+# ===========================================
+# Cache Manager Interface
+# ===========================================
+
+class ICacheManager(ABC):
+    """Интерфейс менеджера кэша."""
+
+    @abstractmethod
+    def get(self, key: str) -> Optional[Any]:
+        """
+        Получение значения из кэша.
+        
+        Args:
+            key: Ключ кэша
+            
+        Returns:
+            Значение или None
+        """
+        pass
+
+    @abstractmethod
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+        """
+        Установка значения в кэш.
+        
+        Args:
+            key: Ключ кэша
+            value: Значение
+            ttl: Время жизни в секундах
+        """
+        pass
+
+    @abstractmethod
+    def delete(self, key: str) -> bool:
+        """
+        Удаление значения из кэша.
+        
+        Args:
+            key: Ключ кэша
+            
+        Returns:
+            True если удалено
+        """
+        pass
+
+    @abstractmethod
+    def clear(self) -> None:
+        """Очистка всего кэша."""
+        pass

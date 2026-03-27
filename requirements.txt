@@ -16,6 +16,7 @@ websockets>=10.0
 jinja2
 schedule
 slowapi
+dependency-injector
 
 # Данные и Аналитика
 numpy==1.26.4
