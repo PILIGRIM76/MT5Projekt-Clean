@@ -656,3 +656,105 @@ class RiskEngine:
             lot_size = round(round(lot_size / step) * step, decimals)
 
         return max(min_vol, min(max_vol, lot_size))
+
+    # === РЕЖИМЫ ТОРГОВЛИ ===
+    
+    def set_trading_mode(self, mode_id: str, settings: Optional[Dict[str, Any]] = None):
+        """
+        Установка режима торговли с предопределенными настройками риск-менеджмента.
+        
+        Args:
+            mode_id: Идентификатор режима ("conservative", "standard", "aggressive", "yolo", "custom")
+            settings: Пользовательские настройки (для кастомного режима)
+        """
+        if mode_id not in TRADING_MODES and mode_id != "custom":
+            logger.warning(f"Неизвестный режим торговли: {mode_id}")
+            return
+        
+        if mode_id == "custom":
+            if settings:
+                self._apply_custom_settings(settings)
+                logger.info(f"Применен кастомный режим торговли с настройками: {settings}")
+            return
+        
+        mode_data = TRADING_MODES[mode_id]
+        
+        # Применяем настройки режима через атрибуты risk_engine (не через config.risk)
+        self.base_risk_per_trade_percent = mode_data["risk_percentage"]
+        self.risk_config.max_positions = mode_data["max_positions"]
+        self.max_daily_drawdown_percent = mode_data["max_daily_drawdown"]
+        self.risk_config.stop_loss_atr_multiplier = mode_data["stop_loss_atr_multiplier"]
+        self.risk_config.risk_reward_ratio = mode_data["risk_reward_ratio"]
+        self.risk_config.enable_all_risk_checks = mode_data["enable_all_risk_checks"]
+        
+        logger.info(
+            f"🎯 Режим торговли установлен: {mode_data['icon']} {mode_data['name']}\n"
+            f"   Risk: {mode_data['risk_percentage']}% | Max позиций: {mode_data['max_positions']} | "
+            f"Max DD: {mode_data['max_daily_drawdown']}%"
+        )
+    
+    def _apply_custom_settings(self, settings: Dict[str, Any]):
+        """Применение пользовательских настроек риск-менеджмента."""
+        if "risk_percentage" in settings:
+            self.base_risk_per_trade_percent = settings["risk_percentage"]
+        if "max_positions" in settings:
+            self.risk_config.max_positions = settings["max_positions"]
+        if "max_daily_drawdown" in settings:
+            self.max_daily_drawdown_percent = settings["max_daily_drawdown"]
+        if "stop_loss_atr_multiplier" in settings:
+            self.risk_config.stop_loss_atr_multiplier = settings["stop_loss_atr_multiplier"]
+        if "risk_reward_ratio" in settings:
+            self.risk_config.risk_reward_ratio = settings["risk_reward_ratio"]
+        if "enable_all_risk_checks" in settings:
+            self.risk_config.enable_all_risk_checks = settings["enable_all_risk_checks"]
+        
+        logger.info(f"🔧 Применены кастомные настройки риска: {settings}")
+
+
+# === ПРЕСЕТЫ РЕЖИМОВ ТОРГОВЛИ ===
+TRADING_MODES = {
+    "conservative": {
+        "name": "Консервативный",
+        "icon": "🟢",
+        "risk_percentage": 0.25,
+        "max_positions": 3,
+        "max_daily_drawdown": 2.0,
+        "stop_loss_atr_multiplier": 2.0,
+        "risk_reward_ratio": 1.5,
+        "enable_all_risk_checks": True,
+        "description": "Минимальный риск, максимальная защита капитала"
+    },
+    "standard": {
+        "name": "Стандартный",
+        "icon": "🟡",
+        "risk_percentage": 0.5,
+        "max_positions": 10,
+        "max_daily_drawdown": 5.0,
+        "stop_loss_atr_multiplier": 3.0,
+        "risk_reward_ratio": 2.5,
+        "enable_all_risk_checks": True,
+        "description": "Баланс между риском и доходностью"
+    },
+    "aggressive": {
+        "name": "Агрессивный",
+        "icon": "🔴",
+        "risk_percentage": 2.0,
+        "max_positions": 25,
+        "max_daily_drawdown": 15.0,
+        "stop_loss_atr_multiplier": 4.0,
+        "risk_reward_ratio": 4.0,
+        "enable_all_risk_checks": False,
+        "description": "Высокий риск для максимальной прибыли"
+    },
+    "yolo": {
+        "name": "YOLO",
+        "icon": "⚫",
+        "risk_percentage": 10.0,
+        "max_positions": 50,
+        "max_daily_drawdown": 30.0,
+        "stop_loss_atr_multiplier": 5.0,
+        "risk_reward_ratio": 10.0,
+        "enable_all_risk_checks": False,
+        "description": "YOU ONLY LIVE ONCE - максимальный риск!"
+    }
+}

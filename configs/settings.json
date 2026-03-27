@@ -322,6 +322,10 @@
       "pullback_percent": 0.5
     }
   },
+  "trading_mode": {
+    "current_mode": "standard",
+    "enabled": false
+  },
   "rl_manager": {
     "training_timesteps_per_trade": 2000,
     "rewards": {
@@ -388,5 +392,11 @@
   "PROFIT_MODE": "auto",
   "TRADE_INTENSITY": "medium",
   "REENTRY_SAME_PAIR_MODE": "cooldown",
-  "REENTRY_SAME_PAIR_COOLDOWN_MINUTES": 30
+  "REENTRY_SAME_PAIR_COOLDOWN_MINUTES": 30,
+  "max_positions": 10,
+  "max_daily_drawdown": 5.0,
+  "stop_loss_atr_multiplier": 3.0,
+  "risk_reward_ratio": 2.5,
+  "risk_percentage": 0.5,
+  "enable_all_risk_checks": true
 }

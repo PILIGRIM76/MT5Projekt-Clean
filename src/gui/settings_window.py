@@ -14,7 +14,8 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
                                QPushButton, QLabel, QLineEdit, QFrame,
                                QDialogButtonBox, QTabWidget, QWidget, QFileDialog,
                                QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QCheckBox,
-                               QDoubleSpinBox, QSpinBox, QGroupBox, QTimeEdit, QComboBox)
+                               QDoubleSpinBox, QSpinBox, QGroupBox, QTimeEdit, QComboBox, QScrollArea,
+                               QSizePolicy)
 
 from PySide6.QtGui import QColor
 from PySide6.QtCore import Qt, QThread, Signal, QTime
@@ -23,6 +24,7 @@ from src.core.config_models import Settings
 from pydantic import BaseModel
 
 from .api_tester import ApiTester
+from .trading_modes_widget import TradingModesWidget, TRADING_MODES
 from src.core.config_loader import load_config
 from src.core.config_writer import write_config
 from src.utils.scheduler_manager import SchedulerManager
@@ -110,7 +112,8 @@ class SettingsWindow(QDialog):
 
         super().__init__(parent)
         self.setWindowTitle("Настройки Системы")
-        self.setMinimumWidth(800)
+        self.setMinimumSize(700, 550)  # Адаптивный минимальный размер
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setModal(True)
 
         self.env_path = self._find_env_file()
@@ -121,8 +124,9 @@ class SettingsWindow(QDialog):
         self.full_config = config
 
         main_layout = QVBoxLayout(self)
-        tab_widget = QTabWidget()
-        main_layout.addWidget(tab_widget)
+        self.tab_widget = QTabWidget()  # Сохраняем ссылку для переключения вкладок
+        self.tab_widget.setUsesScrollButtons(True)  # Прокрутка вкладок при нехватке места
+        main_layout.addWidget(self.tab_widget)
 
         mt5_tab = self._create_mt5_tab()
         api_tab = self._create_api_tab()
@@ -130,13 +134,13 @@ class SettingsWindow(QDialog):
         paths_tab = self._create_paths_tab()
         scheduler_tab = self._create_scheduler_tab()
         gp_tab = self._create_gp_tab()
-        tab_widget.addTab(gp_tab, "R&D (AI)")
+        self.tab_widget.addTab(gp_tab, "R&D (AI)")
 
-        tab_widget.addTab(mt5_tab, "Подключение MT5")
-        tab_widget.addTab(api_tab, "API Ключи")
-        tab_widget.addTab(trading_tab, "Торговля")
-        tab_widget.addTab(paths_tab, "Пути к данным")
-        tab_widget.addTab(scheduler_tab, "Планировщик")
+        self.tab_widget.addTab(mt5_tab, "Подключение MT5")
+        self.tab_widget.addTab(api_tab, "API Ключи")
+        self.tab_widget.addTab(trading_tab, "Торговля")
+        self.tab_widget.addTab(paths_tab, "Пути к данным")
+        self.tab_widget.addTab(scheduler_tab, "Планировщик")
 
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
@@ -145,36 +149,151 @@ class SettingsWindow(QDialog):
 
         self.load_settings()
 
+    def _create_scrollable_widget(self, content_widget: QWidget) -> QWidget:
+        """Создаёт прокручиваемый контейнер для вкладки."""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content_widget)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        layout.addWidget(scroll)
+        return container
+
     def _create_gp_tab(self):
-        widget = QWidget()
-        layout = QGridLayout(widget)
+        content_widget = QWidget()
+        layout = QGridLayout(content_widget)
         layout.setAlignment(Qt.AlignTop)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        layout.setColumnMinimumWidth(0, 250)  # Минимальная ширина для labels
+        layout.setColumnStretch(1, 1)  # Растягиваем колонку со spinbox
 
         layout.addWidget(QLabel("<b>Настройки Генетического Программирования (R&D)</b>"), 0, 0, 1, 2)
 
-        layout.addWidget(QLabel("Размер популяции (GP_POPULATION_SIZE):"), 1, 0)
+        layout.addWidget(QLabel("Размер популяции:"), 1, 0)
         self.gp_pop_spin = QSpinBox()
         self.gp_pop_spin.setRange(10, 1000)
+        self.gp_pop_spin.setValue(50)  # Значение по умолчанию
         self.gp_pop_spin.setToolTip("Количество стратегий в одном поколении.")
         layout.addWidget(self.gp_pop_spin, 1, 1)
 
-        layout.addWidget(QLabel("Количество поколений (GP_GENERATIONS):"), 2, 0)
+        layout.addWidget(QLabel("Количество поколений:"), 2, 0)
         self.gp_gen_spin = QSpinBox()
         self.gp_gen_spin.setRange(1, 500)
+        self.gp_gen_spin.setValue(20)  # Значение по умолчанию
+        self.gp_gen_spin.setToolTip("Количество поколений для эволюции стратегий.")
         layout.addWidget(self.gp_gen_spin, 2, 1)
 
-        return widget
+        layout.setRowStretch(10, 1)
+
+        return self._create_scrollable_widget(content_widget)
 
 
     def _create_trading_tab(self):
-        """Создает вкладку с настройками торговли и управления рисками."""
-        widget = QWidget()
-        main_layout = QVBoxLayout(widget)
-        main_layout.setAlignment(Qt.AlignTop)
+        """Создает вкладку с настройками торговли, управления рисками и торговыми режимами."""
+        content_widget = QWidget()
+        self._trading_tab_widget = content_widget
+        main_layout = QVBoxLayout(content_widget)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
+
+        # === ЗАГОЛОВОК С ПЕРЕКЛЮЧАТЕЛЕМ РЕЖИМОВ ===
+        title_layout = QHBoxLayout()
+        title_layout.setSpacing(10)
+        
+        title_label = QLabel("<h2>⚙️ Торговля и Риск-менеджмент</h2>")
+        title_label.setStyleSheet("color: #f8f8f2; padding: 10px;")
+        title_label.setWordWrap(True)
+        title_layout.addWidget(title_label)
+
+        title_layout.addStretch()
+
+        # Переключатель "Включить режимы торговли"
+        self.trading_modes_enable_checkbox = QCheckBox("🎯 Включить режимы торговли")
+        self.trading_modes_enable_checkbox.setChecked(False)  # По умолчанию выключен
+        self.trading_modes_enable_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-size: 13px;
+                font-weight: bold;
+                color: #f8f8f2;
+                spacing: 10px;
+                padding: 10px;
+            }
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+            }
+        """)
+        self.trading_modes_enable_checkbox.setToolTip(
+            "При отключении система будет использовать базовые настройки риск-менеджмента\n"
+            "из конфигурации без применения торговых режимов"
+        )
+        self.trading_modes_enable_checkbox.stateChanged.connect(self._on_trading_modes_enable_changed)
+        title_layout.addWidget(self.trading_modes_enable_checkbox)
+        
+        main_layout.addLayout(title_layout)
+
+        # === СЕКЦИЯ ТОРГОВЫХ РЕЖИМОВ ===
+        modes_group = QGroupBox("📊 Режимы Торговли")
+        modes_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #f8f8f2;
+                margin-top: 10px;
+                padding-top: 10px;
+                border: 1px solid #3e4451;
+                border-radius: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        modes_layout = QVBoxLayout(modes_group)
+        
+        modes_desc = QLabel(
+            "Выберите готовый режим торговли для автоматической настройки риск-менеджмента.\n"
+            "Настройки применяются немедленно и сохраняются в конфигурацию."
+        )
+        modes_desc.setStyleSheet("color: #bdc3c7; padding: 5px;")
+        modes_desc.setWordWrap(True)
+        modes_layout.addWidget(modes_desc)
+        
+        # Используем TradingModesWidget (у него есть встроенный скролл)
+        self.trading_modes_widget = TradingModesWidget()
+        self.trading_modes_widget.mode_changed.connect(self._on_trading_mode_changed)
+        self.trading_modes_widget.enabled_changed.connect(self._on_trading_modes_enabled_changed)
+        self.trading_modes_widget.open_settings_requested.connect(self._scroll_to_risk_settings)
+        modes_layout.addWidget(self.trading_modes_widget)
+
+        main_layout.addWidget(modes_group)
 
         # --- Группа Управления Рисками ---
-        risk_group = QGroupBox("Управление Рисками")
-        risk_layout = QGridLayout(risk_group)
+        self._risk_group = QGroupBox("⚙️ Ручная Настройка Риск-Менеджмента")
+        self._risk_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #f8f8f2;
+                margin-top: 10px;
+                padding-top: 10px;
+                border: 1px solid #3e4451;
+                border-radius: 5px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        risk_layout = QGridLayout(self._risk_group)
 
         risk_layout.addWidget(QLabel("Риск на сделку (% от капитала):"), 0, 0)
         self.risk_percentage_spinbox = QDoubleSpinBox()
@@ -200,7 +319,7 @@ class SettingsWindow(QDialog):
             "Максимально допустимая дневная просадка в процентах от баланса.\nПри достижении этого лимита система прекратит открывать новые сделки до следующего дня.")
         risk_layout.addWidget(self.max_daily_drawdown_spinbox, 2, 1)
 
-        main_layout.addWidget(risk_group)
+        main_layout.addWidget(self._risk_group)
 
         # --- Группа Управления Позициями ---
         positions_group = QGroupBox("Управление Позициями")
@@ -251,7 +370,11 @@ class SettingsWindow(QDialog):
 
         main_layout.addWidget(symbols_group)
         main_layout.addStretch()
-        return widget
+
+        # Загрузка текущего режима из конфига
+        self._load_current_trading_mode()
+
+        return self._create_scrollable_widget(self._trading_tab_widget)
 
     def _add_symbol_to_table(self):
         symbol = self.symbol_input.text().upper().strip()
@@ -418,6 +541,11 @@ class SettingsWindow(QDialog):
                     "interval_hours": self.auto_retrain_interval_spin.value(),
                     "max_symbols": self.auto_retrain_max_symbols_spin.value(),
                     "max_workers": self.auto_retrain_max_workers_spin.value()
+                },
+
+                "trading_mode": {
+                    "current_mode": self.trading_modes_widget.get_current_mode() if hasattr(self, 'trading_modes_widget') else "standard",
+                    "enabled": self.trading_modes_enable_checkbox.isChecked() if hasattr(self, 'trading_modes_enable_checkbox') else False
                 },
 
                 "PROFIT_TARGET_MODE": self.profit_target_mode_combo.currentText(),
@@ -672,11 +800,11 @@ class SettingsWindow(QDialog):
         )
         layout.addWidget(self.reentry_same_pair_cooldown_spin, 23, 1)
 
-        return widget
+        return self._create_scrollable_widget(widget)
 
     def _create_paths_tab(self):
-        widget = QWidget()
-        layout = QGridLayout(widget)
+        content_widget = QWidget()
+        layout = QGridLayout(content_widget)
         layout.setAlignment(Qt.AlignTop)
         layout.setColumnStretch(1, 1)
 
@@ -767,7 +895,7 @@ class SettingsWindow(QDialog):
 
 
         layout.setRowStretch(2, 1)
-        return widget
+        return self._create_scrollable_widget(content_widget)
 
     def _browse_folder(self, line_edit_widget, title):
         dir_path = QFileDialog.getExistingDirectory(self, title)
@@ -797,8 +925,8 @@ class SettingsWindow(QDialog):
         return str(env_path)
 
     def _create_mt5_tab(self):
-        widget = QWidget()
-        layout = QGridLayout(widget)
+        content_widget = QWidget()
+        layout = QGridLayout(content_widget)
         self.mt5_entries = {}
         self.mt5_entries["MT5_LOGIN"] = QLineEdit()
         self.mt5_entries["MT5_PASSWORD"] = QLineEdit(echoMode=QLineEdit.Password)
@@ -826,11 +954,11 @@ class SettingsWindow(QDialog):
         test_layout.addWidget(self.test_status_label)
         test_layout.addStretch()
         layout.addLayout(test_layout, 4, 1)
-        return widget
+        return self._create_scrollable_widget(content_widget)
 
     def _create_api_tab(self):
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
         self.api_table = QTableWidget()
         self.api_table.setColumnCount(4)
         self.api_table.setHorizontalHeaderLabels(["Источник", "API Ключ", "Действие", "Статус"])
@@ -848,7 +976,7 @@ class SettingsWindow(QDialog):
         button_layout.addWidget(add_button)
         button_layout.addWidget(delete_button)
         layout.addLayout(button_layout)
-        return widget
+        return self._create_scrollable_widget(content_widget)
 
     def _update_scheduler_status(self):
         tasks = [
@@ -1048,10 +1176,119 @@ class SettingsWindow(QDialog):
                     "Переобучение моделей запущено в фоновом режиме.\n"
                     "Процесс можно отслеживать в логах."
                 )
-                
+
             except Exception as e:
                 logger.error(f"Ошибка запуска обучения: {e}", exc_info=True)
                 self.auto_retrain_status_label.setText("Статус: ошибка ❌")
                 self.auto_retrain_status_label.setStyleSheet("color: #ff5555;")
                 self.manual_retrain_button.setEnabled(True)
                 QMessageBox.critical(self, "Ошибка", f"Не удалось запустить обучение:\n{e}")
+
+    def _scroll_to_risk_settings(self):
+        """Информирование пользователя о настройках риск-менеджмента."""
+        # Вкладка уже активна, пользователь может прокрутить вниз самостоятельно
+        logger.info("📊 Выбран кастомный режим - настройки риск-менеджмента ниже")
+
+    def _on_trading_mode_changed(self, mode_id: str, settings: dict):
+        """Обработка изменения режима торговли."""
+        logger.info(f"🎯 Режим торговли изменен на: {mode_id}")
+
+        # Обработка отключения режимов
+        if mode_id == "disabled":
+            # Обновляем метку в TradingModesWidget
+            if hasattr(self, 'trading_modes_widget'):
+                self.trading_modes_widget.current_mode_label.setText("⚙️ Режимы торговли ОТКЛЮЧЕНЫ")
+                self.trading_modes_widget.current_mode_label.setStyleSheet("""
+                    background-color: #5e636f20;
+                    color: #95a5a6;
+                    padding: 10px;
+                    border-radius: 5px;
+                    font-weight: bold;
+                    font-size: 12px;
+                """)
+
+            # Отключаем режимы в TradingSystem
+            try:
+                if hasattr(self.parent(), 'trading_system'):
+                    self.parent().trading_system.set_trading_mode("disabled", {})
+                    logger.info("✅ Режимы торговли отключены - система использует базовые настройки")
+            except Exception as e:
+                logger.error(f"❌ Ошибка при отключении режимов: {e}")
+            return
+
+        # Обновляем метку в TradingModesWidget
+        if hasattr(self, 'trading_modes_widget'):
+            mode_data = TRADING_MODES.get(mode_id, {})
+            mode_name = mode_data.get("name", "Кастомный")
+            mode_icon = mode_data.get("icon", "🔧")
+
+            self.trading_modes_widget.current_mode_label.setText(f"Текущий режим: {mode_icon} {mode_name}")
+
+            if mode_id != "custom":
+                color = mode_data.get("color", "#f39c12")
+                self.trading_modes_widget.current_mode_label.setStyleSheet(f"""
+                    background-color: {color}20;
+                    color: {color};
+                    padding: 10px;
+                    border-radius: 5px;
+                    font-weight: bold;
+                    font-size: 12px;
+                """)
+            else:
+                self.trading_modes_widget.current_mode_label.setStyleSheet("""
+                    background-color: #3498db20;
+                    color: #3498db;
+                    padding: 10px;
+                    border-radius: 5px;
+                    font-weight: bold;
+                    font-size: 12px;
+                """)
+
+        # Применяем режим через TradingSystem
+        try:
+            from src.core.trading_system import TradingSystem
+            # Получаем ссылку на trading_system через родителя
+            if hasattr(self.parent(), 'trading_system'):
+                self.parent().trading_system.set_trading_mode(mode_id, settings)
+                logger.info(f"✅ Режим '{mode_id}' успешно применен")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при применении режима: {e}")
+
+    def _on_trading_modes_enable_changed(self, state):
+        """Обработка изменения состояния переключателя включения режимов (из заголовка)."""
+        enabled = (state == Qt.Checked)
+        # Синхронизируем с виджетом торговых режимов
+        if hasattr(self, 'trading_modes_widget'):
+            # Блокируем/разблокируем контейнер с карточками
+            self.trading_modes_widget.modes_container.setEnabled(enabled)
+            # Отправляем сигнал
+            self.trading_modes_widget.enabled_changed.emit(enabled)
+
+    def _on_trading_modes_enabled_changed(self, enabled: bool):
+        """Обработка изменения состояния переключателя включения режимов."""
+        if enabled:
+            logger.info("🎯 Режимы торговли ВКЛЮЧЕНЫ пользователем")
+        else:
+            logger.info("⚙️ Режимы торговли ОТКЛЮЧЕНЫ пользователем")
+    
+    def _load_current_trading_mode(self):
+        """Загрузка текущего режима из конфигурации."""
+        try:
+            # Получаем текущий режим из конфига
+            current_mode = getattr(self.full_config, 'trading_mode', {}).get('current_mode', 'standard')
+            # Получаем состояние включения режимов (по умолчанию выключено)
+            modes_enabled = getattr(self.full_config, 'trading_mode', {}).get('enabled', False)
+
+            # Устанавливаем режим в виджете
+            if hasattr(self, 'trading_modes_widget'):
+                # Блокируем/разблокируем контейнер в зависимости от состояния
+                self.trading_modes_widget.modes_container.setEnabled(modes_enabled)
+                # Устанавливаем чекбокс в заголовке
+                if hasattr(self, 'trading_modes_enable_checkbox'):
+                    self.trading_modes_enable_checkbox.setChecked(modes_enabled)
+
+                self.trading_modes_widget.set_mode(current_mode)
+                # Метка обновится автоматически в set_mode через on_mode_selected
+
+        except Exception as e:
+            logger.error(f"Ошибка загрузки текущего режима: {e}")

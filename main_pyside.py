@@ -627,6 +627,16 @@ class PySideTradingSystem(QObject):
         """Проксирует вызов к ядру системы для остановки торговли."""
         self.core_system.initiate_graceful_shutdown()
 
+    def set_trading_mode(self, mode_id: str, settings: Optional[Dict[str, Any]] = None):
+        """
+        Проксирует вызов к core_system для установки режима торговли.
+        
+        Args:
+            mode_id: Идентификатор режима ("conservative", "standard", "aggressive", "yolo", "custom", "disabled")
+            settings: Пользовательские настройки (для кастомного режима)
+        """
+        self.core_system.set_trading_mode(mode_id, settings)
+
     def get_all_models(self) -> List[Dict]:
         """Проксирует вызов к db_manager для получения списка моделей."""
         return self.core_system.db_manager.get_all_models_for_gui()

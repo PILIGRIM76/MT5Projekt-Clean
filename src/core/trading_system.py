@@ -1592,6 +1592,30 @@ class TradingSystem(QObject):
         logger.info(
             f"Визуализация Графа Знаний была {'ВКЛЮЧЕНА' if enabled else 'ОТКЛЮЧЕНА'} пользователем.")
 
+    def set_trading_mode(self, mode_id: str, settings: Optional[Dict[str, Any]] = None):
+        """
+        Прокси-метод для установки режима торговли через RiskEngine.
+        
+        Args:
+            mode_id: Идентификатор режима ("conservative", "standard", "aggressive", "yolo", "custom", "disabled")
+            settings: Пользовательские настройки (для кастомного режима)
+        """
+        # Обработка отключения режимов
+        if mode_id == "disabled":
+            logger.info("⚙️ Режимы торговли ОТКЛЮЧЕНЫ - возврат к базовым настройкам из конфига")
+            # Возвращаем базовые настройки из конфига
+            self.risk_engine.base_risk_per_trade_percent = self.config.RISK_PERCENTAGE
+            self.risk_engine.max_daily_drawdown_percent = self.config.MAX_DAILY_DRAWDOWN_PERCENT
+            logger.info("✅ Базовые настройки риск-менеджмента восстановлены")
+            return
+        
+        logger.info(f"🎯 Запрос на установку режима торговли: {mode_id}")
+        try:
+            self.risk_engine.set_trading_mode(mode_id, settings)
+            logger.info(f"✅ Режим торговли '{mode_id}' успешно применен")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при установке режима торговли: {e}", exc_info=True)
+
     def update_runtime_settings(self, new_settings: dict):
         logger.warning(
             f"Применение новых настроек в реальном времени: {new_settings}")

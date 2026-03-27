@@ -315,6 +315,14 @@ class Settings(BaseModel):
                                              description="Максимальный VaR портфеля в %, при превышении которого включается хеджирование.")
     PORTFOLIO_VOLATILITY_THRESHOLD: float = Field(default=0.05,
                                                   description="Порог волатильности портфеля.")
+    
+    # --- Trading Modes Support ---
+    max_positions: int = Field(default=10, description="Максимальное количество позиций для режима торговли.")
+    max_daily_drawdown: float = Field(default=5.0, description="Максимальная дневная просадка для режима торговли.")
+    stop_loss_atr_multiplier: float = Field(default=3.0, description="Множитель ATR для Stop Loss в режиме торговли.")
+    risk_reward_ratio: float = Field(default=2.5, description="Соотношение прибыль/риск в режиме торговли.")
+    risk_percentage: float = Field(default=0.5, description="Процент риска на сделку в режиме торговли.")
+    enable_all_risk_checks: bool = Field(default=True, description="Включить все проверки риска для режима торговли.")
 
     # --- Profit Control & Reentry ---
     MAX_PROFIT_PER_TRADE_PERCENT: float = Field(default=5.0, description="Макс. прибыль в % для закрытия сделки.")
