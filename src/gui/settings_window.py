@@ -744,12 +744,19 @@ class SettingsWindow(QDialog):
 
         self._handle_scheduler_tasks()
 
-        # P0: Сохранение настроек уведомлений (Telegram/Email)
+        # P0: Сохранение настроек уведомлений (Telegram/Email) — ДО записи settings.json
         try:
-            # Сохраняем в settings.json
-            if 'alerting' not in current_config:
-                current_config['alerting'] = {}
+            # Сохраняем чувствительные данные в .env
+            set_key(self.env_path, 'TELEGRAM_BOT_TOKEN', self.telegram_token_edit.text())
+            set_key(self.env_path, 'TELEGRAM_CHAT_ID', self.telegram_chat_id_edit.text())
+            set_key(self.env_path, 'ALERT_EMAIL_FROM', self.email_from_edit.text())
+            set_key(self.env_path, 'ALERT_EMAIL_RECIPIENTS', self.email_recipients_edit.text())
             
+            # Пароль сохраняем только если он был изменён
+            if self.email_password_edit.text():
+                set_key(self.env_path, 'ALERT_EMAIL_PASSWORD', self.email_password_edit.text())
+            
+            # Обновляем current_config перед записью
             current_config['alerting'] = {
                 'enabled': self.telegram_enabled_checkbox.isChecked() or self.email_enabled_checkbox.isChecked(),
                 'channels': {
@@ -790,23 +797,54 @@ class SettingsWindow(QDialog):
                 }
             }
             
-            # Сохраняем чувствительные данные в .env
-            set_key(self.env_path, 'TELEGRAM_BOT_TOKEN', self.telegram_token_edit.text())
-            set_key(self.env_path, 'TELEGRAM_CHAT_ID', self.telegram_chat_id_edit.text())
-            set_key(self.env_path, 'ALERT_EMAIL_FROM', self.email_from_edit.text())
-            set_key(self.env_path, 'ALERT_EMAIL_RECIPIENTS', self.email_recipients_edit.text())
-            # Пароль сохраняем только если он был изменён
-            if self.email_password_edit.text():
-                set_key(self.env_path, 'ALERT_EMAIL_PASSWORD', self.email_password_edit.text())
-            
-            # Записываем обновлённый конфиг
-            write_config(current_config)
-            
-            logger.info("Настройки уведомлений успешно сохранены")
+            logger.info("Настройки уведомлений подготовлены к сохранению")
             
         except Exception as e:
-            logger.error(f"Ошибка при сохранении настроек уведомлений: {e}")
-            # Не показываем критическую ошибку, так как это не блокирует основную функциональность
+            logger.error(f"Ошибка при подготовке настроек уведомлений: {e}")
+
+        # Записываем обновлённый конфиг в файл
+        try:
+            if not write_config(current_config):
+                QMessageBox.critical(self, "Ошибка", "Не удалось сохранить настройки в settings.json.")
+            else:
+                logger.info("Настройки успешно сохранены в settings.json")
+                
+                # Обновляем конфигурацию в работающей системе
+                self._update_running_system_config(current_config)
+                
+        except Exception as e:
+            logger.error(f"Критическая ошибка при записи settings.json: {e}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить настройки: {e}")
+
+    def _update_running_system_config(self, new_config: dict):
+        """
+        Обновляет конфигурацию в работающей системе без перезапуска.
+        
+        Args:
+            new_config: Новая конфигурация
+        """
+        try:
+            if hasattr(self, 'full_config') and hasattr(self, 'scheduler_manager'):
+                # Обновляем full_config
+                from src.core.config_models import Settings
+                try:
+                    self.full_config = Settings(**new_config)
+                    logger.info("Конфигурация обновлена в памяти")
+                except Exception as e:
+                    logger.warning(f"Не удалось обновить конфигурацию в памяти: {e}")
+                
+                # Если есть ссылка на trading_system, обновляем настройки уведомлений
+                if hasattr(self, 'trading_system') and self.trading_system:
+                    try:
+                        # Обновляем настройки alerting
+                        if hasattr(self.trading_system, 'alert_manager'):
+                            self.trading_system.alert_manager.config = self.full_config
+                            logger.info("Alert Manager обновлён")
+                    except Exception as e:
+                        logger.warning(f"Не удалось обновить trading_system: {e}")
+                        
+        except Exception as e:
+            logger.error(f"Ошибка обновления конфигурации: {e}")
 
     def accept(self):
         # Сначала сохраняем настройки, пока виджеты живы
