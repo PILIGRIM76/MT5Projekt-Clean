@@ -1,4 +1,13 @@
 # src/core/config_loader.py
+"""
+Модуль загрузки конфигурации с поддержкой шифрования чувствительных данных.
+
+Приоритет загрузки (от высшего к низшему):
+1. Переменные окружения (.env)
+2. settings.json
+3. Значения по умолчанию
+"""
+
 import os
 import json
 import logging
@@ -7,8 +16,10 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from src.core.config_models import Settings
+from src.core.secure_config import SecureConfigLoader
 
 logger = logging.getLogger(__name__)
+
 
 def _get_default_settings_dict() -> dict:
     """Возвращает словарь с настройками по умолчанию."""
@@ -52,11 +63,18 @@ def load_config() -> Settings:
     Загружает конфигурацию из .env и settings.json,
     валидирует и возвращает строго типизированный объект Settings.
     При первом запуске создает settings.json с настройками по умолчанию.
+    
+    Returns:
+        Settings: Валидированная конфигурация
+        
+    Raises:
+        ValueError: Если отсутствуют обязательные переменные окружения
+        ValidationError: Если конфигурация не прошла валидацию Pydantic
     """
     config_dict = {}
     project_root = Path(__file__).parent.parent.parent
 
-    # 1. Загрузка из settings.json
+    # 1. Загрузка из settings.json (только нечувствительные данные)
     settings_path = project_root / 'configs' / 'settings.json'
     if settings_path.exists():
         try:
@@ -94,9 +112,27 @@ def load_config() -> Settings:
             # Pydantic сам обработает приведение типов, так что просто добавляем
             config_dict[key] = value
     else:
-        logger.warning(f"Файл {env_path} не найден.")
+        logger.warning(f"Файл {env_path} не найден. Рекомендуется создать .env файл для безопасного хранения учётных данных.")
 
-    # 3. Валидация и создание объекта Settings
+    # 3. Инициализация безопасного загрузчика
+    secure_loader = SecureConfigLoader()
+    
+    # 4. Проверка наличия обязательных учётных данных MT5
+    try:
+        mt5_creds = secure_loader.load_mt5_credentials()
+        logger.info("Учётные данные MT5 загружены и расшифрованы")
+        
+        # Обновляем конфигурацию расшифрованными данными
+        config_dict['MT5_LOGIN'] = str(mt5_creds['login'])
+        config_dict['MT5_PASSWORD'] = mt5_creds['password']
+        config_dict['MT5_SERVER'] = mt5_creds['server']
+        config_dict['MT5_PATH'] = mt5_creds['path']
+        
+    except ValueError as e:
+        logger.warning(f"Учётные данные MT5 не загружены: {e}")
+        # Не прерываем выполнение, позволяя системе работать в режиме без MT5
+
+    # 5. Валидация и создание объекта Settings
     try:
         settings = Settings(**config_dict)
         logger.info("Конфигурация успешно прошла валидацию Pydantic.")

@@ -1,4 +1,12 @@
 # src/web/server.py
+"""
+Веб-сервер для Genesis Trading System с Rate Limiting и валидацией.
+
+Особенности:
+- Rate Limiting для защиты от злоупотреблений
+- Валидация входных данных через Pydantic
+- WebSocket для реального времени
+"""
 
 import logging
 import asyncio
@@ -9,17 +17,37 @@ import json
 from datetime import datetime
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Path as FastApiPath
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Path as FastApiPath, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 
+# Rate Limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
 from .data_models import SystemStatus, Position, HistoricalTrade, ControlResponse
+from src.data_models import TradeRequest, ClosePositionRequest
 
 if TYPE_CHECKING:
     from src.core.trading_system import TradingSystem
 
 logger = logging.getLogger(__name__)
+
+
+# --- Rate Limiting настройка ---
+limiter = Limiter(key_func=get_remote_address)
+
+
+async def rate_limit_exception_handler(request: Request, exc: Exception):
+    """Обработчик превышения rate limit."""
+    return HTTPException(
+        status_code=429,
+        detail=f"Слишком много запросов. Попробуйте позже.",
+        headers={"Retry-After": "60"}
+    )
 
 
 # --- Глобальное состояние ---
@@ -151,7 +179,13 @@ async def lifespan(app: FastAPI):
         pass
 
 
+# Инициализация приложения с Rate Limiting
 app = FastAPI(title="Genesis Reflex API", lifespan=lifespan)
+
+# Добавляем middleware
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exception_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -211,8 +245,14 @@ class WebServer:
         self._put_to_queue_threadsafe({"type": "market_regime_update", "payload": {"regime": regime}})
 
     def setup_routes(self):
+        """Настройка API routes с Rate Limiting."""
+        
+        # --- Public API (высокие лимиты) ---
+        
         @app.get("/api/v1/status", response_model=SystemStatus)
-        async def get_status():
+        @limiter.limit("60/minute")  # 60 запросов в минуту
+        async def get_status(request: Request):
+            """Получение статуса системы."""
             if app_state and app_state.latest_status:
                 ts = app_state.trading_system
                 if ts.start_time:
@@ -233,11 +273,15 @@ class WebServer:
             return SystemStatus(is_running=False, mode="Ожидание", uptime="0:00:00", balance=0, equity=0)
 
         @app.get("/api/v1/positions", response_model=List[Position])
-        async def get_positions():
+        @limiter.limit("30/minute")  # 30 запросов в минуту
+        async def get_positions(request: Request):
+            """Получение списка открытых позиций."""
             return app_state.latest_positions if app_state else []
 
         @app.get("/api/v1/history", response_model=List[HistoricalTrade])
-        async def get_history():
+        @limiter.limit("30/minute")  # 30 запросов в минуту
+        async def get_history(request: Request):
+            """Получение истории сделок."""
             if not app_state or not app_state.trading_system:
                 return []
             history_deals = app_state.trading_system.db_manager.get_trade_history()
@@ -250,37 +294,51 @@ class WebServer:
                 ) for d in history_deals
             ]
 
+        # --- Control API (низкие лимиты - критичные операции) ---
+        
         @app.post("/api/v1/control/start", response_model=ControlResponse)
-        async def start_system():
+        @limiter.limit("5/minute")  # Макс 5 запусков в минуту
+        async def start_system(request: Request):
+            """Запуск торговой системы."""
             if app_state.trading_system.running:
                 return ControlResponse(success=False, message="Система уже запущена.")
             threading.Thread(target=app_state.trading_system.start_all_threads).start()
             return ControlResponse(success=True, message="Команда на запуск отправлена.")
 
         @app.post("/api/v1/control/stop", response_model=ControlResponse)
-        async def stop_system():
+        @limiter.limit("5/minute")  # Макс 5 остановок в минуту
+        async def stop_system(request: Request):
+            """Остановка торговой системы."""
             if not app_state.trading_system.running:
                 return ControlResponse(success=False, message="Система не запущена.")
             app_state.trading_system.stop()
             return ControlResponse(success=True, message="Команда на остановку отправлена.")
 
         @app.post("/api/v1/control/close_all", response_model=ControlResponse)
-        async def close_all_positions():
+        @limiter.limit("3/minute")  # Макс 3 аварийных закрытия в минуту
+        async def close_all_positions(request: Request):
+            """Аварийное закрытие всех позиций."""
             threading.Thread(target=app_state.trading_system.emergency_close_all_positions).start()
             return ControlResponse(success=True, message="Команда на закрытие всех позиций отправлена.")
 
         @app.post("/api/v1/control/close/{ticket}", response_model=ControlResponse)
-        async def close_position(ticket: int = FastApiPath(..., title="Ticket ID", gt=0)):
+        @limiter.limit("10/minute")  # Макс 10 закрытий позиций в минуту
+        async def close_position(request: Request, ticket: int = FastApiPath(..., title="Ticket ID", gt=0)):
+            """Закрытие конкретной позиции по ticket."""
             threading.Thread(target=app_state.trading_system.emergency_close_position, args=(ticket,)).start()
             return ControlResponse(success=True, message=f"Команда на закрытие позиции #{ticket} отправлена.")
 
         @app.post("/api/v1/control/observer_mode", response_model=ControlResponse)
-        async def set_observer_mode(enable: bool):
+        @limiter.limit("10/minute")  # Макс 10 переключений в минуту
+        async def set_observer_mode(request: Request, enable: bool):
+            """Включение/выключение режима наблюдателя."""
             if app_state.trading_system.observer_mode != enable:
                 app_state.trading_system.set_observer_mode(enable)
             status = "включен" if enable else "выключен"
             return ControlResponse(success=True, message=f"Режим наблюдателя {status}.")
 
+        # --- WebSocket (без rate limiting, но с защитой от disconnect) ---
+        
         @app.websocket("/api/ws/updates")
         async def websocket_endpoint(websocket: WebSocket):
             await app_state.ws_manager.connect(websocket)

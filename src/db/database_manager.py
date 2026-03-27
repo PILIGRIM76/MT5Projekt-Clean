@@ -101,6 +101,57 @@ class TradeHistory(Base):
     volatility_metric = Column(Float, nullable=True)
 
 
+class TradeAudit(Base):
+    """
+    Таблица аудита торговых решений.
+    
+    Сохраняет полный контекст принятия решения о сделке:
+    - Кто принял решение (AI, стратегия, человек)
+    - Обоснование решения (режим рынка, аллокация, сентимент)
+    - Проверки риска (Pre-Mortem, VaR, корреляция, drawdown)
+    - Контекст аккаунта (баланс, эквити, открытые позиции)
+    - Результат исполнения (успех/отказ/ошибка, время исполнения)
+    """
+    __tablename__ = 'trade_audit'
+    
+    id = Column(Integer, primary_key=True)
+    trade_ticket = Column(Integer, nullable=False, index=True, comment="Тикет сделки (связь с TradeHistory.ticket)")
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True, comment="Время аудита")
+    
+    # Кто принял решение
+    decision_maker = Column(String, nullable=False, comment="Источник решения: AI_Model, RLTradeManager, ClassicStrategy, Human")
+    strategy_name = Column(String, nullable=True, comment="Название стратегии")
+    
+    # Обоснование решения
+    market_regime = Column(String, nullable=True, comment="Текущий режим рынка")
+    capital_allocation = Column(Float, nullable=True, comment="Аллокация капитала для стратегии")
+    consensus_score = Column(Float, nullable=True, comment="Оценка консенсуса (уверенность)")
+    kg_sentiment = Column(Float, nullable=True, comment="Сентимент из Графа Знаний")
+    
+    # Проверки риска (JSON)
+    risk_checks = Column(Text, nullable=True, comment="JSON с результатами проверок риска")
+    # Формат: {
+    #   "pre_mortem_passed": true,
+    #   "var_check_passed": true,
+    #   "correlation_check_passed": true,
+    #   "daily_drawdown_ok": true
+    # }
+    
+    # Контекст аккаунта
+    account_balance = Column(Float, nullable=True, comment="Баланс аккаунта на момент решения")
+    account_equity = Column(Float, nullable=True, comment="Эквити аккаунта на момент решения")
+    open_positions_count = Column(Integer, nullable=True, comment="Количество открытых позиций")
+    portfolio_var = Column(Float, nullable=True, comment="Portfolio VaR (99%)")
+    
+    # Результат
+    execution_status = Column(String, nullable=False, comment="Статус: EXECUTED, REJECTED, FAILED")
+    rejection_reason = Column(String, nullable=True, comment="Причина отклонения (если есть)")
+    execution_time_ms = Column(Float, nullable=True, comment="Время исполнения в миллисекундах")
+    
+    def __repr__(self):
+        return f"<TradeAudit(ticket={self.trade_ticket}, status={self.execution_status}, time={self.timestamp})>"
+
+
 class StrategyPerformance(Base):
     __tablename__ = 'strategy_performance'
     id = Column(Integer, primary_key=True)
@@ -930,6 +981,227 @@ class DatabaseManager:
             return session.query(TradeHistory).order_by(TradeHistory.time_close.asc()).all()
         except Exception as e:
             logger.error(f"Ошибка чтения истории торгов: {e}")
+            return []
+        finally:
+            session.close()
+
+    # ===========================================
+    # Audit Log методы
+    # ===========================================
+    
+    def create_trade_audit(
+        self,
+        trade_ticket: int,
+        decision_maker: str,
+        strategy_name: Optional[str] = None,
+        market_regime: Optional[str] = None,
+        capital_allocation: Optional[float] = None,
+        consensus_score: Optional[float] = None,
+        kg_sentiment: Optional[float] = None,
+        risk_checks: Optional[Dict[str, bool]] = None,
+        account_balance: Optional[float] = None,
+        account_equity: Optional[float] = None,
+        open_positions_count: Optional[int] = None,
+        portfolio_var: Optional[float] = None,
+        execution_status: str = "EXECUTED",
+        rejection_reason: Optional[str] = None,
+        execution_time_ms: Optional[float] = None
+    ) -> Optional[int]:
+        """
+        Создание записи аудита торговой операции.
+        
+        Args:
+            trade_ticket: Тикет сделки
+            decision_maker: Источник решения (AI_Model, RLTradeManager, ClassicStrategy, Human)
+            strategy_name: Название стратегии
+            market_regime: Текущий режим рынка
+            capital_allocation: Аллокация капитала
+            consensus_score: Оценка консенсуса
+            kg_sentiment: Сентимент из KG
+            risk_checks: Словарь проверок риска {check_name: passed}
+            account_balance: Баланс аккаунта
+            account_equity: Эквити аккаунта
+            open_positions_count: Количество открытых позиций
+            portfolio_var: Portfolio VaR
+            execution_status: Статус исполнения (EXECUTED, REJECTED, FAILED)
+            rejection_reason: Причина отклонения
+            execution_time_ms: Время исполнения в мс
+            
+        Returns:
+            ID созданной записи аудита или None при ошибке
+        """
+        session = self.Session()
+        try:
+            # Сериализация risk_checks в JSON
+            risk_checks_json = json.dumps(risk_checks) if risk_checks else None
+            
+            audit_entry = TradeAudit(
+                trade_ticket=trade_ticket,
+                decision_maker=decision_maker,
+                strategy_name=strategy_name,
+                market_regime=market_regime,
+                capital_allocation=capital_allocation,
+                consensus_score=consensus_score,
+                kg_sentiment=kg_sentiment,
+                risk_checks=risk_checks_json,
+                account_balance=account_balance,
+                account_equity=account_equity,
+                open_positions_count=open_positions_count,
+                portfolio_var=portfolio_var,
+                execution_status=execution_status,
+                rejection_reason=rejection_reason,
+                execution_time_ms=execution_time_ms
+            )
+            
+            session.add(audit_entry)
+            session.commit()
+            session.refresh(audit_entry)
+            
+            logger.info(f"Audit: Сделка #{trade_ticket} - {execution_status}")
+            return audit_entry.id
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Ошибка создания audit записи для сделки #{trade_ticket}: {e}", exc_info=True)
+            return None
+        finally:
+            session.close()
+    
+    def get_audit_logs(
+        self,
+        trade_ticket: Optional[int] = None,
+        execution_status: Optional[str] = None,
+        limit: int = 100
+    ) -> List[TradeAudit]:
+        """
+        Получение записей аудита.
+        
+        Args:
+            trade_ticket: Фильтр по тику сделки (опционально)
+            execution_status: Фильтр по статусу (опционально)
+            limit: Максимальное количество записей
+            
+        Returns:
+            Список записей TradeAudit
+        """
+        session = self.Session()
+        try:
+            query = session.query(TradeAudit)
+            
+            if trade_ticket:
+                query = query.filter(TradeAudit.trade_ticket == trade_ticket)
+            
+            if execution_status:
+                query = query.filter(TradeAudit.execution_status == execution_status)
+            
+            return query.order_by(TradeAudit.timestamp.desc()).limit(limit).all()
+            
+        except Exception as e:
+            logger.error(f"Ошибка чтения audit логов: {e}")
+            return []
+        finally:
+            session.close()
+    
+    def get_audit_statistics(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> Dict[str, Any]:
+        """
+        Получение статистики audit логов.
+        
+        Args:
+            start_date: Начальная дата (опционально)
+            end_date: Конечная дата (опционно)
+            
+        Returns:
+            Словарь со статистикой
+        """
+        session = self.Session()
+        try:
+            query = session.query(TradeAudit)
+            
+            if start_date:
+                query = query.filter(TradeAudit.timestamp >= start_date)
+            if end_date:
+                query = query.filter(TradeAudit.timestamp <= end_date)
+            
+            total = query.count()
+            executed = query.filter(TradeAudit.execution_status == "EXECUTED").count()
+            rejected = query.filter(TradeAudit.execution_status == "REJECTED").count()
+            failed = query.filter(TradeAudit.execution_status == "FAILED").count()
+            
+            # Средняя уверенность
+            avg_confidence_result = session.query(func.avg(TradeAudit.consensus_score)).filter(
+                TradeAudit.execution_status == "EXECUTED"
+            ).scalar()
+            avg_confidence = float(avg_confidence_result) if avg_confidence_result else 0.0
+            
+            # Среднее время исполнения
+            avg_execution_time_result = session.query(func.avg(TradeAudit.execution_time_ms)).filter(
+                TradeAudit.execution_time_ms.isnot(None)
+            ).scalar()
+            avg_execution_time = float(avg_execution_time_result) if avg_execution_time_result else 0.0
+            
+            return {
+                "total_audits": total,
+                "executed": executed,
+                "rejected": rejected,
+                "failed": failed,
+                "execution_rate": executed / total if total > 0 else 0.0,
+                "rejection_rate": rejected / total if total > 0 else 0.0,
+                "avg_confidence_executed": avg_confidence,
+                "avg_execution_time_ms": avg_execution_time
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения статистики audit: {e}")
+            return {}
+        finally:
+            session.close()
+    
+    def get_rejection_reasons(
+        self,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        Получение причин отклонения сделок.
+        
+        Args:
+            limit: Максимальное количество записей
+            
+        Returns:
+            Список словарей с причинами отклонения
+        """
+        session = self.Session()
+        try:
+            results = session.query(
+                TradeAudit.trade_ticket,
+                TradeAudit.timestamp,
+                TradeAudit.decision_maker,
+                TradeAudit.strategy_name,
+                TradeAudit.rejection_reason,
+                TradeAudit.risk_checks
+            ).filter(
+                TradeAudit.execution_status == "REJECTED"
+            ).order_by(
+                TradeAudit.timestamp.desc()
+            ).limit(limit).all()
+            
+            return [
+                {
+                    "trade_ticket": r.trade_ticket,
+                    "timestamp": r.timestamp,
+                    "decision_maker": r.decision_maker,
+                    "strategy_name": r.strategy_name,
+                    "rejection_reason": r.rejection_reason,
+                    "risk_checks": json.loads(r.risk_checks) if r.risk_checks else None
+                }
+                for r in results
+            ]
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения причин отклонения: {e}")
             return []
         finally:
             session.close()

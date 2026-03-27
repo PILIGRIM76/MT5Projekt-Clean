@@ -6,6 +6,7 @@ PySide6==6.5.2
 pyqtgraph
 pydantic
 python-dotenv
+cryptography
 numba==0.59.1
 llvmlite==0.42.0
 #river
@@ -14,6 +15,7 @@ uvicorn[standard]>=0.20.0
 websockets>=10.0
 jinja2
 schedule
+slowapi
 
 # Данные и Аналитика
 numpy==1.26.4
