@@ -159,9 +159,9 @@ class TradingSystem(QObject):
         self.performance_metrics = {}
         self._perf_lock = threading.Lock()
 
-        # --- Коннектор (инициализируется позже в _initialize_components) ---
-        # self.terminal_connector: ITerminalConnector = None
-        self.terminal_connector = None  # Будет инициализирован как MT5 wrapper
+        # --- Коннектор (инициализируется как MT5 модуль) ---
+        # Используем напрямую MetaTrader5 как коннектор
+        self.terminal_connector = mt5  # MT5 wrapper модуль
 
         # --- Тяжелые объекты (инициализируются позже) ---
         self.db_manager = None
@@ -617,8 +617,8 @@ class TradingSystem(QObject):
                             return None, []
 
                     try:
-                        acc_info = self.terminal_connector.get_account_info()
-                        pos = self.terminal_connector.get_positions()
+                        acc_info = self.terminal_connector.account_info()
+                        pos = self.terminal_connector.positions_get()
                         return acc_info, list(pos) if pos else []
                     finally:
                         self.terminal_connector.shutdown()
@@ -2121,7 +2121,7 @@ class TradingSystem(QObject):
                                 continue
                             try:
                                 positions = list(
-                                    self.terminal_connector.get_positions(symbol=symbol))
+                                    self.terminal_connector.positions_get(symbol=symbol))
                                 return positions
                             except Exception as e:
                                 logger.error(f"Ошибка получения позиций: {e}")

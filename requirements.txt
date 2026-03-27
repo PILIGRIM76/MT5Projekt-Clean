@@ -28,6 +28,12 @@ matplotlib
 MetaTrader5
 arch
 
+# Тестирование
+pytest
+pytest-cov
+pytest-asyncio
+pytest-mock
+
 # Машинное обучение
 torch==2.2.2
 torchvision
