@@ -207,6 +207,8 @@ class ModeCard(QFrame):
     def setup_ui(self):
         self.setFrameStyle(QFrame.StyledPanel)
         self.setCursor(Qt.PointingHandCursor)
+        # Включаем обработку мышиных событий
+        self.setAttribute(Qt.WA_Hover)
         
         # Основной layout
         layout = QVBoxLayout(self)
@@ -299,6 +301,25 @@ class ModeCard(QFrame):
             """)
             self.indicator.setStyleSheet("color: transparent;")
 
+    def mousePressEvent(self, event):
+        """Обработка нажатия мыши."""
+        if event.button() == Qt.LeftButton:
+            # Находим родительский TradingModesWidget и вызываем on_mode_selected
+            parent = self.parent()
+            while parent:
+                if isinstance(parent, TradingModesWidget):
+                    # Если режимы выключены, сначала включаем их
+                    if not parent.enabled:
+                        parent.enabled = True
+                        parent.modes_container.setEnabled(True)
+                        parent.enabled_changed.emit(True)
+                        logger.info("🎯 Режимы торговли автоматически ВКЛЮЧЕНЫ")
+                    
+                    parent.on_mode_selected(self.mode_id)
+                    break
+                parent = parent.parent()
+        super().mousePressEvent(event)
+
 
 class TradingModesWidget(QWidget):
     """Виджет выбора режимов торговли."""
@@ -373,13 +394,26 @@ class TradingModesWidget(QWidget):
         container_layout.setSpacing(15)
         container_layout.setContentsMargins(10, 10, 10, 10)
 
+        # Сетка для карточек режимов (2 в ряд)
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(15)
+        
         # Карточки режимов
         self.mode_cards = {}
+        row, col = 0, 0
         for mode_id, mode_data in TRADING_MODES.items():
             card = ModeCard(mode_id, mode_data)
-            card.mousePressEvent = lambda e, mid=mode_id: self.on_mode_selected(mid)
+            # Устанавливаем курсор
+            card.setCursor(Qt.PointingHandCursor)
             self.mode_cards[mode_id] = card
-            container_layout.addWidget(card)
+            grid_layout.addWidget(card, row, col)
+            
+            col += 1
+            if col >= 2:  # 2 карточки в ряд
+                col = 0
+                row += 1
+        
+        container_layout.addLayout(grid_layout)
 
         # Кастомный режим
         custom_frame = QFrame()

@@ -42,8 +42,9 @@ class BreakoutStrategy(BaseStrategy):
         channel_low = rolling_window_lows.min()
         last_price = df['close'].iloc[current_index]
         prev_price = df['close'].iloc[current_index - 1]
+        symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'
         if last_price > channel_high and prev_price <= channel_high:
-            return TradeSignal(type=SignalType.BUY, confidence=0.7)
+            return TradeSignal(type=SignalType.BUY, confidence=0.7, symbol=symbol)
         elif last_price < channel_low and prev_price >= channel_low:
-            return TradeSignal(type=SignalType.SELL, confidence=0.7)
+            return TradeSignal(type=SignalType.SELL, confidence=0.7, symbol=symbol)
         return None

@@ -398,5 +398,84 @@
   "stop_loss_atr_multiplier": 3.0,
   "risk_reward_ratio": 2.5,
   "risk_percentage": 0.5,
-  "enable_all_risk_checks": true
+  "enable_all_risk_checks": true,
+  "circuit_breaker": {
+    "enabled": true,
+    "mt5_timeout_seconds": 30,
+    "spread_multiplier_threshold": 5.0,
+    "volatility_threshold_percent": 2.0,
+    "volatility_window_minutes": 5,
+    "max_consecutive_errors": 3,
+    "daily_loss_threshold_percent": 5.0,
+    "auto_close_positions": true,
+    "cooldown_minutes": 15
+  },
+  "alerting": {
+    "enabled": false,
+    "channels": {
+      "telegram": {
+        "enabled": false,
+        "bot_token_env": "TELEGRAM_BOT_TOKEN",
+        "chat_id_env": "TELEGRAM_CHAT_ID"
+      },
+      "email": {
+        "enabled": false,
+        "smtp_server": "",
+        "smtp_port": 587,
+        "use_tls": true,
+        "from_email_env": "ALERT_EMAIL_FROM",
+        "password_env": "ALERT_EMAIL_PASSWORD",
+        "recipients_env": "ALERT_EMAIL_RECIPIENTS"
+      },
+      "push": {
+        "enabled": false,
+        "user_key_env": "PUSHOVER_USER_KEY",
+        "api_token_env": "PUSHOVER_API_TOKEN"
+      }
+    },
+    "rate_limit": {
+      "max_per_minute": 10,
+      "cooldown_seconds": 60
+    },
+    "quiet_hours": {
+      "enabled": false,
+      "start": "22:00",
+      "end": "08:00",
+      "timezone": "UTC"
+    },
+    "daily_digest": {
+      "enabled": false,
+      "time": "20:00",
+      "timezone": "UTC"
+    }
+  },
+  "paper_trading": {
+    "enabled": false,
+    "initial_balance": 100000,
+    "currency": "USD",
+    "simulation": {
+      "slippage_model": "volatility_based",
+      "slippage_max_pips": 3,
+      "spread_source": "real_time",
+      "commission_per_lot": 7.0,
+      "execution_delay_ms": {
+        "market": 100,
+        "limit": 500,
+        "stop": 200
+      }
+    },
+    "auto_close_on_exit": false
+  },
+  "position_sizing": {
+    "method": "fixed_fractional",
+    "fixed_risk_percent": 0.01,
+    "kelly_use_half": true,
+    "kelly_max_percent": 0.25,
+    "volatility_atr_multiplier": 2.0,
+    "risk_parity_total_risk": 0.05,
+    "risk_parity_max_positions": 5,
+    "min_lot": 0.01,
+    "max_lot": 100.0,
+    "lot_step": 0.01
+  }
 }

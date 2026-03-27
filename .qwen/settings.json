@@ -25,7 +25,9 @@
       "Bash(echo.)",
       "Bash(copy *)",
       "Bash(select-object *)",
-      "Bash(true)"
+      "Bash(true)",
+      "Bash(echo *)",
+      "Bash(часть *)"
     ]
   },
   "$version": 3

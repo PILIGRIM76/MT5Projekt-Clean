@@ -50,7 +50,9 @@ class MeanReversionStrategy(BaseStrategy):
 
         # ВРЕМЕННО ЗАМЕНИТЕ НА ЭТО:
         # Просто проверяем, находится ли цена ниже нижней границы (для покупки)
+        # ИЗМЕНЕНИЕ: Добавлен символ в TradeSignal
+        symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'
         if last_price < lower_band:
-            return TradeSignal(type=SignalType.BUY, confidence=0.8)
+            return TradeSignal(type=SignalType.BUY, confidence=0.8, symbol=symbol)
         elif last_price > upper_band:
-            return TradeSignal(type=SignalType.SELL, confidence=0.8)
+            return TradeSignal(type=SignalType.SELL, confidence=0.8, symbol=symbol)

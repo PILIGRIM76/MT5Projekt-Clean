@@ -58,8 +58,9 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
         if pd.isna(short_ma) or pd.isna(long_ma) or pd.isna(prev_short_ma) or pd.isna(prev_long_ma):
             return None
 
+        symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'
         if short_ma > long_ma and prev_short_ma <= prev_long_ma:
-            return TradeSignal(type=SignalType.BUY, confidence=0.6)
+            return TradeSignal(type=SignalType.BUY, confidence=0.6, symbol=symbol)
         elif short_ma < long_ma and prev_short_ma >= prev_long_ma:
-            return TradeSignal(type=SignalType.SELL, confidence=0.6)
+            return TradeSignal(type=SignalType.SELL, confidence=0.6, symbol=symbol)
         return None

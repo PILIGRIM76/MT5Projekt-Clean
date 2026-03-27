@@ -68,10 +68,11 @@ class GPRDManager:
             def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int) -> Optional[
                 TradeSignal]:
                 try:
+                    symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'
                     buy_signal = self.buy_tree.evaluate(df).iloc[current_index] if self.buy_tree else False
                     sell_signal = self.sell_tree.evaluate(df).iloc[current_index] if self.sell_tree else False
-                    if buy_signal and not sell_signal: return TradeSignal(type=SignalType.BUY, confidence=1.0)
-                    if sell_signal and not buy_signal: return TradeSignal(type=SignalType.SELL, confidence=1.0)
+                    if buy_signal and not sell_signal: return TradeSignal(type=SignalType.BUY, confidence=1.0, symbol=symbol)
+                    if sell_signal and not buy_signal: return TradeSignal(type=SignalType.SELL, confidence=1.0, symbol=symbol)
                 except IndexError:
                     return None
                 return None

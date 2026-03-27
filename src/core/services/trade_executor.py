@@ -492,6 +492,18 @@ class TradeExecutor:
         """
         [TZ 1.1, 1.2, 1.3] Исполняет торговый сигнал с адаптивной логикой.
         """
+        # P0: Circuit Breaker — проверка перед торговлей
+        if hasattr(self.risk_engine.trading_system, 'circuit_breaker'):
+            cb = self.risk_engine.trading_system.circuit_breaker
+            if cb.enabled and not cb.is_trading_allowed:
+                logger.warning(
+                    f"[{symbol}] 🚨 Circuit Breaker блокирует торговлю! "
+                    f"Состояние: {cb.state.value}, Причина: последний триггер {cb.last_trip_time}"
+                )
+                # Записываем ошибку в Circuit Breaker
+                cb.record_error()
+                return None
+        
         # НОВОЕ: Проверка доступности MT5 соединения
         if self.risk_engine.trading_system.mt5_connection_failed:
             logger.warning(

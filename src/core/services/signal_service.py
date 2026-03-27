@@ -219,7 +219,7 @@ class SignalService:
             return None
 
         # 6. Формирование финального сигнала
-        final_signal = TradeSignal(type=final_signal_type, confidence=final_score,
+        final_signal = TradeSignal(type=final_signal_type, confidence=final_score, symbol=symbol,
                                    predicted_price=ai_signal.predicted_price)
         final_strategy_name = f"AI_MF_Consensus"
 
@@ -555,7 +555,7 @@ class SignalService:
         elif price_change_ratio < -self.config.ENTRY_THRESHOLD:
             signal_type = SignalType.SELL
 
-        signal = TradeSignal(type=signal_type, confidence=abs(price_change_ratio),
+        signal = TradeSignal(type=signal_type, confidence=abs(price_change_ratio), symbol=symbol,
                              predicted_price=final_predicted_price)
 
         return signal, prediction_input_numpy, current_price

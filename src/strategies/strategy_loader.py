@@ -74,17 +74,18 @@ class StrategyLoader:
                             def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int) -> \
                             Optional[TradeSignal]:
                                 try:
+                                    symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'
                                     if self.buy_tree:
                                         buy_series = self.buy_tree.evaluate(df)
                                         if not buy_series.empty and not pd.isna(buy_series.iloc[current_index]) and \
                                                 buy_series.iloc[current_index]:
-                                            return TradeSignal(type=SignalType.BUY, confidence=1.0)
+                                            return TradeSignal(type=SignalType.BUY, confidence=1.0, symbol=symbol)
 
                                     if self.sell_tree:
                                         sell_series = self.sell_tree.evaluate(df)
                                         if not sell_series.empty and not pd.isna(sell_series.iloc[current_index]) and \
                                                 sell_series.iloc[current_index]:
-                                            return TradeSignal(type=SignalType.SELL, confidence=1.0)
+                                            return TradeSignal(type=SignalType.SELL, confidence=1.0, symbol=symbol)
                                 except Exception:
                                     pass
                                 return None

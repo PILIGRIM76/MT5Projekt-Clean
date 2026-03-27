@@ -637,7 +637,7 @@ class RiskEngine:
         portfolio_pnl = sum(p['profit'] for p in open_positions_dicts)
         hedge_direction = SignalType.SELL if portfolio_pnl > 0 else SignalType.BUY
 
-        hedge_signal = TradeSignal(type=hedge_direction, confidence=0.99)
+        hedge_signal = TradeSignal(type=hedge_direction, confidence=0.99, symbol=hedge_symbol)
 
         logger.critical(
             f"!!! DELTA HEDGING: Excess VaR={excess_risk_percent:.2f}%. Открытие {hedge_direction.name} {hedge_lot_size:.2f} по {hedge_symbol}.")

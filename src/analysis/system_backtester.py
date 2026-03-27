@@ -237,10 +237,11 @@ class SystemBacktester:
                 def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int) -> Optional[
                     TradeSignal]:
                     # Упрощенное правило: RSI < 30 ИЛИ EMA_50 > EMA_200
+                    symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'
                     if 'RSI_14' in df.columns and 'EMA_50' in df.columns and 'EMA_200' in df.columns:
                         if df['RSI_14'].iloc[current_index] < 30 or df['EMA_50'].iloc[current_index] > \
                                 df['EMA_200'].iloc[current_index]:
-                            return TradeSignal(type=SignalType.BUY, confidence=0.6)
+                            return TradeSignal(type=SignalType.BUY, confidence=0.6, symbol=symbol)
                     return None
 
             self.strategies['GP_Hybrid_1'] = GP_Hybrid_1(self.config)

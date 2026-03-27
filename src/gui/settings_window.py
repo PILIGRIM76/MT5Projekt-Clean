@@ -65,6 +65,88 @@ class ConnectionTester(QThread):
             self.result_ready.emit(False, f"Ошибка: {str(e)}")
 
 
+class TelegramTester(QThread):
+    """Поток для тестирования Telegram подключения."""
+    result_ready = Signal(bool, str)
+
+    def __init__(self, token: str, chat_id: str):
+        super().__init__()
+        self.token = token
+        self.chat_id = chat_id
+
+    def run(self):
+        try:
+            import requests
+            url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+            payload = {
+                'chat_id': self.chat_id,
+                'text': '🧪 <b>Тест Genesis Trading System</b>\n\nУведомления Telegram работают корректно!',
+                'parse_mode': 'HTML'
+            }
+            response = requests.post(url, json=payload, timeout=10)
+            response.raise_for_status()
+            result = response.json()
+            if result.get('ok'):
+                self.result_ready.emit(True, "Успех! Проверьте Telegram.")
+            else:
+                self.result_ready.emit(False, f"Ошибка API: {result.get('description', 'Unknown error')}")
+        except requests.exceptions.Timeout:
+            self.result_ready.emit(False, "Превышено время ожидания (10 сек)")
+        except requests.exceptions.ConnectionError:
+            self.result_ready.emit(False, "Ошибка подключения. Проверьте интернет.")
+        except Exception as e:
+            self.result_ready.emit(False, f"Ошибка: {str(e)}")
+
+
+class EmailTester(QThread):
+    """Поток для тестирования Email подключения."""
+    result_ready = Signal(bool, str)
+
+    def __init__(self, smtp_server: str, smtp_port: int, email_from: str, 
+                 email_password: str, recipients: str):
+        super().__init__()
+        self.smtp_server = smtp_server
+        self.smtp_port = smtp_port
+        self.email_from = email_from
+        self.email_password = email_password
+        self.recipients = recipients
+
+    def run(self):
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            
+            msg = MIMEMultipart()
+            msg['From'] = self.email_from
+            msg['To'] = self.recipients
+            msg['Subject'] = "[Genesis Trading] Тест Email"
+            
+            body = """
+🧪 Тест Genesis Trading System
+
+Email уведомления работают корректно!
+
+---
+Это автоматическое тестовое сообщение.
+"""
+            msg.attach(MIMEText(body, 'plain', 'utf-8'))
+            
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            server.starttls()
+            server.login(self.email_from, self.email_password)
+            server.send_message(msg)
+            server.quit()
+            
+            self.result_ready.emit(True, "Успех! Проверьте Email.")
+        except smtplib.SMTPAuthenticationError:
+            self.result_ready.emit(False, "Ошибка аутентификации. Проверьте логин/пароль.")
+        except smtplib.SMTPConnectError:
+            self.result_ready.emit(False, "Ошибка подключения к SMTP серверу.")
+        except Exception as e:
+            self.result_ready.emit(False, f"Ошибка: {str(e)}")
+
+
 class ApiKeyTesterThread(QThread):
     result_ready = Signal(int, bool, str)
 
@@ -134,6 +216,7 @@ class SettingsWindow(QDialog):
         paths_tab = self._create_paths_tab()
         scheduler_tab = self._create_scheduler_tab()
         gp_tab = self._create_gp_tab()
+        notifications_tab = self._create_notifications_tab()  # P0: Notifications (Telegram/Email)
         self.tab_widget.addTab(gp_tab, "R&D (AI)")
 
         self.tab_widget.addTab(mt5_tab, "Подключение MT5")
@@ -141,6 +224,7 @@ class SettingsWindow(QDialog):
         self.tab_widget.addTab(trading_tab, "Торговля")
         self.tab_widget.addTab(paths_tab, "Пути к данным")
         self.tab_widget.addTab(scheduler_tab, "Планировщик")
+        self.tab_widget.addTab(notifications_tab, "Уведомления")
 
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
@@ -173,20 +257,31 @@ class SettingsWindow(QDialog):
         layout.setColumnMinimumWidth(0, 250)  # Минимальная ширина для labels
         layout.setColumnStretch(1, 1)  # Растягиваем колонку со spinbox
 
-        layout.addWidget(QLabel("<b>Настройки Генетического Программирования (R&D)</b>"), 0, 0, 1, 2)
+        gp_title = QLabel("<b>Настройки Генетического Программирования (R&D)</b>")
+        gp_title.setToolTip(
+            "Генетическое программирование (GP) используется для эволюционной оптимизации торговых стратегий.\n"
+            "Система автоматически создаёт и улучшает стратегии, отбирая наиболее прибыльные."
+        )
+        layout.addWidget(gp_title, 0, 0, 1, 2)
 
         layout.addWidget(QLabel("Размер популяции:"), 1, 0)
         self.gp_pop_spin = QSpinBox()
         self.gp_pop_spin.setRange(10, 1000)
         self.gp_pop_spin.setValue(50)  # Значение по умолчанию
-        self.gp_pop_spin.setToolTip("Количество стратегий в одном поколении.")
+        self.gp_pop_spin.setToolTip(
+            "Количество стратегий в одном поколении.\n"
+            "Больше = больше разнообразия, но медленнее работа.\n"
+            "Рекомендуется: 50-100")
         layout.addWidget(self.gp_pop_spin, 1, 1)
 
         layout.addWidget(QLabel("Количество поколений:"), 2, 0)
         self.gp_gen_spin = QSpinBox()
         self.gp_gen_spin.setRange(1, 500)
         self.gp_gen_spin.setValue(20)  # Значение по умолчанию
-        self.gp_gen_spin.setToolTip("Количество поколений для эволюции стратегий.")
+        self.gp_gen_spin.setToolTip(
+            "Количество поколений для эволюции стратегий.\n"
+            "Больше = лучше оптимизация, но дольше обучение.\n"
+            "Рекомендуется: 20-50")
         layout.addWidget(self.gp_gen_spin, 2, 1)
 
         layout.setRowStretch(10, 1)
@@ -240,6 +335,10 @@ class SettingsWindow(QDialog):
 
         # === СЕКЦИЯ ТОРГОВЫХ РЕЖИМОВ ===
         modes_group = QGroupBox("📊 Режимы Торговли")
+        modes_group.setToolTip(
+            "Выберите готовый режим торговли для автоматической настройки всех параметров риск-менеджмента.\n"
+            "Каждый режим оптимизирован под определённый стиль торговли."
+        )
         modes_group.setStyleSheet("""
             QGroupBox {
                 font-size: 14px;
@@ -277,6 +376,10 @@ class SettingsWindow(QDialog):
 
         # --- Группа Управления Рисками ---
         self._risk_group = QGroupBox("⚙️ Ручная Настройка Риск-Менеджмента")
+        self._risk_group.setToolTip(
+            "Ручная настройка параметров риск-менеджмента для кастомного режима торговли.\n"
+            "Изменения применяются немедленно после сохранения настроек."
+        )
         self._risk_group.setStyleSheet("""
             QGroupBox {
                 font-size: 14px;
@@ -323,6 +426,9 @@ class SettingsWindow(QDialog):
 
         # --- Группа Управления Позициями ---
         positions_group = QGroupBox("Управление Позициями")
+        positions_group.setToolTip(
+            "Настройки управления количеством открытых позиций и торговлей в выходные дни."
+        )
         positions_layout = QGridLayout(positions_group)
 
         positions_layout.addWidget(QLabel("Макс. кол-во открытых позиций:"), 0, 0)
@@ -342,6 +448,10 @@ class SettingsWindow(QDialog):
 
         # --- Группа Управления Символами ---
         symbols_group = QGroupBox("Управление Торговыми Символами (Whitelist)")
+        symbols_group.setToolTip(
+            "Список разрешённых торговых инструментов (символов).\n"
+            "Робот будет анализировать и торговать только выбранные символы."
+        )
         symbols_layout = QVBoxLayout(symbols_group)
 
         self.symbols_table = QTableWidget()
@@ -358,6 +468,7 @@ class SettingsWindow(QDialog):
         self.symbol_input.setToolTip(
             "Введите тикер символа в формате брокера (например, EURUSD, XAUUSD) и нажмите 'Добавить'.")
         self.add_symbol_button = QPushButton("Добавить")
+        self.add_symbol_button.setToolTip("Добавляет указанный символ в список разрешённых для торговли.")
         self.remove_symbol_button = QPushButton("Удалить выбранный")
         self.remove_symbol_button.setToolTip("Удаляет выбранный в таблице символ из списка разрешенных.")
         add_remove_layout.addWidget(self.symbol_input)
@@ -486,6 +597,40 @@ class SettingsWindow(QDialog):
         else:
             self.optimization_time_edit.setTime(QTime(12, 0))  # Время по умолчанию
 
+        # P0: Загрузка настроек уведомлений (Telegram/Email)
+        if hasattr(self.full_config, 'alerting'):
+            alerting_config = self.full_config.alerting
+            
+            # Telegram
+            telegram_config = alerting_config.channels.get('telegram', {})
+            self.telegram_enabled_checkbox.setChecked(telegram_config.get('enabled', False))
+            # Токен и chat_id загружаем из environment или secrets
+            self.telegram_token_edit.setText(os.environ.get('TELEGRAM_BOT_TOKEN', ''))
+            self.telegram_chat_id_edit.setText(os.environ.get('TELEGRAM_CHAT_ID', ''))
+            
+            # Email
+            email_config = alerting_config.channels.get('email', {})
+            self.email_enabled_checkbox.setChecked(email_config.get('enabled', False))
+            self.email_smtp_edit.setText(email_config.get('smtp_server', 'smtp.gmail.com'))
+            self.email_port_edit.setValue(email_config.get('smtp_port', 587))
+            self.email_from_edit.setText(os.environ.get('ALERT_EMAIL_FROM', ''))
+            self.email_recipients_edit.setText(os.environ.get('ALERT_EMAIL_RECIPIENTS', ''))
+            # Пароль не загружаем из соображений безопасности
+            
+            # Quiet Hours
+            quiet_hours_config = alerting_config.get('quiet_hours', {})
+            self.quiet_hours_enabled_checkbox.setChecked(quiet_hours_config.get('enabled', False))
+            if quiet_hours_config.get('start'):
+                self.quiet_hours_start_edit.setTime(QTime.fromString(quiet_hours_config['start'], "HH:mm"))
+            if quiet_hours_config.get('end'):
+                self.quiet_hours_end_edit.setTime(QTime.fromString(quiet_hours_config['end'], "HH:mm"))
+            
+            # Daily Digest
+            digest_config = alerting_config.get('daily_digest', {})
+            self.digest_enabled_checkbox.setChecked(digest_config.get('enabled', True))
+            if digest_config.get('time'):
+                self.digest_time_edit.setTime(QTime.fromString(digest_config['time'], "HH:mm"))
+
     def save_settings(self):
         # --- Сохранение .env (остается без изменений) ---
         for key, widget in self.mt5_entries.items():
@@ -599,6 +744,70 @@ class SettingsWindow(QDialog):
 
         self._handle_scheduler_tasks()
 
+        # P0: Сохранение настроек уведомлений (Telegram/Email)
+        try:
+            # Сохраняем в settings.json
+            if 'alerting' not in current_config:
+                current_config['alerting'] = {}
+            
+            current_config['alerting'] = {
+                'enabled': self.telegram_enabled_checkbox.isChecked() or self.email_enabled_checkbox.isChecked(),
+                'channels': {
+                    'telegram': {
+                        'enabled': self.telegram_enabled_checkbox.isChecked(),
+                        'bot_token_env': 'TELEGRAM_BOT_TOKEN',
+                        'chat_id_env': 'TELEGRAM_CHAT_ID'
+                    },
+                    'email': {
+                        'enabled': self.email_enabled_checkbox.isChecked(),
+                        'smtp_server': self.email_smtp_edit.text(),
+                        'smtp_port': self.email_port_edit.value(),
+                        'use_tls': True,
+                        'from_email_env': 'ALERT_EMAIL_FROM',
+                        'password_env': 'ALERT_EMAIL_PASSWORD',
+                        'recipients_env': 'ALERT_EMAIL_RECIPIENTS'
+                    },
+                    'push': {
+                        'enabled': False,
+                        'user_key_env': 'PUSHOVER_USER_KEY',
+                        'api_token_env': 'PUSHOVER_API_TOKEN'
+                    }
+                },
+                'rate_limit': {
+                    'max_per_minute': 10,
+                    'cooldown_seconds': 60
+                },
+                'quiet_hours': {
+                    'enabled': self.quiet_hours_enabled_checkbox.isChecked(),
+                    'start': self.quiet_hours_start_edit.time().toString("HH:mm"),
+                    'end': self.quiet_hours_end_edit.time().toString("HH:mm"),
+                    'timezone': 'UTC'
+                },
+                'daily_digest': {
+                    'enabled': self.digest_enabled_checkbox.isChecked(),
+                    'time': self.digest_time_edit.time().toString("HH:mm"),
+                    'timezone': 'UTC'
+                }
+            }
+            
+            # Сохраняем чувствительные данные в .env
+            set_key(self.env_path, 'TELEGRAM_BOT_TOKEN', self.telegram_token_edit.text())
+            set_key(self.env_path, 'TELEGRAM_CHAT_ID', self.telegram_chat_id_edit.text())
+            set_key(self.env_path, 'ALERT_EMAIL_FROM', self.email_from_edit.text())
+            set_key(self.env_path, 'ALERT_EMAIL_RECIPIENTS', self.email_recipients_edit.text())
+            # Пароль сохраняем только если он был изменён
+            if self.email_password_edit.text():
+                set_key(self.env_path, 'ALERT_EMAIL_PASSWORD', self.email_password_edit.text())
+            
+            # Записываем обновлённый конфиг
+            write_config(current_config)
+            
+            logger.info("Настройки уведомлений успешно сохранены")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении настроек уведомлений: {e}")
+            # Не показываем критическую ошибку, так как это не блокирует основную функциональность
+
     def accept(self):
         # Сначала сохраняем настройки, пока виджеты живы
         self.save_settings()
@@ -619,29 +828,51 @@ class SettingsWindow(QDialog):
         layout.setAlignment(Qt.AlignTop)
         layout.setColumnStretch(1, 1)
 
-        layout.addWidget(QLabel("<b>Управление фоновыми задачами</b>"), 0, 0, 1, 3)
+        scheduler_title = QLabel("<b>Управление фоновыми задачами</b>")
+        scheduler_title.setToolTip(
+            "Планировщик выполняет автоматические задачи по расписанию:\n"
+            "• Автозапуск - запуск системы при старте Windows\n"
+            "• Обслуживание - ежедневная очистка и оптимизация данных\n"
+            "• Оптимизация - еженедельная оптимизация стратегий\n"
+            "• Автообучение - автоматическое переобучение AI-моделей"
+        )
+        layout.addWidget(scheduler_title, 0, 0, 1, 3)
 
         self.autostart_checkbox = QCheckBox("Автозапуск системы при старте Windows")
+        self.autostart_checkbox.setToolTip(
+            "Автоматически запускает торговую систему при загрузке Windows.\n"
+            "Требует запуска программы от имени администратора."
+        )
         self.autostart_status_label = QLabel("Статус: Неизвестно")
         layout.addWidget(self.autostart_checkbox, 1, 0)
         layout.addWidget(self.autostart_status_label, 1, 2)
 
         # Задача ежедневного обслуживания (с выбором времени)
         self.maintenance_checkbox = QCheckBox("Ежедневное обслуживание")
+        self.maintenance_checkbox.setToolTip(
+            "Автоматическая ежедневная очистка и оптимизация базы данных.\n"
+            "Рекомендуется запускать в нерабочее время рынка."
+        )
         self.maintenance_time_edit = QTimeEdit()
         self.maintenance_time_edit.setDisplayFormat("hh:mm")
+        self.maintenance_time_edit.setToolTip("Время выполнения ежедневного обслуживания.")
         self.maintenance_status_label = QLabel("Статус: Неизвестно")
         layout.addWidget(self.maintenance_checkbox, 2, 0)
-        layout.addWidget(self.maintenance_time_edit, 2, 1)  # Добавляем виджет времени
+        layout.addWidget(self.maintenance_time_edit, 2, 1)
         layout.addWidget(self.maintenance_status_label, 2, 2)
 
         # Задача еженедельной оптимизации (с выбором времени)
         self.optimization_checkbox = QCheckBox("Еженедельная оптимизация (Сб)")
+        self.optimization_checkbox.setToolTip(
+            "Автоматическая еженедельная оптимизация торговых стратегий.\n"
+            "Выполняется по субботам для анализа прошедшей недели."
+        )
         self.optimization_time_edit = QTimeEdit()
         self.optimization_time_edit.setDisplayFormat("hh:mm")
+        self.optimization_time_edit.setToolTip("Время выполнения еженедельной оптимизации (суббота).")
         self.optimization_status_label = QLabel("Статус: Неизвестно")
         layout.addWidget(self.optimization_checkbox, 3, 0)
-        layout.addWidget(self.optimization_time_edit, 3, 1)  # Добавляем виджет времени
+        layout.addWidget(self.optimization_time_edit, 3, 1)
         layout.addWidget(self.optimization_status_label, 3, 2)
         
         # --- НОВАЯ СЕКЦИЯ: Автоматическое переобучение моделей ---
@@ -686,15 +917,23 @@ class SettingsWindow(QDialog):
         
         # Кнопка для ручного запуска
         self.manual_retrain_button = QPushButton("▶ Запустить обучение сейчас")
-        self.manual_retrain_button.setToolTip("Запустить переобучение моделей вручную")
+        self.manual_retrain_button.setToolTip(
+            "Запустить переобучение моделей вручную.\n"
+            "Полезно для тестирования или внепланового обновления стратегий."
+        )
         self.manual_retrain_button.clicked.connect(self._trigger_manual_retraining)
         layout.addWidget(self.manual_retrain_button, 10, 0, 1, 2)
-        
+
         self.auto_retrain_status_label = QLabel("Статус: не запланировано")
+        self.auto_retrain_status_label.setToolTip("Текущий статус задачи автоматического переобучения.")
         layout.addWidget(self.auto_retrain_status_label, 10, 2)
 
         info_label = QLabel(
             "\n<b>Внимание:</b> Для управления задачами программу необходимо запустить <b>от имени Администратора</b>."
+        )
+        info_label.setToolTip(
+            "Задачи планировщика требуют прав администратора для создания расписаний в Windows.\n"
+            "Без прав администратора задачи не будут созданы."
         )
         info_label.setWordWrap(True)
         layout.addWidget(info_label, 11, 0, 1, 3)
@@ -896,6 +1135,309 @@ class SettingsWindow(QDialog):
 
         layout.setRowStretch(2, 1)
         return self._create_scrollable_widget(content_widget)
+
+    def _create_notifications_tab(self):
+        """
+        P0: Создание вкладки для настройки уведомлений (Telegram, Email).
+        """
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setAlignment(Qt.AlignTop)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Заголовок
+        title = QLabel("<b>Настройки уведомлений</b>")
+        title.setToolTip("Настройте каналы для получения торговых уведомлений и алертов системы.")
+        layout.addWidget(title)
+
+        # --- Группа: Telegram ---
+        telegram_group = QGroupBox("Telegram уведомления")
+        telegram_layout = QGridLayout(telegram_group)
+        telegram_layout.setColumnStretch(1, 1)
+
+        # Включить Telegram
+        self.telegram_enabled_checkbox = QCheckBox("Включить Telegram уведомления")
+        self.telegram_enabled_checkbox.setToolTip(
+            "Включает отправку торговых сигналов и критических событий в Telegram."
+        )
+        telegram_layout.addWidget(self.telegram_enabled_checkbox, 0, 0, 1, 3)
+
+        # Bot Token
+        telegram_layout.addWidget(QLabel("Bot Token:"), 1, 0)
+        self.telegram_token_edit = QLineEdit()
+        self.telegram_token_edit.setEchoMode(QLineEdit.Password)
+        self.telegram_token_edit.setToolTip(
+            "Токен бота от @BotFather.\n"
+            "Пример: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+        )
+        telegram_layout.addWidget(self.telegram_token_edit, 1, 1)
+        
+        # Кнопка показать/скрыть токен
+        self.telegram_token_toggle_btn = QPushButton("👁️")
+        self.telegram_token_toggle_btn.setFixedWidth(40)
+        self.telegram_token_toggle_btn.setToolTip("Показать/скрыть токен")
+        self.telegram_token_toggle_btn.clicked.connect(
+            lambda: self._toggle_password_visibility(self.telegram_token_edit, self.telegram_token_toggle_btn)
+        )
+        telegram_layout.addWidget(self.telegram_token_toggle_btn, 1, 2)
+
+        # Chat ID
+        telegram_layout.addWidget(QLabel("Chat ID:"), 2, 0)
+        self.telegram_chat_id_edit = QLineEdit()
+        self.telegram_chat_id_edit.setToolTip(
+            "ID чата для отправки уведомлений.\n"
+            "Узнать через @userinfobot или @getmyid_bot."
+        )
+        telegram_layout.addWidget(self.telegram_chat_id_edit, 2, 1)
+
+        # Кнопка тестирования
+        self.test_telegram_btn = QPushButton("🧪 Тестировать Telegram")
+        self.test_telegram_btn.setToolTip(
+            "Отправляет тестовое сообщение в указанный чат.\n"
+            "Убедитесь, что бот добавлен в чат или имеет доступ к ЛС."
+        )
+        self.test_telegram_btn.clicked.connect(self._test_telegram_connection)
+        telegram_layout.addWidget(self.test_telegram_btn, 3, 0, 1, 3)
+
+        # Инструкция
+        telegram_help = QLabel(
+            "📝 <b>Как настроить:</b><br>"
+            "1. Создайте бота в @BotFather<br>"
+            "2. Узнайте Chat ID в @userinfobot<br>"
+            "3. Добавьте бота в чат (опционально)<br>"
+            "4. Нажмите 'Тестировать'"
+        )
+        telegram_help.setWordWrap(True)
+        telegram_help.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
+        telegram_layout.addWidget(telegram_help, 4, 0, 1, 3)
+
+        layout.addWidget(telegram_group)
+
+        # --- Группа: Email ---
+        email_group = QGroupBox("Email уведомления")
+        email_layout = QGridLayout(email_group)
+        email_layout.setColumnStretch(1, 1)
+
+        # Включить Email
+        self.email_enabled_checkbox = QCheckBox("Включить Email уведомления")
+        self.email_enabled_checkbox.setToolTip(
+            "Включает отправку торговых отчётов и критических событий на Email."
+        )
+        email_layout.addWidget(self.email_enabled_checkbox, 0, 0, 1, 3)
+
+        # SMTP Server
+        email_layout.addWidget(QLabel("SMTP сервер:"), 1, 0)
+        self.email_smtp_edit = QLineEdit()
+        self.email_smtp_edit.setPlaceholderText("smtp.gmail.com")
+        self.email_smtp_edit.setToolTip(
+            "SMTP сервер вашего почтового провайдера.<br>"
+            "Примеры:<br>"
+            "• Gmail: smtp.gmail.com:587<br>"
+            "• Yandex: smtp.yandex.ru:465<br>"
+            "• Mail.ru: smtp.mail.ru:465"
+        )
+        email_layout.addWidget(self.email_smtp_edit, 1, 1)
+
+        # Port
+        email_layout.addWidget(QLabel("Порт:"), 2, 0)
+        self.email_port_edit = QSpinBox()
+        self.email_port_edit.setRange(1, 65535)
+        self.email_port_edit.setValue(587)
+        self.email_port_edit.setToolTip("Порт SMTP сервера (587 для TLS, 465 для SSL).")
+        email_layout.addWidget(self.email_port_edit, 2, 1)
+
+        # Email From
+        email_layout.addWidget(QLabel("Отправитель (Email):"), 3, 0)
+        self.email_from_edit = QLineEdit()
+        self.email_from_edit.setPlaceholderText("your_email@gmail.com")
+        self.email_from_edit.setToolTip("Ваш Email адрес для отправки.")
+        email_layout.addWidget(self.email_from_edit, 3, 1)
+
+        # Password
+        email_layout.addWidget(QLabel("Пароль приложения:"), 4, 0)
+        self.email_password_edit = QLineEdit()
+        self.email_password_edit.setEchoMode(QLineEdit.Password)
+        self.email_password_edit.setToolTip(
+            "Пароль приложения (не основной пароль!).<br>"
+            "Для Gmail: настройте 'Пароли приложений' в аккаунте Google."
+        )
+        email_layout.addWidget(self.email_password_edit, 4, 1)
+        
+        # Кнопка показать/скрыть пароль
+        self.email_password_toggle_btn = QPushButton("👁️")
+        self.email_password_toggle_btn.setFixedWidth(40)
+        self.email_password_toggle_btn.setToolTip("Показать/скрыть пароль")
+        self.email_password_toggle_btn.clicked.connect(
+            lambda: self._toggle_password_visibility(self.email_password_edit, self.email_password_toggle_btn)
+        )
+        email_layout.addWidget(self.email_password_toggle_btn, 4, 2)
+
+        # Recipients
+        email_layout.addWidget(QLabel("Получатели (через запятую):"), 5, 0)
+        self.email_recipients_edit = QLineEdit()
+        self.email_recipients_edit.setPlaceholderText("recipient1@example.com, recipient2@example.com")
+        self.email_recipients_edit.setToolTip("Список Email адресов для получения уведомлений.")
+        email_layout.addWidget(self.email_recipients_edit, 5, 1)
+
+        # Кнопка тестирования
+        self.test_email_btn = QPushButton("🧪 Тестировать Email")
+        self.test_email_btn.setToolTip(
+            "Отправляет тестовое письмо на указанный адрес.\n"
+            "Проверьте папку 'Спам', если письмо не пришло."
+        )
+        self.test_email_btn.clicked.connect(self._test_email_connection)
+        email_layout.addWidget(self.test_email_btn, 6, 0, 1, 3)
+
+        # Инструкция
+        email_help = QLabel(
+            "📝 <b>Как настроить:</b><br>"
+            "1. Включите 'Пароли приложений' в почтовом сервисе<br>"
+            "2. Создайте пароль приложения<br>"
+            "3. Введите SMTP сервер и порт<br>"
+            "4. Нажмите 'Тестировать'"
+        )
+        email_help.setWordWrap(True)
+        email_help.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
+        email_layout.addWidget(email_help, 7, 0, 1, 3)
+
+        layout.addWidget(email_group)
+
+        # --- Группа: Quiet Hours ---
+        quiet_hours_group = QGroupBox("Тихие часы (Quiet Hours)")
+        quiet_hours_layout = QGridLayout(quiet_hours_group)
+        quiet_hours_layout.setColumnStretch(1, 1)
+
+        # Включить тихие часы
+        self.quiet_hours_enabled_checkbox = QCheckBox("Включить тихие часы")
+        self.quiet_hours_enabled_checkbox.setToolTip(
+            "Отключает уведомления (кроме CRITICAL) в указанное время."
+        )
+        quiet_hours_layout.addWidget(self.quiet_hours_enabled_checkbox, 0, 0, 1, 3)
+
+        # Начало
+        quiet_hours_layout.addWidget(QLabel("Начало:"), 1, 0)
+        self.quiet_hours_start_edit = QTimeEdit()
+        self.quiet_hours_start_edit.setTime(QTime(22, 0))
+        self.quiet_hours_start_edit.setDisplayFormat("HH:mm")
+        quiet_hours_layout.addWidget(self.quiet_hours_start_edit, 1, 1)
+
+        # Конец
+        quiet_hours_layout.addWidget(QLabel("Конец:"), 2, 0)
+        self.quiet_hours_end_edit = QTimeEdit()
+        self.quiet_hours_end_edit.setTime(QTime(8, 0))
+        self.quiet_hours_end_edit.setDisplayFormat("HH:mm")
+        quiet_hours_layout.addWidget(self.quiet_hours_end_edit, 2, 1)
+
+        layout.addWidget(quiet_hours_group)
+
+        # --- Группа: Daily Digest ---
+        digest_group = QGroupBox("Дневной дайджест")
+        digest_layout = QGridLayout(digest_group)
+        digest_layout.setColumnStretch(1, 1)
+
+        # Включить дайджест
+        self.digest_enabled_checkbox = QCheckBox("Включить дневной дайджест")
+        self.digest_enabled_checkbox.setToolTip(
+            "Отправляет сводку за день в указанное время."
+        )
+        digest_layout.addWidget(self.digest_enabled_checkbox, 0, 0, 1, 3)
+
+        # Время
+        digest_layout.addWidget(QLabel("Время отправки:"), 1, 0)
+        self.digest_time_edit = QTimeEdit()
+        self.digest_time_edit.setTime(QTime(20, 0))
+        self.digest_time_edit.setDisplayFormat("HH:mm")
+        digest_layout.addWidget(self.digest_time_edit, 1, 1)
+
+        layout.addWidget(digest_group)
+
+        layout.addStretch()
+
+        return self._create_scrollable_widget(content_widget)
+
+    def _toggle_password_visibility(self, line_edit: QLineEdit, button: QPushButton):
+        """Переключает видимость пароля/токена."""
+        if line_edit.echoMode() == QLineEdit.Password:
+            line_edit.setEchoMode(QLineEdit.Normal)
+            button.setText("🙈")
+        else:
+            line_edit.setEchoMode(QLineEdit.Password)
+            button.setText("👁️")
+
+    def _test_telegram_connection(self):
+        """Тестирует подключение к Telegram."""
+        from PySide6.QtWidgets import QMessageBox
+
+        token = self.telegram_token_edit.text().strip()
+        chat_id = self.telegram_chat_id_edit.text().strip()
+
+        if not token or not chat_id:
+            QMessageBox.warning(self, "Ошибка", "Заполните Bot Token и Chat ID")
+            return
+
+        # Останавливаем предыдущий тест если он ещё идёт
+        if hasattr(self, 'telegram_tester') and self.telegram_tester.isRunning():
+            self.telegram_tester.quit()
+            self.telegram_tester.wait(1000)  # Ждём до 1 сек
+
+        # Создаём и запускаем тестер
+        self.telegram_tester = TelegramTester(token, chat_id)
+        self.telegram_tester.result_ready.connect(self._on_telegram_test_complete)
+        self.telegram_tester.finished.connect(self._on_telegram_tester_finished)
+        self.telegram_tester.start()
+
+    def _on_telegram_test_complete(self, success: bool, message: str):
+        """Обработка результата тестирования Telegram."""
+        from PySide6.QtWidgets import QMessageBox
+        if success:
+            QMessageBox.information(self, "Успех", message)
+        else:
+            QMessageBox.critical(self, "Ошибка", message)
+
+    def _on_telegram_tester_finished(self):
+        """Очистка после завершения тестера."""
+        if hasattr(self, 'telegram_tester'):
+            self.telegram_tester.deleteLater()
+
+    def _test_email_connection(self):
+        """Тестирует подключение к Email."""
+        from PySide6.QtWidgets import QMessageBox
+
+        smtp_server = self.email_smtp_edit.text().strip()
+        smtp_port = self.email_port_edit.value()
+        email_from = self.email_from_edit.text().strip()
+        email_password = self.email_password_edit.text().strip()
+        recipients = self.email_recipients_edit.text().strip()
+
+        if not all([smtp_server, email_from, email_password, recipients]):
+            QMessageBox.warning(self, "Ошибка", "Заполните все поля Email")
+            return
+
+        # Останавливаем предыдущий тест если он ещё идёт
+        if hasattr(self, 'email_tester') and self.email_tester.isRunning():
+            self.email_tester.quit()
+            self.email_tester.wait(1000)
+
+        # Создаём и запускаем тестер
+        self.email_tester = EmailTester(smtp_server, smtp_port, email_from, 
+                                        email_password, recipients)
+        self.email_tester.result_ready.connect(self._on_email_test_complete)
+        self.email_tester.finished.connect(self._on_email_tester_finished)
+        self.email_tester.start()
+
+    def _on_email_test_complete(self, success: bool, message: str):
+        """Обработка результата тестирования Email."""
+        from PySide6.QtWidgets import QMessageBox
+        if success:
+            QMessageBox.information(self, "Успех", message)
+        else:
+            QMessageBox.critical(self, "Ошибка", message)
+
+    def _on_email_tester_finished(self):
+        """Очистка после завершения тестера."""
+        if hasattr(self, 'email_tester'):
+            self.email_tester.deleteLater()
 
     def _browse_folder(self, line_edit_widget, title):
         dir_path = QFileDialog.getExistingDirectory(self, title)
@@ -1268,8 +1810,14 @@ class SettingsWindow(QDialog):
         """Обработка изменения состояния переключателя включения режимов."""
         if enabled:
             logger.info("🎯 Режимы торговли ВКЛЮЧЕНЫ пользователем")
+            # Обновляем чекбокс в заголовке
+            if hasattr(self, 'trading_modes_enable_checkbox'):
+                self.trading_modes_enable_checkbox.setChecked(True)
         else:
             logger.info("⚙️ Режимы торговли ОТКЛЮЧЕНЫ пользователем")
+            # Обновляем чекбокс в заголовке
+            if hasattr(self, 'trading_modes_enable_checkbox'):
+                self.trading_modes_enable_checkbox.setChecked(False)
     
     def _load_current_trading_mode(self):
         """Загрузка текущего режима из конфигурации."""

@@ -332,8 +332,10 @@ class MultiSourceDataAggregator:
 
         if news_result_tuple and not isinstance(news_result_tuple, Exception):
             all_items, _, _ = news_result_tuple
-            if all_items:
-                await asyncio.to_thread(self._process_news_background, all_items)
+            # Обработка новостей выполняется в news_service
+            # if all_items:
+            #     await asyncio.to_thread(self._process_news_background, all_items)
+            logger.info(f"[News] Обработано {len(all_items)} новостей")
 
         data_dict = {key: df for key, df in data_dict_raw.items()}
         ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict)

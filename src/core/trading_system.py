@@ -43,6 +43,10 @@ from src.data.data_provider import DataProvider
 from src.data.multi_source_aggregator import MultiSourceDataAggregator
 from src.analysis.market_screener import MarketScreener
 from src.risk.risk_engine import RiskEngine
+from src.risk.circuit_breaker import CircuitBreaker
+from src.monitoring.alert_manager import AlertManager
+from src.core.paper_trading_engine import PaperTradingEngine
+from src.core.secrets_manager import SecretsManager
 from src._version import __version__
 from src.strategies.strategy_loader import StrategyLoader
 from src.analysis.market_regime_manager import MarketRegimeManager
@@ -191,6 +195,10 @@ class TradingSystem(QObject):
         self.web_server: Optional[WebServer] = None
         self.training_scheduler = None  # Планировщик автоматического переобучения
         self.safety_monitor = None  # CRITICAL: Safety Monitor для защиты капитала
+        self.circuit_breaker = None  # P0: Circuit Breaker для аварийной остановки
+        self.alert_manager = None  # P0: Alert Manager для уведомлений
+        self.paper_trading_engine = None  # P0: Paper Trading Engine для симуляции
+        self.secrets_manager = None  # P0: Secrets Manager для безопасного хранения
 
         self.models: Dict[str, Any] = {}
         self.x_scalers: Dict[str, StandardScaler] = {}
@@ -321,6 +329,23 @@ class TradingSystem(QObject):
         self.data_aggregator.market_screener = self.market_screener
         self.risk_engine = RiskEngine(self.config, self, self.knowledge_graph_querier, self.mt5_lock,
                                       is_simulation=False)
+        
+        # P0: Инициализация Circuit Breaker
+        self.circuit_breaker = CircuitBreaker(self.config, self)
+        logger.info("Circuit Breaker инициализирован")
+        
+        # P0: Инициализация Alert Manager
+        self.alert_manager = AlertManager(self.config, self)
+        logger.info("Alert Manager инициализирован")
+        
+        # P0: Инициализация Paper Trading Engine
+        self.paper_trading_engine = PaperTradingEngine(self.config, self)
+        logger.info("Paper Trading Engine инициализирован")
+        
+        # P0: Инициализация Secrets Manager
+        self.secrets_manager = SecretsManager()
+        logger.info("Secrets Manager инициализирован")
+        
         self.strategy_optimizer = StrategyOptimizer(
             self.config, self.data_provider)
         self.gp_rd_manager = GPRDManager(
