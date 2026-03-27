@@ -34,6 +34,10 @@ pytest-cov
 pytest-asyncio
 pytest-mock
 
+# Асинхронность
+aiohttp
+asyncpg
+
 # Машинное обучение
 torch==2.2.2
 torchvision
