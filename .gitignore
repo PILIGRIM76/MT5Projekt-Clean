@@ -78,6 +78,7 @@ cache/
 htmlcov/
 .tox/
 .nox/
+tests/
 
 # --- Jupyter ---
 .ipynb_checkpoints/
@@ -95,18 +96,8 @@ System Volume Information/
 *.lnk
 
 # --- Документация ---
-*.pdf
-*.epub
-.mobi
-
-# --- Внутренняя документация (ТЗ, спецификации) ---
-docs/TECHNICAL_SPECIFICATION.md
-docs/*.internal.md
-docs/P0_COMPLETE.md
-docs/FINAL_P0_REPORT.md
-docs/IMPLEMENTATION_REPORT.md
-docs/NOTIFICATIONS_SETUP.md
-docs/*.draft.md
+*.md
+!README.md
 
 # --- Архивы ---
 *.zip
