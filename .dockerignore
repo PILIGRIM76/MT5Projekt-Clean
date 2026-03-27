@@ -1,0 +1,127 @@
+# .dockerignore для Genesis Trading System
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Qwen
+.qwen/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+*.cover
+.hypothesis/
+
+# Documentation
+*.md
+!README.md
+docs/
+PHASE*.md
+IMPROVEMENT_PLAN.md
+SECURE_CONFIG_GUIDE.md
+
+# Logs
+*.log
+logs/
+database/logs/
+
+# Database
+*.db
+*.db-journal
+database/*.db
+database/*.db-journal
+database/vector_db/
+database/faiss/
+ai_models/
+.hf_cache/
+hf_models/
+
+# Configuration (will be mounted as volumes)
+configs/.env
+configs/settings.json
+*.secret
+*.key
+
+# Temporary files
+*.tmp
+*.bak
+*.old
+*.orig
+~$*.doc*
+~$*.xls*
+Thumbs.db
+desktop.ini
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+$RECYCLE.BIN/
+System Volume Information/
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.docker/
+
+# Monitoring
+monitoring/
+
+# Scripts
+scripts/
+*.bat
+*.sh
+!requirements*.txt
+
+# Tests
+tests/
+test_*.py
+check_*.py
+diagnose_*.py
+
+# Assets (optional, can be included if needed)
+# assets/
