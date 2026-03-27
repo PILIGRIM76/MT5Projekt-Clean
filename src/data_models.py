@@ -8,7 +8,7 @@
 - Информативные сообщения об ошибках
 """
 
-import datetime
+import datetime as dt
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -227,7 +227,7 @@ class NewsItem:
     """
     source: str
     text: str
-    timestamp: datetime
+    timestamp: dt.datetime
     asset: Optional[str] = None  # Для какого актива новость (если можно определить)
 
 
@@ -236,7 +236,7 @@ class NewsItemPydantic(BaseModel):
     
     source: str = Field(..., min_length=1, max_length=100)
     text: str = Field(..., min_length=1)
-    timestamp: datetime
+    timestamp: dt.datetime
     asset: Optional[str] = Field(None, max_length=20)
     sentiment: Optional[float] = Field(
         None,
