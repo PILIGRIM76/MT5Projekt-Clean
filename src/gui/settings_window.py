@@ -677,6 +677,8 @@ class SettingsWindow(QDialog):
                 QTime(12, 0))  # Время по умолчанию
 
         # P0: Загрузка настроек уведомлений (Telegram/Email)
+        config_values = dotenv_values(self.env_path)
+        
         if hasattr(self.full_config, 'alerting'):
             alerting_config = self.full_config.alerting
 
@@ -684,11 +686,11 @@ class SettingsWindow(QDialog):
             telegram_config = alerting_config.channels.get('telegram', {})
             self.telegram_enabled_checkbox.setChecked(
                 telegram_config.get('enabled', False))
-            # Токен и chat_id загружаем из environment или secrets
+            # Токен и chat_id загружаем из .env файла
             self.telegram_token_edit.setText(
-                os.environ.get('TELEGRAM_BOT_TOKEN', ''))
+                config_values.get('TELEGRAM_BOT_TOKEN', ''))
             self.telegram_chat_id_edit.setText(
-                os.environ.get('TELEGRAM_CHAT_ID', ''))
+                config_values.get('TELEGRAM_CHAT_ID', ''))
 
             # Email
             email_config = alerting_config.channels.get('email', {})
@@ -698,10 +700,12 @@ class SettingsWindow(QDialog):
                 email_config.get('smtp_server', 'smtp.gmail.com'))
             self.email_port_edit.setValue(email_config.get('smtp_port', 587))
             self.email_from_edit.setText(
-                os.environ.get('ALERT_EMAIL_FROM', ''))
+                config_values.get('ALERT_EMAIL_FROM', ''))
             self.email_recipients_edit.setText(
-                os.environ.get('ALERT_EMAIL_RECIPIENTS', ''))
-            # Пароль не загружаем из соображений безопасности
+                config_values.get('ALERT_EMAIL_RECIPIENTS', ''))
+            # Пароль загружаем из .env
+            self.email_password_edit.setText(
+                config_values.get('ALERT_EMAIL_PASSWORD', ''))
 
             # Quiet Hours
             quiet_hours_config = alerting_config.get('quiet_hours', {})
@@ -721,6 +725,8 @@ class SettingsWindow(QDialog):
             if digest_config.get('time'):
                 self.digest_time_edit.setTime(
                     QTime.fromString(digest_config['time'], "HH:mm"))
+        else:
+            logger.warning("alerting конфигурация не найдена")
 
     def save_settings(self):
         # --- Сохранение .env (остается без изменений) ---
