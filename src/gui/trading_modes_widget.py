@@ -483,14 +483,18 @@ class TradingModesWidget(QWidget):
 
     def on_enabled_changed(self, state):
         """Обработка изменения состояния переключателя."""
-        self.enabled = (state == Qt.Checked)
-        
+        # Проверяем состояние (может быть int или Qt.CheckState)
+        if isinstance(state, int):
+            self.enabled = (state == 2)  # Qt.Checked = 2
+        else:
+            self.enabled = (state == Qt.Checked)
+
         # Блокировка/разблокировка контейнера с карточками
         self.modes_container.setEnabled(self.enabled)
-        
+
         # Отправка сигнала
         self.enabled_changed.emit(self.enabled)
-        
+
         if self.enabled:
             logger.info("🎯 Режимы торговли ВКЛЮЧЕНЫ")
             # Применяем текущий режим
