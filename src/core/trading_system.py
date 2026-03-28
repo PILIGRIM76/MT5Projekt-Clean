@@ -299,17 +299,37 @@ class TradingSystem(QObject):
             logger.info(
                 f"Загрузка модели эмбеддингов: {self.config.vector_db.embedding_model}...")
             # Загружаем на CPU для экономии VRAM, так как это не требует обучения
-            # Увеличиваем таймаут через environment variable
-            import os
-            os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '60'  # 60 секунд
             
-            from huggingface_hub.utils import disable_progress_bars
+            # Устанавливаем таймауты через huggingface_hub
+            from huggingface_hub import HfFolder
+            from huggingface_hub.utils import disable_progress_bars, enable_progress_bars
             disable_progress_bars()
+            
+            # Проверяем есть ли модель в кэше
+            from huggingface_hub import try_to_load_from_cache
+            cached_file = try_to_load_from_cache(
+                self.config.vector_db.embedding_model, 
+                'modules.json'
+            )
+            
+            if cached_file is not None:
+                logger.info("Модель найдена в кэше, загрузка не требуется")
+            
+            # Загружаем с увеличенным таймаутом через REQUESTS_TIMEOUT
+            import os
+            old_timeout = os.environ.get('REQUESTS_TIMEOUT')
+            os.environ['REQUESTS_TIMEOUT'] = '120'  # 120 секунд
             
             embedding_model = SentenceTransformer(
                 self.config.vector_db.embedding_model, 
                 device='cpu'
             )
+            
+            # Восстанавливаем старый таймаут
+            if old_timeout:
+                os.environ['REQUESTS_TIMEOUT'] = old_timeout
+            elif 'REQUESTS_TIMEOUT' in os.environ:
+                del os.environ['REQUESTS_TIMEOUT']
 
             # Передаем модель в компоненты
             self.nlp_processor.embedding_model = embedding_model
