@@ -1213,13 +1213,24 @@ class SettingsWindow(QDialog):
         db_group = QGroupBox("Пути к данным")
         db_layout = QGridLayout(db_group)
 
-        db_label = QLabel("Папка для баз данных (модели, история):")
+        db_label = QLabel("<b>📁 Папка для баз данных:</b>")
         db_label.setToolTip(
-            "Здесь будут храниться все данные системы: база данных SQLite с историей сделок,\n"
-            "обученные AI-модели, логи состояний и бэкапы."
+            "<b>Что хранится:</b>\n"
+            "• SQLite база данных (история сделок)\n"
+            "• Обученные AI-модели (LightGBM, LSTM)\n"
+            "• Логи состояний системы\n"
+            "• Бэкапы конфигураций\n\n"
+            "<b>Рекомендации:</b>\n"
+            "• Используйте SSD диск для скорости\n"
+            "• Минимум 10 GB свободного места"
         )
+        db_label.setWordWrap(True)
+        db_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
+        
         self.db_folder_edit = QLineEdit()
-        db_browse_button = QPushButton("Обзор...")
+        self.db_folder_edit.setPlaceholderText("Например: D:/GenesisDB")
+        db_browse_button = QPushButton("📁 Обзор...")
+        db_browse_button.setCursor(Qt.PointingHandCursor)
         db_browse_button.clicked.connect(
             lambda: self._browse_folder(
                 self.db_folder_edit, "Выберите папку для хранения данных")
@@ -1228,17 +1239,21 @@ class SettingsWindow(QDialog):
         db_layout.addWidget(self.db_folder_edit, 0, 1)
         db_layout.addWidget(db_browse_button, 0, 2)
 
-        hf_label = QLabel("<b>Папка для кэша AI-моделей (SentenceTransformer):</b>")
+        hf_label = QLabel("<b>🤖 Папка для кэша AI-моделей (Hugging Face):</b>")
         hf_label.setToolTip(
-            "<b>Модель:</b> all-MiniLM-L6-v2 (90 MB)\n\n"
-            "<b>Для чего нужна:</b>\n"
+            "<b>Модель 1:</b> all-MiniLM-L6-v2 (90 MB)\n"
             "• Анализ новостей и заголовков\n"
-            "• Поиск похожих событий в истории\n"
+            "• Поиск похожих событий\n"
             "• Понимание смысла текстов (NLP)\n"
-            "• Работа с графом знаний (Knowledge Graph)\n\n"
+            "• Работа с графом знаний\n\n"
+            "<b>Модель 2:</b> google/flan-t5-base (990 MB)\n"
+            "• Генерация связей между событиями\n"
+            "• Анализ причинно-следственных связей\n"
+            "• Обработка естественного языка\n\n"
+            "<b>Общий размер:</b> ~1.1 GB\n\n"
             "<b>Как работает:</b>\n"
-            "При первом запуске модель скачивается из интернета (~90 MB).\n"
-            "Повторная загрузка не требуется — модель берётся из кэша.\n\n"
+            "При первом запуске модели скачиваются из интернета.\n"
+            "Повторная загрузка не требуется — модели берутся из кэша.\n\n"
             "<b>Рекомендации:</b>\n"
             "• Укажите папку на диске с большим местом (D:, E:)\n"
             "• Не используйте путь с кириллицей\n"
@@ -1250,7 +1265,7 @@ class SettingsWindow(QDialog):
         hf_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
         
         self.hf_cache_edit = QLineEdit()
-        self.hf_cache_edit.setPlaceholderText("Например: D:/AI_Models_Cache")
+        self.hf_cache_edit.setPlaceholderText("Например: F:/Enjen/all-MiniLM-L6-v2")
         self.hf_cache_edit.setToolTip(
             "Путь к папке где будут храниться AI модели.\n"
             "Оставьте пустым для использования пути по умолчанию."
@@ -1266,13 +1281,24 @@ class SettingsWindow(QDialog):
         db_layout.addWidget(hf_browse_button, 1, 2)
 
         # Папка для векторной БД
-        vector_db_label = QLabel("Папка для векторной базы данных:")
+        vector_db_label = QLabel("<b>📊 Папка для векторной базы данных (FAISS):</b>")
         vector_db_label.setToolTip(
-            "Здесь будет храниться векторная база данных FAISS для поиска по новостям и событиям.\n"
-            "Рекомендуется размещать в той же папке, что и основная БД."
+            "<b>Что хранится:</b>\n"
+            "• Векторные эмбеддинги новостей\n"
+            "• Индексы для быстрого поиска\n"
+            "• Кэш похожих событий\n\n"
+            "<b>Размер:</b> ~100-500 MB (растёт со временем)\n\n"
+            "<b>Рекомендации:</b>\n"
+            "• Размещайте в той же папке что и основную БД\n"
+            "• Рекомендуется SSD для скорости поиска"
         )
+        vector_db_label.setWordWrap(True)
+        vector_db_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
+        
         self.vector_db_folder_edit = QLineEdit()
-        vector_db_browse_button = QPushButton("Обзор...")
+        self.vector_db_folder_edit.setPlaceholderText("Например: D:/GenesisDB/vector_db")
+        vector_db_browse_button = QPushButton("📁 Обзор...")
+        vector_db_browse_button.setCursor(Qt.PointingHandCursor)
         vector_db_browse_button.clicked.connect(
             lambda: self._browse_folder(
                 self.vector_db_folder_edit, "Выберите папку для векторной БД")
@@ -1282,13 +1308,24 @@ class SettingsWindow(QDialog):
         db_layout.addWidget(vector_db_browse_button, 2, 2)
 
         # Папка для логов
-        logs_label = QLabel("Папка для логов системы:")
+        logs_label = QLabel("<b>📝 Папка для логов системы:</b>")
         logs_label.setToolTip(
-            "Здесь будут храниться файлы логов работы системы.\n"
-            "Рекомендуется периодически очищать старые логи."
+            "<b>Что хранится:</b>\n"
+            "• genesis.log — основные логи системы\n"
+            "• genesis_errors.log — ошибки и исключения\n"
+            "• trading.log — история торговых операций\n\n"
+            "<b>Размер:</b> ~50-200 MB в месяц\n\n"
+            "<b>Рекомендации:</b>\n"
+            "• Периодически очищайте старые логи\n"
+            "• Храните отдельно от баз данных"
         )
+        logs_label.setWordWrap(True)
+        logs_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
+        
         self.logs_folder_edit = QLineEdit()
-        logs_browse_button = QPushButton("Обзор...")
+        self.logs_folder_edit.setPlaceholderText("Например: D:/GenesisDB/logs")
+        logs_browse_button = QPushButton("📁 Обзор...")
+        logs_browse_button.setCursor(Qt.PointingHandCursor)
         logs_browse_button.clicked.connect(
             lambda: self._browse_folder(
                 self.logs_folder_edit, "Выберите папку для логов")
