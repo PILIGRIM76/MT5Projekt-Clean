@@ -32,139 +32,6 @@ from src.utils.scheduler_manager import SchedulerManager
 logger = logging.getLogger(__name__)
 
 
-class TradingModeToggleSwitch(QWidget):
-    """
-    Современный переключатель режимов торговли (3 позиции).
-    
-    Режимы:
-    - Paper Trading (зелёный)
-    - Наблюдатель (жёлтый)
-    - Реальная торговля (красный)
-    """
-    
-    mode_changed = Signal(str)  # mode: "paper", "observer", "real"
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.current_mode = "paper"  # По умолчанию Paper Trading
-        
-        # Создаём кнопки
-        self.paper_btn = QPushButton("📄 Paper")
-        self.observer_btn = QPushButton("👁️ Наблюдатель")
-        self.real_btn = QPushButton("💼 Реальная")
-        
-        # Настраиваем кнопки
-        self._setup_buttons()
-        
-        # Layout
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5)
-        layout.addWidget(self.paper_btn)
-        layout.addWidget(self.observer_btn)
-        layout.addWidget(self.real_btn)
-        
-        # Обновляем стиль
-        self._update_styles()
-    
-    def _setup_buttons(self):
-        """Настройка кнопок."""
-        for btn in [self.paper_btn, self.observer_btn, self.real_btn]:
-            btn.setCheckable(True)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setMinimumWidth(100)
-            btn.setMaximumWidth(120)
-        
-        # Подключаем сигналы
-        self.paper_btn.clicked.connect(lambda: self._on_button_clicked("paper"))
-        self.observer_btn.clicked.connect(lambda: self._on_button_clicked("observer"))
-        self.real_btn.clicked.connect(lambda: self._on_button_clicked("real"))
-    
-    def _on_button_clicked(self, mode: str):
-        """Обработка клика по кнопке."""
-        if mode != self.current_mode:
-            self.current_mode = mode
-            self._update_styles()
-            self.mode_changed.emit(mode)
-    
-    def _update_styles(self):
-        """Обновление стилей кнопок."""
-        # Стили для разных режимов
-        styles = {
-            "paper": """
-                QPushButton {
-                    background-color: #27ae60;
-                    color: white;
-                    border: 2px solid #27ae60;
-                    border-radius: 5px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #2ecc71;
-                }
-            """,
-            "observer": """
-                QPushButton {
-                    background-color: #f39c12;
-                    color: white;
-                    border: 2px solid #f39c12;
-                    border-radius: 5px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #f1c40f;
-                }
-            """,
-            "real": """
-                QPushButton {
-                    background-color: #e74c3c;
-                    color: white;
-                    border: 2px solid #e74c3c;
-                    border-radius: 5px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #c0392b;
-                }
-            """,
-            "inactive": """
-                QPushButton {
-                    background-color: #34495e;
-                    color: #95a5a6;
-                    border: 2px solid #34495e;
-                    border-radius: 5px;
-                }
-                QPushButton:hover {
-                    background-color: #2c3e4f;
-                }
-            """
-        }
-        
-        # Применяем стили
-        for btn, mode in [
-            (self.paper_btn, "paper"),
-            (self.observer_btn, "observer"),
-            (self.real_btn, "real")
-        ]:
-            if mode == self.current_mode:
-                btn.setStyleSheet(styles[mode])
-                btn.setChecked(True)
-            else:
-                btn.setStyleSheet(styles["inactive"])
-                btn.setChecked(False)
-    
-    def set_mode(self, mode: str):
-        """Установить режим."""
-        if mode in ["paper", "observer", "real"]:
-            self.current_mode = mode
-            self._update_styles()
-            self.mode_changed.emit(mode)
-    
-    def get_mode(self) -> str:
-        """Получить текущий режим."""
-        return self.current_mode
-
-
 class ConnectionTester(QThread):
     result_ready = Signal(bool, str)
 
@@ -435,7 +302,7 @@ class SettingsWindow(QDialog):
         main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(15)
 
-        # === ЗАГОЛОВОК С ПЕРЕКЛЮЧАТЕЛЕМ РЕЖИМОВ ===
+        # === ЗАГОЛОВОК ===
         title_layout = QHBoxLayout()
         title_layout.setSpacing(10)
 
@@ -446,16 +313,27 @@ class SettingsWindow(QDialog):
 
         title_layout.addStretch()
 
-        # Современный переключатель режимов (Toggle Switch)
-        self.trading_mode_toggle = TradingModeToggleSwitch()
-        self.trading_mode_toggle.setToolTip(
-            "Переключение между режимами:\n"
-            "• Paper Trading - симуляция без риска\n"
-            "• Наблюдатель - мониторинг без сделок\n"
-            "• Реальная торговля - полноценная торговля"
+        # Чекбокс включения режимов торговли
+        self.trading_modes_enable_checkbox = QCheckBox("✅ Включить режимы торговли")
+        self.trading_modes_enable_checkbox.setChecked(False)
+        self.trading_modes_enable_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #f8f8f2;
+                spacing: 10px;
+                padding: 10px;
+            }
+            QCheckBox::indicator {
+                width: 24px;
+                height: 24px;
+            }
+        """)
+        self.trading_modes_enable_checkbox.setToolTip(
+            "Включите для активации карточек режимов торговли\n"
+            "Пока выключено - используется базовая конфигурация риск-менеджмента"
         )
-        self.trading_mode_toggle.mode_changed.connect(self._on_trading_mode_toggle_changed)
-        title_layout.addWidget(self.trading_mode_toggle)
+        title_layout.addWidget(self.trading_modes_enable_checkbox)
 
         main_layout.addLayout(title_layout)
 
@@ -500,9 +378,11 @@ class SettingsWindow(QDialog):
         self.trading_modes_widget.open_settings_requested.connect(
             self._scroll_to_risk_settings)
 
-        # Подключаем переключатель к виджету
-        self.trading_mode_toggle.mode_changed.connect(
-            self.trading_modes_widget.on_mode_selected)
+        # Подключаем чекбокс к виджету
+        self.trading_modes_enable_checkbox.stateChanged.connect(
+            self.trading_modes_widget.on_enabled_changed)
+        self.trading_modes_enable_checkbox.stateChanged.connect(
+            self._on_trading_modes_enable_changed)
 
         modes_layout.addWidget(self.trading_modes_widget)
 
@@ -2161,42 +2041,10 @@ class SettingsWindow(QDialog):
         except Exception as e:
             logger.error(f"❌ Ошибка при применении режима: {e}")
 
-    def _on_trading_mode_toggle_changed(self, mode: str):
-        """Обработка переключения режима торговли."""
-        logger.info(f"🎯 Переключен режим торговли: {mode}")
-        
-        # Маппинг режимов переключателя в режимы TradingModesWidget
-        mode_mapping = {
-            "paper": "conservative",    # Paper Trading → Консервативный
-            "observer": "standard",     # Наблюдатель → Стандартный
-            "real": "aggressive"        # Реальная → Агрессивный
-        }
-        
-        widget_mode = mode_mapping.get(mode, "standard")
-        
-        # Обновляем режим в TradingModesWidget
-        if hasattr(self, 'trading_modes_widget'):
-            self.trading_modes_widget.on_mode_selected(widget_mode)
-        
-        # Показываем уведомление
-        mode_names = {
-            "paper": "📄 Paper Trading",
-            "observer": "👁️ Наблюдатель",
-            "real": "💼 Реальная торговля"
-        }
-        QMessageBox.information(
-            self,
-            "Режим изменён",
-            f"Установлен режим: {mode_names.get(mode, mode)}"
-        )
-    
     def _on_trading_modes_enabled_changed(self, enabled: bool):
         """Обработка изменения флага включения режимов из TradingModesWidget."""
         if enabled:
             logger.info("🎯 Режимы торговли ВКЛЮЧЕНЫ")
-            # Автоматически переключаем на Paper Trading
-            if hasattr(self, 'trading_mode_toggle'):
-                self.trading_mode_toggle.set_mode("paper")
         else:
             logger.info("⚙️ Режимы торговли ОТКЛЮЧЕНЫ")
 
@@ -2205,18 +2053,23 @@ class SettingsWindow(QDialog):
         try:
             # Получаем текущий режим из конфига
             current_mode = getattr(self.full_config, 'trading_mode', {}).get(
-                'current_mode', 'paper')
-            
-            # Устанавливаем режим в переключателе
-            if hasattr(self, 'trading_mode_toggle'):
-                self.trading_mode_toggle.set_mode(current_mode)
-            
+                'current_mode', 'standard')
+            # Получаем состояние включения режимов
+            modes_enabled = getattr(
+                self.full_config, 'trading_mode', {}).get('enabled', False)
+
             # Устанавливаем режим в виджете
             if hasattr(self, 'trading_modes_widget'):
+                # Блокируем/разблокируем контейнер в зависимости от состояния
+                self.trading_modes_widget.modes_container.setEnabled(
+                    modes_enabled)
+                # Устанавливаем чекбокс в заголовке
+                if hasattr(self, 'trading_modes_enable_checkbox'):
+                    self.trading_modes_enable_checkbox.setChecked(
+                        modes_enabled)
+
                 self.trading_modes_widget.set_mode(current_mode)
-                # Включаем/выключаем в зависимости от режима
-                enabled = (current_mode != "real")
-                self.trading_modes_widget.setEnabled(enabled)
-                
+                # Метка обновится автоматически в set_mode через on_mode_selected
+
         except Exception as e:
-            logger.error(f"Ошибка загрузки режима торговли: {e}")
+            logger.error(f"Ошибка загрузки текущего режима: {e}")

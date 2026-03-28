@@ -30,7 +30,8 @@
       "Bash(часть *)",
       "Bash(git rm *)",
       "Bash(git *)",
-      "Bash(type *)"
+      "Bash(type *)",
+      "Bash(start-sleep *)"
     ]
   },
   "$version": 3
