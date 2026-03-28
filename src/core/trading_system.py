@@ -307,28 +307,36 @@ class TradingSystem(QObject):
                 import os
                 os.environ['TRANSFORMERS_CACHE'] = cache_dir
                 os.environ['HF_HOME'] = cache_dir
-                # Проверяем есть ли модель в кастомном кэше
-                import os.path as path
-                modules_file = path.join(cache_dir, 'modules.json')
-                if path.exists(modules_file):
-                    logger.info(f"Модель найдена в кэше: {modules_file}")
-                    # Отключаем интернет — загружаем локально
-                    os.environ['HF_HUB_OFFLINE'] = '1'
-                else:
-                    logger.warning(f"Модель не найдена в кэше: {modules_file}")
             else:
                 logger.info("Используется кэш моделей по умолчанию")
             
             from huggingface_hub.utils import disable_progress_bars
             disable_progress_bars()
             
-            # Загружаем модель
-            from sentence_transformers import SentenceTransformer
-            embedding_model = SentenceTransformer(
-                self.config.vector_db.embedding_model, 
-                device='cpu',
-                cache_folder=cache_dir
-            )
+            # Проверяем есть ли модель в кэше
+            import os.path as path
+            modules_file = path.join(cache_dir, 'modules.json') if cache_dir else None
+            
+            if modules_file and path.exists(modules_file):
+                logger.info(f"Модель найдена в кэше: {modules_file}")
+                # Загружаем ТОЛЬКО локально без интернета
+                from sentence_transformers import SentenceTransformer
+                embedding_model = SentenceTransformer(
+                    self.config.vector_db.embedding_model, 
+                    device='cpu',
+                    cache_folder=cache_dir,
+                    local_files_only=True  # ← ВАЖНО: только локальные файлы!
+                )
+                logger.info("Модель загружена локально без обращения к интернету")
+            else:
+                # Кэша нет — загружаем из интернета
+                logger.warning("Модель не найдена в кэше, загрузка из интернета...")
+                from sentence_transformers import SentenceTransformer
+                embedding_model = SentenceTransformer(
+                    self.config.vector_db.embedding_model, 
+                    device='cpu',
+                    cache_folder=cache_dir
+                )
 
             # Передаем модель в компоненты
             self.nlp_processor.embedding_model = embedding_model
