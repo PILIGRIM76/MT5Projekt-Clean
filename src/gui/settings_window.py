@@ -381,8 +381,6 @@ class SettingsWindow(QDialog):
         # Подключаем чекбокс к виджету
         self.trading_modes_enable_checkbox.stateChanged.connect(
             self.trading_modes_widget.on_enabled_changed)
-        self.trading_modes_enable_checkbox.stateChanged.connect(
-            self._on_trading_modes_enable_changed)
 
         modes_layout.addWidget(self.trading_modes_widget)
 
