@@ -2165,28 +2165,18 @@ class SettingsWindow(QDialog):
         """Обработка переключения режима торговли."""
         logger.info(f"🎯 Переключен режим торговли: {mode}")
         
-        # Обновляем режим в системе
-        if hasattr(self, 'trading_system') and self.trading_system:
-            if mode == "paper":
-                # Paper Trading
-                self.trading_system.set_paper_trading_mode(True)
-                self.trading_system.set_observer_mode(False)
-            elif mode == "observer":
-                # Наблюдатель
-                self.trading_system.set_paper_trading_mode(False)
-                self.trading_system.set_observer_mode(True)
-            elif mode == "real":
-                # Реальная торговля
-                self.trading_system.set_paper_trading_mode(False)
-                self.trading_system.set_observer_mode(False)
+        # Маппинг режимов переключателя в режимы TradingModesWidget
+        mode_mapping = {
+            "paper": "conservative",    # Paper Trading → Консервативный
+            "observer": "standard",     # Наблюдатель → Стандартный
+            "real": "aggressive"        # Реальная → Агрессивный
+        }
         
-        # Обновляем TradingModesWidget если есть
+        widget_mode = mode_mapping.get(mode, "standard")
+        
+        # Обновляем режим в TradingModesWidget
         if hasattr(self, 'trading_modes_widget'):
-            self.trading_modes_widget.setEnabled(mode != "real")
-            # Автоматически включаем режимы если выбрано не real
-            if mode != "real" and not self.trading_modes_widget.enabled:
-                self.trading_modes_widget.enabled = True
-                self.trading_modes_widget.modes_container.setEnabled(True)
+            self.trading_modes_widget.on_mode_selected(widget_mode)
         
         # Показываем уведомление
         mode_names = {

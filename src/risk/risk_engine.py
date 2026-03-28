@@ -681,24 +681,25 @@ class RiskEngine:
         
         # Применяем настройки режима через атрибуты risk_engine (не через config.risk)
         self.base_risk_per_trade_percent = mode_data["risk_percentage"]
-        self.risk_config.max_positions = mode_data["max_positions"]
+        # max_positions теперь в trading_system, не в risk_engine
+        # self.risk_config.max_positions = mode_data["max_positions"]
         self.max_daily_drawdown_percent = mode_data["max_daily_drawdown"]
         self.risk_config.stop_loss_atr_multiplier = mode_data["stop_loss_atr_multiplier"]
         self.risk_config.risk_reward_ratio = mode_data["risk_reward_ratio"]
         self.risk_config.enable_all_risk_checks = mode_data["enable_all_risk_checks"]
-        
+
         logger.info(
             f"🎯 Режим торговли установлен: {mode_data['icon']} {mode_data['name']}\n"
-            f"   Risk: {mode_data['risk_percentage']}% | Max позиций: {mode_data['max_positions']} | "
-            f"Max DD: {mode_data['max_daily_drawdown']}%"
+            f"   Risk: {mode_data['risk_percentage']}% | Max DD: {mode_data['max_daily_drawdown']}%"
         )
     
     def _apply_custom_settings(self, settings: Dict[str, Any]):
         """Применение пользовательских настроек риск-менеджмента."""
         if "risk_percentage" in settings:
             self.base_risk_per_trade_percent = settings["risk_percentage"]
-        if "max_positions" in settings:
-            self.risk_config.max_positions = settings["max_positions"]
+        # max_positions теперь в trading_system
+        # if "max_positions" in settings:
+        #     self.risk_config.max_positions = settings["max_positions"]
         if "max_daily_drawdown" in settings:
             self.max_daily_drawdown_percent = settings["max_daily_drawdown"]
         if "stop_loss_atr_multiplier" in settings:
