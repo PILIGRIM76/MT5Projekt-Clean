@@ -299,8 +299,15 @@ class TradingSystem(QObject):
             logger.info(
                 f"Загрузка модели эмбеддингов: {self.config.vector_db.embedding_model}...")
             # Загружаем на CPU для экономии VRAM, так как это не требует обучения
+            # Увеличиваем таймаут до 60 секунд для стабильной загрузки
+            from huggingface_hub.utils import disable_progress_bars
+            disable_progress_bars()
+            
             embedding_model = SentenceTransformer(
-                self.config.vector_db.embedding_model, device='cpu')
+                self.config.vector_db.embedding_model, 
+                device='cpu',
+                download_kwargs={'timeout': 60}
+            )
 
             # Передаем модель в компоненты
             self.nlp_processor.embedding_model = embedding_model
@@ -308,6 +315,7 @@ class TradingSystem(QObject):
             logger.info("Модель эмбеддингов успешно загружена и передана.")
         except Exception as e:
             logger.error(f"Ошибка загрузки SentenceTransformer: {e}")
+            logger.warning("Продолжаем работу без модели эмбеддингов")
         # -----------------------------------------------
 
         self.nlp_processor.device = self.device
