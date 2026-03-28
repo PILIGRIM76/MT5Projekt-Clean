@@ -32,6 +32,139 @@ from src.utils.scheduler_manager import SchedulerManager
 logger = logging.getLogger(__name__)
 
 
+class TradingModeToggleSwitch(QWidget):
+    """
+    Современный переключатель режимов торговли (3 позиции).
+    
+    Режимы:
+    - Paper Trading (зелёный)
+    - Наблюдатель (жёлтый)
+    - Реальная торговля (красный)
+    """
+    
+    mode_changed = Signal(str)  # mode: "paper", "observer", "real"
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.current_mode = "paper"  # По умолчанию Paper Trading
+        
+        # Создаём кнопки
+        self.paper_btn = QPushButton("📄 Paper")
+        self.observer_btn = QPushButton("👁️ Наблюдатель")
+        self.real_btn = QPushButton("💼 Реальная")
+        
+        # Настраиваем кнопки
+        self._setup_buttons()
+        
+        # Layout
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+        layout.addWidget(self.paper_btn)
+        layout.addWidget(self.observer_btn)
+        layout.addWidget(self.real_btn)
+        
+        # Обновляем стиль
+        self._update_styles()
+    
+    def _setup_buttons(self):
+        """Настройка кнопок."""
+        for btn in [self.paper_btn, self.observer_btn, self.real_btn]:
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumWidth(100)
+            btn.setMaximumWidth(120)
+        
+        # Подключаем сигналы
+        self.paper_btn.clicked.connect(lambda: self._on_button_clicked("paper"))
+        self.observer_btn.clicked.connect(lambda: self._on_button_clicked("observer"))
+        self.real_btn.clicked.connect(lambda: self._on_button_clicked("real"))
+    
+    def _on_button_clicked(self, mode: str):
+        """Обработка клика по кнопке."""
+        if mode != self.current_mode:
+            self.current_mode = mode
+            self._update_styles()
+            self.mode_changed.emit(mode)
+    
+    def _update_styles(self):
+        """Обновление стилей кнопок."""
+        # Стили для разных режимов
+        styles = {
+            "paper": """
+                QPushButton {
+                    background-color: #27ae60;
+                    color: white;
+                    border: 2px solid #27ae60;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #2ecc71;
+                }
+            """,
+            "observer": """
+                QPushButton {
+                    background-color: #f39c12;
+                    color: white;
+                    border: 2px solid #f39c12;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #f1c40f;
+                }
+            """,
+            "real": """
+                QPushButton {
+                    background-color: #e74c3c;
+                    color: white;
+                    border: 2px solid #e74c3c;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #c0392b;
+                }
+            """,
+            "inactive": """
+                QPushButton {
+                    background-color: #34495e;
+                    color: #95a5a6;
+                    border: 2px solid #34495e;
+                    border-radius: 5px;
+                }
+                QPushButton:hover {
+                    background-color: #2c3e4f;
+                }
+            """
+        }
+        
+        # Применяем стили
+        for btn, mode in [
+            (self.paper_btn, "paper"),
+            (self.observer_btn, "observer"),
+            (self.real_btn, "real")
+        ]:
+            if mode == self.current_mode:
+                btn.setStyleSheet(styles[mode])
+                btn.setChecked(True)
+            else:
+                btn.setStyleSheet(styles["inactive"])
+                btn.setChecked(False)
+    
+    def set_mode(self, mode: str):
+        """Установить режим."""
+        if mode in ["paper", "observer", "real"]:
+            self.current_mode = mode
+            self._update_styles()
+            self.mode_changed.emit(mode)
+    
+    def get_mode(self) -> str:
+        """Получить текущий режим."""
+        return self.current_mode
+
+
 class ConnectionTester(QThread):
     result_ready = Signal(bool, str)
 
@@ -313,30 +446,16 @@ class SettingsWindow(QDialog):
 
         title_layout.addStretch()
 
-        # Переключатель "Включить режимы торговли"
-        self.trading_modes_enable_checkbox = QCheckBox(
-            "🎯 Включить режимы торговли")
-        self.trading_modes_enable_checkbox.setChecked(
-            False)  # По умолчанию выключен
-        self.trading_modes_enable_checkbox.setStyleSheet("""
-            QCheckBox {
-                font-size: 13px;
-                font-weight: bold;
-                color: #f8f8f2;
-                spacing: 10px;
-                padding: 10px;
-            }
-            QCheckBox::indicator {
-                width: 20px;
-                height: 20px;
-            }
-        """)
-        self.trading_modes_enable_checkbox.setToolTip(
-            "При отключении система будет использовать базовые настройки риск-менеджмента\n"
-            "из конфигурации без применения торговых режимов"
+        # Современный переключатель режимов (Toggle Switch)
+        self.trading_mode_toggle = TradingModeToggleSwitch()
+        self.trading_mode_toggle.setToolTip(
+            "Переключение между режимами:\n"
+            "• Paper Trading - симуляция без риска\n"
+            "• Наблюдатель - мониторинг без сделок\n"
+            "• Реальная торговля - полноценная торговля"
         )
-        # Подключение будет выполнено после создания trading_modes_widget
-        title_layout.addWidget(self.trading_modes_enable_checkbox)
+        self.trading_mode_toggle.mode_changed.connect(self._on_trading_mode_toggle_changed)
+        title_layout.addWidget(self.trading_mode_toggle)
 
         main_layout.addLayout(title_layout)
 
@@ -2045,6 +2164,45 @@ class SettingsWindow(QDialog):
         except Exception as e:
             logger.error(f"❌ Ошибка при применении режима: {e}")
 
+    def _on_trading_mode_toggle_changed(self, mode: str):
+        """Обработка переключения режима торговли."""
+        logger.info(f"🎯 Переключен режим торговли: {mode}")
+        
+        # Обновляем режим в системе
+        if hasattr(self, 'trading_system') and self.trading_system:
+            if mode == "paper":
+                # Paper Trading
+                self.trading_system.set_paper_trading_mode(True)
+                self.trading_system.set_observer_mode(False)
+            elif mode == "observer":
+                # Наблюдатель
+                self.trading_system.set_paper_trading_mode(False)
+                self.trading_system.set_observer_mode(True)
+            elif mode == "real":
+                # Реальная торговля
+                self.trading_system.set_paper_trading_mode(False)
+                self.trading_system.set_observer_mode(False)
+        
+        # Обновляем чекбокс если есть
+        if hasattr(self, 'trading_modes_enable_checkbox'):
+            self.trading_modes_enable_checkbox.setChecked(mode != "real")
+        
+        # Обновляем TradingModesWidget если есть
+        if hasattr(self, 'trading_modes_widget'):
+            self.trading_modes_widget.setEnabled(mode != "real")
+        
+        # Показываем уведомление
+        mode_names = {
+            "paper": "📄 Paper Trading",
+            "observer": "👁️ Наблюдатель",
+            "real": "💼 Реальная торговля"
+        }
+        QMessageBox.information(
+            self,
+            "Режим изменён",
+            f"Установлен режим: {mode_names.get(mode, mode)}"
+        )
+    
     def _on_trading_modes_enable_changed(self, state):
         """Обработка изменения состояния переключателя включения режимов (из заголовка)."""
         enabled = (state == Qt.Checked)
