@@ -171,6 +171,12 @@ class RiskEngineSettings(BaseModel):
                                                 description="Множитель риска, применяемый в 'токсичном' режиме.")
     hedge_risk_reduction_factor: float = Field(default=0.5,
                                                description="Какую долю избыточного риска покрывать хеджирующей сделкой.")
+    
+    # Поля для торговых режимов
+    stop_loss_atr_multiplier: float = Field(default=3.0, description="Множитель ATR для стоп-лосса.")
+    risk_reward_ratio: float = Field(default=2.5, description="Соотношение риск/прибыль.")
+    enable_all_risk_checks: bool = Field(default=True, description="Включить все проверки риска.")
+    
     pre_mortem: PreMortemSettings = Field(default_factory=PreMortemSettings)
 
     trailing_profit: TrailingProfitSettings = Field(default_factory=TrailingProfitSettings)

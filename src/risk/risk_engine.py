@@ -681,7 +681,7 @@ class RiskEngine:
         
         # Применяем настройки режима через атрибуты risk_engine (не через config.risk)
         self.base_risk_per_trade_percent = mode_data["risk_percentage"]
-        # max_positions теперь в trading_system, не в risk_engine
+        # max_positions теперь в trading_system
         # self.risk_config.max_positions = mode_data["max_positions"]
         self.max_daily_drawdown_percent = mode_data["max_daily_drawdown"]
         self.risk_config.stop_loss_atr_multiplier = mode_data["stop_loss_atr_multiplier"]
