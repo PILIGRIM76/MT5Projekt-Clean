@@ -196,7 +196,7 @@ class SettingsWindow(QDialog):
 
         super().__init__(parent)
         self.setWindowTitle("Настройки Системы")
-        self.setMinimumSize(700, 550)  # Адаптивный минимальный размер
+        self.setMinimumSize(900, 750)  # Увеличенный размер (было 700x550)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setModal(True)
 

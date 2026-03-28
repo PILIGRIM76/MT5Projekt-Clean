@@ -63,7 +63,7 @@
   },
   "IGNORE_HISTORICAL_DRAWDOWN_ON_START": true,
   "TOP_N_SYMBOLS": 18,
-  "MAX_OPEN_POSITIONS": 18,
+  "MAX_OPEN_POSITIONS": 25,
   "screener_volatility": {
     "ideal_min_percent": 0.05,
     "ideal_max_percent": 0.5
@@ -97,7 +97,7 @@
   "RISK_PERCENTAGE": 0.5,
   "DYNAMIC_RISK_MIN_PERCENT": 0.5,
   "STOP_LOSS_ATR_MULTIPLIER": 3.5,
-  "RISK_REWARD_RATIO": 2.5,
+  "RISK_REWARD_RATIO": 3.0,
   "MAX_DAILY_DRAWDOWN_PERCENT": 5.0,
   "MAX_PORTFOLIO_VAR_PERCENT": 3.0,
   "MAX_PROFIT_PER_TRADE_PERCENT": 20.0,
@@ -309,6 +309,9 @@
     "toxic_regime_update_interval_sec": 3600,
     "toxic_regime_risk_multiplier": 0.5,
     "hedge_risk_reduction_factor": 0.5,
+    "stop_loss_atr_multiplier": 3.0,
+    "risk_reward_ratio": 2.5,
+    "enable_all_risk_checks": true,
     "pre_mortem": {
       "enabled": true,
       "num_simulations": 1000,
@@ -323,8 +326,8 @@
     }
   },
   "trading_mode": {
-    "current_mode": "standard",
-    "enabled": false
+    "current_mode": "paper",
+    "enabled": true
   },
   "rl_manager": {
     "training_timesteps_per_trade": 2000,
