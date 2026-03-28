@@ -299,14 +299,16 @@ class TradingSystem(QObject):
             logger.info(
                 f"Загрузка модели эмбеддингов: {self.config.vector_db.embedding_model}...")
             # Загружаем на CPU для экономии VRAM, так как это не требует обучения
-            # Увеличиваем таймаут до 60 секунд для стабильной загрузки
+            # Увеличиваем таймаут через environment variable
+            import os
+            os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '60'  # 60 секунд
+            
             from huggingface_hub.utils import disable_progress_bars
             disable_progress_bars()
             
             embedding_model = SentenceTransformer(
                 self.config.vector_db.embedding_model, 
-                device='cpu',
-                download_kwargs={'timeout': 60}
+                device='cpu'
             )
 
             # Передаем модель в компоненты
