@@ -54,55 +54,35 @@ class CausalNLPProcessor:
             default_cache_path = os.path.join(home_dir, ".cache", "huggingface", "hub")
             logger.info(f"Используется стандартная директория для кэша Hugging Face: {default_cache_path}")
 
-        # Увеличиваем таймаут для загрузки моделей
-        import os as os_module
-        old_timeout = os_module.environ.get('REQUESTS_TIMEOUT')
-        os_module.environ['REQUESTS_TIMEOUT'] = '120'  # 120 секунд
-
         # --- Этап 1: Загрузка основных моделей для генерации связей ---
         for model_name in self.model_names:
             try:
                 logger.info(f"Загрузка NLP-модели: '{model_name}'... (Это может занять время при первом запуске!)")
                 
-                # Загружаем с увеличенным таймаутом
-                tokenizer = AutoTokenizer.from_pretrained(
-                    model_name,
-                    request_timeout=120
-                )
+                # Загружаем с увеличенным таймаутом через HfFolder
+                from huggingface_hub import HfFolder
+                HfFolder.set_token("anonymous")  # Для публичных моделей
+                
+                tokenizer = AutoTokenizer.from_pretrained(model_name)
 
                 # --- ИСПРАВЛЕНИЕ: Принудительная загрузка на CPU для стабильности ---
-                # Примечание: Убираем load_in_8bit, так как он конфликтует с принудительным CPU
-                model = T5ForConditionalGeneration.from_pretrained(
-                    model_name,
-                    request_timeout=120
-                )
+                model = T5ForConditionalGeneration.from_pretrained(model_name)
 
-                # Принудительно переносим на CPU, чтобы избежать исчерпания VRAM
-                # Если self.device == 'cuda', модель все равно будет перенесена на GPU,
-                # но для Flan-T5 лучше принудительно использовать CPU, если VRAM ограничена.
-                # В TradingSystem.initialize_heavy_components мы установили self.device = 'cuda'/'cpu'.
-                # Для максимальной безопасности, используем torch.device("cpu") здесь.
-                model.to(torch.device("cpu"))  # <-- ПРИНУДИТЕЛЬНО CPU ДЛЯ СТАБИЛЬНОСТИ
+                # Принудительно переносим на CPU
+                model.to(torch.device("cpu"))
 
                 self.models[model_name] = {'tokenizer': tokenizer, 'model': model}
                 logger.info(f"Модель '{model_name}' успешно загружена.")
             except Exception as e:
                 logger.error(f"Не удалось загрузить модель '{model_name}': {e}", exc_info=True)
-        
-        # Восстанавливаем старый таймаут
-        if old_timeout:
-            os_module.environ['REQUESTS_TIMEOUT'] = old_timeout
-        elif 'REQUESTS_TIMEOUT' in os_module.environ:
-            del os_module.environ['REQUESTS_TIMEOUT']
 
         # --- Этап 2: Загрузка модели для эмбеддингов (для векторной БД) ---
         if self.config.vector_db.enabled and self.embedding_model is None:
             logger.warning(
                 "VectorDB включен, но embedding_model не была передана. Отключение VectorDB.")
-            # Принудительно отключаем, если модель не пришла
             self.config.vector_db.enabled = False
 
-            # --- Этап 3: Финальная проверка готовности ---
+        # --- Этап 3: Финальная проверка готовности ---
         if self.models:
             self.is_ready = True
             logger.info("NLP Processor готов к работе.")

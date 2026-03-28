@@ -310,13 +310,8 @@ class TradingSystem(QObject):
             else:
                 logger.info("Используется кэш моделей по умолчанию")
             
-            # Устанавливаем глобальный таймаут для huggingface_hub
-            from huggingface_hub import HfFolder, configure_http_backend
             from huggingface_hub.utils import disable_progress_bars
             disable_progress_bars()
-            
-            # Конфигурируем HTTP backend с увеличенным таймаутом
-            configure_http_backend(timeout=120)  # 120 секунд
             
             # Проверяем кэш
             from huggingface_hub import try_to_load_from_cache
