@@ -500,12 +500,9 @@ class SettingsWindow(QDialog):
         self.trading_modes_widget.open_settings_requested.connect(
             self._scroll_to_risk_settings)
 
-        # Подключаем чекбокс к виджету после его создания
-        self.trading_modes_enable_checkbox.stateChanged.connect(
-            self.trading_modes_widget.on_enabled_changed)
-        # Дополнительный слот для логирования
-        self.trading_modes_enable_checkbox.stateChanged.connect(
-            self._on_trading_modes_enable_changed)
+        # Подключаем переключатель к виджету
+        self.trading_mode_toggle.mode_changed.connect(
+            self.trading_modes_widget.on_mode_selected)
 
         modes_layout.addWidget(self.trading_modes_widget)
 
@@ -878,8 +875,8 @@ class SettingsWindow(QDialog):
                 },
 
                 "trading_mode": {
-                    "current_mode": self.trading_modes_widget.get_current_mode() if hasattr(self, 'trading_modes_widget') else "standard",
-                    "enabled": self.trading_modes_enable_checkbox.isChecked() if hasattr(self, 'trading_modes_enable_checkbox') else False
+                    "current_mode": self.trading_mode_toggle.get_mode() if hasattr(self, 'trading_mode_toggle') else "paper",
+                    "enabled": True  # Всегда включено с новым переключателем
                 },
 
                 "PROFIT_TARGET_MODE": self.profit_target_mode_combo.currentText(),
@@ -2183,13 +2180,13 @@ class SettingsWindow(QDialog):
                 self.trading_system.set_paper_trading_mode(False)
                 self.trading_system.set_observer_mode(False)
         
-        # Обновляем чекбокс если есть
-        if hasattr(self, 'trading_modes_enable_checkbox'):
-            self.trading_modes_enable_checkbox.setChecked(mode != "real")
-        
         # Обновляем TradingModesWidget если есть
         if hasattr(self, 'trading_modes_widget'):
             self.trading_modes_widget.setEnabled(mode != "real")
+            # Автоматически включаем режимы если выбрано не real
+            if mode != "real" and not self.trading_modes_widget.enabled:
+                self.trading_modes_widget.enabled = True
+                self.trading_modes_widget.modes_container.setEnabled(True)
         
         # Показываем уведомление
         mode_names = {
@@ -2203,64 +2200,33 @@ class SettingsWindow(QDialog):
             f"Установлен режим: {mode_names.get(mode, mode)}"
         )
     
-    def _on_trading_modes_enable_changed(self, state):
-        """Обработка изменения состояния переключателя включения режимов (из заголовка)."""
-        enabled = (state == Qt.Checked)
-        # Только логирование - основная обработка в on_enabled_changed
-        if enabled:
-            logger.info("🎯 Режимы торговли ВКЛЮЧЕНЫ пользователем")
-        else:
-            logger.info("⚙️ Режимы торговли ОТКЛЮЧЕНЫ пользователем")
-
     def _on_trading_modes_enabled_changed(self, enabled: bool):
-        """Обработка изменения состояния переключателя включения режимов."""
+        """Обработка изменения флага включения режимов из TradingModesWidget."""
         if enabled:
-            logger.info("🎯 Режимы торговли ВКЛЮЧЕНЫ пользователем")
-            # Обновляем чекбокс в заголовке
-            if hasattr(self, 'trading_modes_enable_checkbox'):
-                self.trading_modes_enable_checkbox.setChecked(True)
-            # Включаем контейнер с карточками
-            if hasattr(self, 'trading_modes_widget'):
-                self.trading_modes_widget.modes_container.setEnabled(True)
-                self.trading_modes_widget.enabled = True
-                # Применяем текущий режим
-                current_mode = self.trading_modes_widget.get_current_mode()
-                if current_mode and current_mode != "disabled":
-                    self._on_trading_mode_changed(current_mode, {})
+            logger.info("🎯 Режимы торговли ВКЛЮЧЕНЫ")
+            # Автоматически переключаем на Paper Trading
+            if hasattr(self, 'trading_mode_toggle'):
+                self.trading_mode_toggle.set_mode("paper")
         else:
-            logger.info("⚙️ Режимы торговли ОТКЛЮЧЕНЫ пользователем")
-            # Обновляем чекбокс в заголовке
-            if hasattr(self, 'trading_modes_enable_checkbox'):
-                self.trading_modes_enable_checkbox.setChecked(False)
-            # Отключаем контейнер с карточками
-            if hasattr(self, 'trading_modes_widget'):
-                self.trading_modes_widget.modes_container.setEnabled(False)
-                self.trading_modes_widget.enabled = False
-                # Отправляем сигнал об отключении
-                self.trading_modes_widget.mode_changed.emit("disabled", {})
+            logger.info("⚙️ Режимы торговли ОТКЛЮЧЕНЫ")
 
     def _load_current_trading_mode(self):
         """Загрузка текущего режима из конфигурации."""
         try:
             # Получаем текущий режим из конфига
             current_mode = getattr(self.full_config, 'trading_mode', {}).get(
-                'current_mode', 'standard')
-            # Получаем состояние включения режимов (по умолчанию выключено)
-            modes_enabled = getattr(
-                self.full_config, 'trading_mode', {}).get('enabled', False)
-
+                'current_mode', 'paper')
+            
+            # Устанавливаем режим в переключателе
+            if hasattr(self, 'trading_mode_toggle'):
+                self.trading_mode_toggle.set_mode(current_mode)
+            
             # Устанавливаем режим в виджете
             if hasattr(self, 'trading_modes_widget'):
-                # Блокируем/разблокируем контейнер в зависимости от состояния
-                self.trading_modes_widget.modes_container.setEnabled(
-                    modes_enabled)
-                # Устанавливаем чекбокс в заголовке
-                if hasattr(self, 'trading_modes_enable_checkbox'):
-                    self.trading_modes_enable_checkbox.setChecked(
-                        modes_enabled)
-
                 self.trading_modes_widget.set_mode(current_mode)
-                # Метка обновится автоматически в set_mode через on_mode_selected
-
+                # Включаем/выключаем в зависимости от режима
+                enabled = (current_mode != "real")
+                self.trading_modes_widget.setEnabled(enabled)
+                
         except Exception as e:
-            logger.error(f"Ошибка загрузки текущего режима: {e}")
+            logger.error(f"Ошибка загрузки режима торговли: {e}")
