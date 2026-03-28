@@ -1228,13 +1228,35 @@ class SettingsWindow(QDialog):
         db_layout.addWidget(self.db_folder_edit, 0, 1)
         db_layout.addWidget(db_browse_button, 0, 2)
 
-        hf_label = QLabel("Папка для кэша AI-моделей (Hugging Face):")
+        hf_label = QLabel("<b>Папка для кэша AI-моделей (SentenceTransformer):</b>")
         hf_label.setToolTip(
-            "Здесь будут храниться большие языковые модели (несколько ГБ), скачанные из интернета.\n"
-            "ВНИМАНИЕ: Изменение этого пути требует перезапуска программы!"
+            "<b>Модель:</b> all-MiniLM-L6-v2 (90 MB)\n\n"
+            "<b>Для чего нужна:</b>\n"
+            "• Анализ новостей и заголовков\n"
+            "• Поиск похожих событий в истории\n"
+            "• Понимание смысла текстов (NLP)\n"
+            "• Работа с графом знаний (Knowledge Graph)\n\n"
+            "<b>Как работает:</b>\n"
+            "При первом запуске модель скачивается из интернета (~90 MB).\n"
+            "Повторная загрузка не требуется — модель берётся из кэша.\n\n"
+            "<b>Рекомендации:</b>\n"
+            "• Укажите папку на диске с большим местом (D:, E:)\n"
+            "• Не используйте путь с кириллицей\n"
+            "• Изменение пути требует перезапуска программы!\n\n"
+            "<b>Можно отключить:</b>\n"
+            "Если анализ новостей не нужен, оставьте поле пустым."
         )
+        hf_label.setWordWrap(True)
+        hf_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
+        
         self.hf_cache_edit = QLineEdit()
-        hf_browse_button = QPushButton("Обзор...")
+        self.hf_cache_edit.setPlaceholderText("Например: D:/AI_Models_Cache")
+        self.hf_cache_edit.setToolTip(
+            "Путь к папке где будут храниться AI модели.\n"
+            "Оставьте пустым для использования пути по умолчанию."
+        )
+        hf_browse_button = QPushButton("📁 Обзор...")
+        hf_browse_button.setCursor(Qt.PointingHandCursor)
         hf_browse_button.clicked.connect(
             lambda: self._browse_folder(
                 self.hf_cache_edit, "Выберите папку для кэша AI-моделей")
