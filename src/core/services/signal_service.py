@@ -555,7 +555,15 @@ class SignalService:
         elif price_change_ratio < -self.config.ENTRY_THRESHOLD:
             signal_type = SignalType.SELL
 
-        signal = TradeSignal(type=signal_type, confidence=abs(price_change_ratio), symbol=symbol,
+        # Проверка минимальной уверенности
+        confidence = abs(price_change_ratio)
+        if confidence < 0.3:
+            logger.debug(
+                f"[{symbol}] AI сигнал отклонён: confidence={confidence:.3f} < 0.3 (порог ENTRY_THRESHOLD={self.config.ENTRY_THRESHOLD})"
+            )
+            return None, None, current_price
+
+        signal = TradeSignal(type=signal_type, confidence=confidence, symbol=symbol,
                              predicted_price=final_predicted_price)
 
         return signal, prediction_input_numpy, current_price

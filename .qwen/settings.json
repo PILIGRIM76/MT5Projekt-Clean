@@ -29,7 +29,8 @@
       "Bash(echo *)",
       "Bash(часть *)",
       "Bash(git rm *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(type *)"
     ]
   },
   "$version": 3

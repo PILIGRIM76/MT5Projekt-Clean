@@ -25,8 +25,10 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
                 try:
                     optimized_params = json.load(f)
                     if strategy_name in optimized_params:
-                        self.short_window = optimized_params[strategy_name].get('short_window', self.short_window)
-                        self.long_window = optimized_params[strategy_name].get('long_window', self.long_window)
+                        self.short_window = optimized_params[strategy_name].get(
+                            'short_window', self.short_window)
+                        self.long_window = optimized_params[strategy_name].get(
+                            'long_window', self.long_window)
                         logging.info(
                             f"Стратегия '{strategy_name}' загрузила ОПТИМИЗИРОВАННЫЕ параметры: short={self.short_window}, long={self.long_window}")
                 except json.JSONDecodeError:
@@ -43,9 +45,11 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
 
         # Теперь все операции выполняем с df_copy
         if short_ma_col not in df_copy.columns:
-            df_copy[short_ma_col] = df_copy['close'].ewm(span=self.short_window, adjust=False).mean()
+            df_copy[short_ma_col] = df_copy['close'].ewm(
+                span=self.short_window, adjust=False).mean()
         if long_ma_col not in df_copy.columns:
-            df_copy[long_ma_col] = df_copy['close'].ewm(span=self.long_window, adjust=False).mean()
+            df_copy[long_ma_col] = df_copy['close'].ewm(
+                span=self.long_window, adjust=False).mean()
 
         if current_index < 1 or current_index >= len(df_copy):
             return None
@@ -58,7 +62,12 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
         if pd.isna(short_ma) or pd.isna(long_ma) or pd.isna(prev_short_ma) or pd.isna(prev_long_ma):
             return None
 
-        symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'
+        symbol = self._get_symbol_from_dataframe(df, current_index)
+        if symbol == 'UNKNOWN':
+            logger.warning(
+                f"Не удалось определить символ для MA Crossover стратегии")
+            return None
+
         if short_ma > long_ma and prev_short_ma <= prev_long_ma:
             return TradeSignal(type=SignalType.BUY, confidence=0.6, symbol=symbol)
         elif short_ma < long_ma and prev_short_ma >= prev_long_ma:

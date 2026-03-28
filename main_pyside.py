@@ -2912,6 +2912,14 @@ class MainWindow(QMainWindow):
 
     def toggle_observer_mode(self):
         self.trading_system.toggle_observer_mode()
+    
+    def set_paper_trading_mode(self, enabled: bool):
+        """Установить режим Paper Trading."""
+        self.trading_system.set_paper_trading_mode(enabled)
+    
+    def get_trading_mode(self) -> str:
+        """Получить текущий режим торговли."""
+        return self.trading_system.get_trading_mode()
 
     def update_status(self, message, is_error):
         logger.info(

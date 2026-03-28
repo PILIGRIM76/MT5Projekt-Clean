@@ -31,15 +31,26 @@ class DataProvider:
         self.prediction_bars = self.config.PREDICTION_DATA_POINTS
         self.excluded_symbols = self.config.EXCLUDED_SYMBOLS
         self.symbols_whitelist = self.config.SYMBOLS_WHITELIST
-        
+
         # Ограничиваем количество параллельных запросов к MT5
-        self.mt5_semaphore = asyncio.Semaphore(5)  # Максимум 5 одновременных подключений
+        # Максимум 5 одновременных подключений
+        self.mt5_semaphore = asyncio.Semaphore(5)
 
         # ИСПРАВЛЕНИЕ: Ограничение ThreadPoolExecutor до 4-х потоков (для 8-ядерного CPU)
-        #self.executor = ThreadPoolExecutor(max_workers=4)
+        # self.executor = ThreadPoolExecutor(max_workers=4)
 
         # Инициализация last_news_timestamp для get_mt5_news
-        self.last_news_timestamp = datetime.now(timezone.utc) - timedelta(days=1)
+        self.last_news_timestamp = datetime.now(
+            timezone.utc) - timedelta(days=1)
+
+        # Создаём ThreadPoolExecutor для всех асинхронных операций
+        # Используем max_workers=None (по умолчанию) для стабильности
+        self.executor = ThreadPoolExecutor(max_workers=None)
+
+    def __del__(self):
+        """Корректное закрытие executor."""
+        if hasattr(self, 'executor') and self.executor:
+            self.executor.shutdown(wait=False)
 
     def filter_available_symbols(self, requested_symbols: List[str]) -> List[str]:
         """
@@ -51,7 +62,8 @@ class DataProvider:
 
         with self.mt5_lock:
             if not mt5.initialize(path=self.config.MT5_PATH):
-                logger.error("Не удалось подключиться к MT5 для проверки символов.")
+                logger.error(
+                    "Не удалось подключиться к MT5 для проверки символов.")
                 return requested_symbols  # Возвращаем как есть, если нет связи
 
             try:
@@ -70,15 +82,18 @@ class DataProvider:
                         valid_symbols.append(sym)
                         # Пытаемся включить его в Market Watch
                         if not mt5.symbol_select(sym, True):
-                            logger.warning(f"Символ {sym} найден, но не удалось включить в Market Watch.")
+                            logger.warning(
+                                f"Символ {sym} найден, но не удалось включить в Market Watch.")
                     else:
                         # Тихо пропускаем или логируем в debug
-                        logger.debug(f"Символ {sym} отсутствует у брокера. Исключен из списка.")
+                        logger.debug(
+                            f"Символ {sym} отсутствует у брокера. Исключен из списка.")
 
             finally:
                 mt5.shutdown()
 
-        logger.info(f"Фильтрация завершена. Из {len(requested_symbols)} символов доступно: {len(valid_symbols)}")
+        logger.info(
+            f"Фильтрация завершена. Из {len(requested_symbols)} символов доступно: {len(valid_symbols)}")
         return valid_symbols
 
     def get_conversion_rate(self, from_currency: str, to_currency: str) -> float:
@@ -115,7 +130,8 @@ class DataProvider:
 
         # 2. Поиск через USD (Кросс-курс)
         if from_currency != "USD" and to_currency != "USD":
-            logger.info(f"Поиск кросс-курса для {from_currency}/{to_currency} через USD...")
+            logger.info(
+                f"Поиск кросс-курса для {from_currency}/{to_currency} через USD...")
 
             # Получаем курс из FROM_CURRENCY в USD
             rate_to_usd = self.get_conversion_rate(from_currency, "USD")
@@ -149,7 +165,8 @@ class DataProvider:
             high_low = df_out['high'] - df_out['low']
             high_close = np.abs(df_out['high'] - df_out['close'].shift())
             low_close = np.abs(df_out['low'] - df_out['close'].shift())
-            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            tr = pd.concat([high_low, high_close, low_close],
+                           axis=1).max(axis=1)
             df_out['ATR_14'] = tr.ewm(alpha=1 / 14, adjust=False).mean()
 
             plus_dm = df_out['high'].diff()
@@ -159,8 +176,10 @@ class DataProvider:
             tr_adx = pd.concat([df_out['high'] - df_out['low'], np.abs(df_out['high'] - df_out['close'].shift()),
                                 np.abs(df_out['low'] - df_out['close'].shift())], axis=1).max(axis=1)
             atr_adx = tr_adx.ewm(alpha=1 / 14, adjust=False).mean()
-            plus_di = 100 * (plus_dm.ewm(alpha=1 / 14, adjust=False).mean() / atr_adx)
-            minus_di = 100 * (minus_dm.ewm(alpha=1 / 14, adjust=False).mean() / atr_adx)
+            plus_di = 100 * (plus_dm.ewm(alpha=1 / 14,
+                             adjust=False).mean() / atr_adx)
+            minus_di = 100 * (minus_dm.ewm(alpha=1 / 14,
+                              adjust=False).mean() / atr_adx)
             dx = 100 * (np.abs(plus_di - minus_di) / (plus_di + minus_di))
             df_out['ADX_14'] = dx.ewm(alpha=1 / 14, adjust=False).mean()
 
@@ -173,49 +192,63 @@ class DataProvider:
             ema_fast = df_out['close'].ewm(span=12, adjust=False).mean()
             ema_slow = df_out['close'].ewm(span=26, adjust=False).mean()
             df_out['MACD_12_26_9'] = ema_fast - ema_slow
-            df_out['MACDs_12_26_9'] = df_out['MACD_12_26_9'].ewm(span=9, adjust=False).mean()
-            df_out['MACDh_12_26_9'] = df_out['MACD_12_26_9'] - df_out['MACDs_12_26_9']
+            df_out['MACDs_12_26_9'] = df_out['MACD_12_26_9'].ewm(
+                span=9, adjust=False).mean()
+            df_out['MACDh_12_26_9'] = df_out['MACD_12_26_9'] - \
+                df_out['MACDs_12_26_9']
 
             df_out['BBM_20_2.0'] = df_out['close'].rolling(window=20).mean()
             std_dev = df_out['close'].rolling(window=20).std()
             df_out['BBU_20_2.0'] = df_out['BBM_20_2.0'] + (std_dev * 2.0)
             df_out['BBL_20_2.0'] = df_out['BBM_20_2.0'] - (std_dev * 2.0)
-            df_out['BB_WIDTH'] = (df_out['BBU_20_2.0'] - df_out['BBL_20_2.0']) / df_out['BBM_20_2.0']
+            df_out['BB_WIDTH'] = (df_out['BBU_20_2.0'] -
+                                  df_out['BBL_20_2.0']) / df_out['BBM_20_2.0']
 
             low_k = df_out['low'].rolling(window=14).min()
             high_k = df_out['high'].rolling(window=14).max()
             stoch_k_raw = 100 * ((df_out['close'] - low_k) / (high_k - low_k))
             df_out['STOCHk_14_3_3'] = stoch_k_raw.rolling(window=3).mean()
-            df_out['STOCHd_14_3_3'] = df_out['STOCHk_14_3_3'].rolling(window=3).mean()
+            df_out['STOCHd_14_3_3'] = df_out['STOCHk_14_3_3'].rolling(
+                window=3).mean()
 
-            df_out['EMA_50'] = df_out['close'].ewm(span=50, adjust=False).mean()
-            df_out['EMA_200'] = df_out['close'].ewm(span=200, adjust=False).mean()
+            df_out['EMA_50'] = df_out['close'].ewm(
+                span=50, adjust=False).mean()
+            df_out['EMA_200'] = df_out['close'].ewm(
+                span=200, adjust=False).mean()
 
             # --- БЛОК 2: Продвинутые признаки (из FeatureEngineer) ---
             df_out['ATR_NORM'] = df_out['ATR_14'] / df_out['close']
             for length in [50, 200]:
                 ema_col = f'EMA_{length}'
                 if ema_col in df_out.columns:
-                    df_out[f'DIST_{ema_col}'] = (df_out['close'] / df_out[ema_col]) - 1
+                    df_out[f'DIST_{ema_col}'] = (
+                        df_out['close'] / df_out[ema_col]) - 1
 
             for length in [20, 60]:
                 if len(df_out) > length:
                     returns = df_out['close'].pct_change()
-                    df_out[f'SKEW_{length}'] = returns.rolling(window=length).skew()
-                    df_out[f'KURT_{length}'] = returns.rolling(window=length).kurt()
-                    df_out[f'VOLA_{length}'] = returns.rolling(window=length).std() * np.sqrt(252)
+                    df_out[f'SKEW_{length}'] = returns.rolling(
+                        window=length).skew()
+                    df_out[f'KURT_{length}'] = returns.rolling(
+                        window=length).kurt()
+                    df_out[f'VOLA_{length}'] = returns.rolling(
+                        window=length).std() * np.sqrt(252)
 
             df_out['HOUR'] = df_out.index.hour
             df_out['DAY_OF_WEEK'] = df_out.index.dayofweek
             df_out['hour_sin'] = np.sin(2 * np.pi * df_out['HOUR'] / 24)
             df_out['hour_cos'] = np.cos(2 * np.pi * df_out['HOUR'] / 24)
-            df_out['day_of_week_sin'] = np.sin(2 * np.pi * df_out['DAY_OF_WEEK'] / 7)
-            df_out['day_of_week_cos'] = np.cos(2 * np.pi * df_out['DAY_OF_WEEK'] / 7)
+            df_out['day_of_week_sin'] = np.sin(
+                2 * np.pi * df_out['DAY_OF_WEEK'] / 7)
+            df_out['day_of_week_cos'] = np.cos(
+                2 * np.pi * df_out['DAY_OF_WEEK'] / 7)
 
             df_out.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-            essential_cols_for_plotting = ['open', 'high', 'low', 'close', 'EMA_50', 'ATR_14', 'ADX_14']
-            cols_to_check = [c for c in essential_cols_for_plotting if c in df_out.columns]
+            essential_cols_for_plotting = [
+                'open', 'high', 'low', 'close', 'EMA_50', 'ATR_14', 'ADX_14']
+            cols_to_check = [
+                c for c in essential_cols_for_plotting if c in df_out.columns]
             df_out.dropna(subset=essential_cols_for_plotting, inplace=True)
 
             # --- ОПТИМИЗАЦИЯ RAM: Принудительное понижение точности до float32 ---
@@ -233,7 +266,8 @@ class DataProvider:
 
             return df_out
         except Exception as e:
-            logger.error(f"Не удалось рассчитать все индикаторы: {e}", exc_info=True)
+            logger.error(
+                f"Не удалось рассчитать все индикаторы: {e}", exc_info=True)
             return pd.DataFrame()
 
     def _fetch_mt5_data_with_retry(self, symbol: str, timeframe: int, num_bars: int) -> Optional[pd.DataFrame]:
@@ -245,7 +279,8 @@ class DataProvider:
                 try:
                     # --- ДОБАВЛЕНО: Принудительный выбор символа ---
                     if not mt5.symbol_select(symbol, True):
-                        logger.warning(f"[{symbol}] Не удалось выбрать символ в Market Watch.")
+                        logger.warning(
+                            f"[{symbol}] Не удалось выбрать символ в Market Watch.")
 
                     # Небольшая пауза для подгрузки
                     if attempt == 0:
@@ -255,15 +290,19 @@ class DataProvider:
                     # Повторная попыка получить symbol_info с задержкой
                     symbol_info = mt5.symbol_info(symbol)
                     if symbol_info is None:
-                        logger.warning(f"[{symbol}] symbol_info is None (попытка 1). Повторная попыка...")
+                        logger.warning(
+                            f"[{symbol}] symbol_info is None (попытка 1). Повторная попыка...")
                         time.sleep(0.3)
                         symbol_info = mt5.symbol_info(symbol)
                         if symbol_info is None:
-                            logger.warning(f"[{symbol}] symbol_info is None (попытка 2). Пропуск.")
+                            logger.warning(
+                                f"[{symbol}] symbol_info is None (попытка 2). Пропуск.")
                         else:
-                            rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_bars + 200)
+                            rates = mt5.copy_rates_from_pos(
+                                symbol, timeframe, 0, num_bars + 200)
                     else:
-                        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_bars + 200)
+                        rates = mt5.copy_rates_from_pos(
+                            symbol, timeframe, 0, num_bars + 200)
                 finally:
                     mt5.shutdown()
 
@@ -282,13 +321,15 @@ class DataProvider:
             # Если данных нет
             if rates is None:
                 err = mt5.last_error()
-                logger.debug(f"[{symbol}] Попытка {attempt + 1}: нет данных ({err}). Ожидание...")
+                logger.debug(
+                    f"[{symbol}] Попытка {attempt + 1}: нет данных ({err}). Ожидание...")
                 # Небольшая пауза, чтобы не перегружать терминал
                 time.sleep(0.5)
 
             time.sleep(self.retry_delay_seconds * (attempt + 1))
 
-        logger.error(f"[{symbol}] Не удалось получить данные после {self.max_retries} попыток.")
+        logger.error(
+            f"[{symbol}] Не удалось получить данные после {self.max_retries} попыток.")
         return None
 
     async def get_all_symbols_data_async(self, symbols: List[str], timeframes: List[int],
@@ -301,13 +342,12 @@ class DataProvider:
 
         # Ограничиваем количество параллельных задач (максимум 12 одновременно)
         semaphore = asyncio.Semaphore(12)
-        
+
         async def fetch_with_limit(symbol: str, tf: int):
             async with semaphore:
-                # ИСПОЛЬЗУЕМ СТАНДАРТНЫЙ ПУЛ ПОТОКОВ (передаем None)
-                # Это более стабильно для MetaTrader5, чем кастомный ThreadPoolExecutor
+                # Используем наш executor для стабильности
                 result = await loop.run_in_executor(
-                    None,  # <-- ИСПОЛЬЗУЕМ СТАНДАРТНЫЙ ПУЛ (более стабильно для MT5)
+                    self.executor,
                     self._fetch_and_process_symbol_sync,
                     symbol,
                     tf,
@@ -342,27 +382,32 @@ class DataProvider:
         symbol_info = None
         with self.mt5_lock:
             if not mt5.initialize(path=self.config.MT5_PATH):
-                logger.error(f"[{symbol}] Не удалось инициализировать MT5 для проверки символа.")
+                logger.error(
+                    f"[{symbol}] Не удалось инициализировать MT5 для проверки символа.")
                 return None
             try:
                 symbol_info = mt5.symbol_info(symbol)
             finally:
                 mt5.shutdown()
-        
+
         # Проверка вне блокировки
         if symbol_info is None or not symbol_info.visible:
-            logger.warning(f"[{symbol}] Символ не найден или не виден в MT5. Пропуск.")
+            logger.warning(
+                f"[{symbol}] Символ не найден или не виден в MT5. Пропуск.")
             return None
 
         df = self._fetch_mt5_data_with_retry(symbol, tf, num_bars)
         source = "MT5"
 
         if df is None:
-            logger.error(f"[{symbol}] Не удалось получить данные ни из одного источника.")
-            logger.error(f"[{symbol}_{tf}] Не удалось получить данные. Возврат None.")
+            logger.error(
+                f"[{symbol}] Не удалось получить данные ни из одного источника.")
+            logger.error(
+                f"[{symbol}_{tf}] Не удалось получить данные. Возврат None.")
             return None
 
-        logger.debug(f"[{symbol}] Данные ({len(df)} баров) успешно получены из источника: {source}.")
+        logger.debug(
+            f"[{symbol}] Данные ({len(df)} баров) успешно получены из источника: {source}.")
 
         # ОПТИМИЗАЦИЯ: Обработка признаков вне блокировки MT5
         df_with_features = self._add_features(df)
@@ -371,35 +416,44 @@ class DataProvider:
             return f"{symbol}_{tf}", df_with_features
         return None
 
-
     def get_historical_data(self, symbol: str, timeframe: int, start_date: datetime, end_date: datetime) -> Optional[
-        pd.DataFrame]:
-        logger.debug(f"Запрос исторических данных для {symbol} с {start_date} по {end_date}.")
+            pd.DataFrame]:
+        logger.debug(
+            f"Запрос исторических данных для {symbol} с {start_date} по {end_date}.")
         try:
             with self.mt5_lock:
                 if not mt5.initialize(path=self.config.MT5_PATH):
-                    logger.error(f"get_historical_data: initialize() failed, error code = {mt5.last_error()}")
+                    logger.error(
+                        f"get_historical_data: initialize() failed, error code = {mt5.last_error()}")
                     mt5.shutdown()
                     return None
-                rates = mt5.copy_rates_range(symbol, timeframe, start_date, end_date)
+                rates = mt5.copy_rates_range(
+                    symbol, timeframe, start_date, end_date)
                 mt5.shutdown()
             if rates is None or len(rates) == 0:
                 return None
             df = pd.DataFrame(rates)
             df['time'] = pd.to_datetime(df['time'], unit='s')
             df.set_index('time', inplace=True)
+
+            # Добавляем символ для корректной работы стратегий
+            df['symbol'] = symbol
+
             if 'tick_volume' not in df.columns:
                 df['tick_volume'] = 0
             return self._add_features(df)
         except Exception as e:
-            logger.error(f"Критическая ошибка при загрузке исторических данных для {symbol}: {e}", exc_info=True)
+            logger.error(
+                f"Критическая ошибка при загрузке исторических данных для {symbol}: {e}", exc_info=True)
             if mt5.terminal_info():
                 mt5.shutdown()
             return None
 
     def _get_timeframe_str(self, tf_code: Optional[int]) -> str:
-        if tf_code is None: return "N/A"
-        tf_map = {v: k for k, v in mt5.__dict__.items() if k.startswith('TIMEFRAME_')}
+        if tf_code is None:
+            return "N/A"
+        tf_map = {v: k for k, v in mt5.__dict__.items()
+                  if k.startswith('TIMEFRAME_')}
         full_name = tf_map.get(tf_code, str(tf_code))
         return full_name.replace('TIMEFRAME_', '')
 
@@ -413,7 +467,8 @@ class DataProvider:
 
         with self.mt5_lock:
             if not mt5.initialize(path=self.config.MT5_PATH):
-                logger.error("DataProvider (get_mt5_news): Не удалось подключиться к MT5.")
+                logger.error(
+                    "DataProvider (get_mt5_news): Не удалось подключиться к MT5.")
                 return []
 
             try:
@@ -424,7 +479,8 @@ class DataProvider:
 
                 new_news_to_process = []
                 for news in terminal_news:
-                    news_time = datetime.fromtimestamp(news.datetime, tz=timezone.utc)
+                    news_time = datetime.fromtimestamp(
+                        news.datetime, tz=timezone.utc)
 
                     if news_time > self.last_news_timestamp:
                         new_news_to_process.append(news)
@@ -436,10 +492,12 @@ class DataProvider:
                 if not new_news_to_process:
                     return []
 
-                logger.info(f"Из терминала MT5 обнаружено {len(new_news_to_process)} новых новостей для анализа.")
+                logger.info(
+                    f"Из терминала MT5 обнаружено {len(new_news_to_process)} новых новостей для анализа.")
 
                 for news in reversed(new_news_to_process):
-                    news_time = datetime.fromtimestamp(news.datetime, tz=timezone.utc)
+                    news_time = datetime.fromtimestamp(
+                        news.datetime, tz=timezone.utc)
                     full_text = f"{news.title}. {news.content}"
 
                     news_items.append(NewsItem(
@@ -457,22 +515,24 @@ class DataProvider:
             self.last_news_timestamp = max_timestamp_in_batch
 
         return news_items
-    
+
     def get_minimum_lot_size(self, symbol: str) -> Optional[float]:
         """
         Получает минимальный размер лота для символа из MT5.
         """
         with self.mt5_lock:
             if not mt5.initialize(path=self.config.MT5_PATH):
-                logger.error(f"[get_minimum_lot_size] Не удалось инициализировать MT5 для {symbol}.")
+                logger.error(
+                    f"[get_minimum_lot_size] Не удалось инициализировать MT5 для {symbol}.")
                 return None
-            
+
             try:
                 symbol_info = mt5.symbol_info(symbol)
                 if symbol_info is None:
-                    logger.warning(f"[get_minimum_lot_size] Символ {symbol} не найден в терминале.")
+                    logger.warning(
+                        f"[get_minimum_lot_size] Символ {symbol} не найден в терминале.")
                     return None
-                
+
                 # Возвращаем минимальный лот, если он больше 0
                 min_lot = symbol_info.volume_min
                 if min_lot > 0:
@@ -480,9 +540,10 @@ class DataProvider:
                 else:
                     # Если минимальный объем 0 или отрицательный, используем стандартный минимальный лот
                     return 0.01
-                    
+
             except Exception as e:
-                logger.error(f"[get_minimum_lot_size] Ошибка при получении информации о символе {symbol}: {e}")
+                logger.error(
+                    f"[get_minimum_lot_size] Ошибка при получении информации о символе {symbol}: {e}")
                 return None
             finally:
                 mt5.shutdown()

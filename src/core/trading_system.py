@@ -329,23 +329,23 @@ class TradingSystem(QObject):
         self.data_aggregator.market_screener = self.market_screener
         self.risk_engine = RiskEngine(self.config, self, self.knowledge_graph_querier, self.mt5_lock,
                                       is_simulation=False)
-        
+
         # P0: Инициализация Circuit Breaker
         self.circuit_breaker = CircuitBreaker(self.config, self)
         logger.info("Circuit Breaker инициализирован")
-        
+
         # P0: Инициализация Alert Manager
         self.alert_manager = AlertManager(self.config, self)
         logger.info("Alert Manager инициализирован")
-        
+
         # P0: Инициализация Paper Trading Engine
         self.paper_trading_engine = PaperTradingEngine(self.config, self)
         logger.info("Paper Trading Engine инициализирован")
-        
+
         # P0: Инициализация Secrets Manager
         self.secrets_manager = SecretsManager()
         logger.info("Secrets Manager инициализирован")
-        
+
         self.strategy_optimizer = StrategyOptimizer(
             self.config, self.data_provider)
         self.gp_rd_manager = GPRDManager(
@@ -389,7 +389,7 @@ class TradingSystem(QObject):
 
         logger.critical("--- [INIT END] ---")
         self.is_heavy_init_complete = True
-        
+
         # === ИНТЕГРАЦИЯ: Инициализация сервисов ===
         if hasattr(self, 'service_manager'):
             self.service_manager.initialize_services()
@@ -869,7 +869,15 @@ class TradingSystem(QObject):
             # Убрано избыточное логирование
             if gui_data_list:
                 # Отправляем данные в сканер
-                self.market_scan_updated.emit(gui_data_list)
+                try:
+                    self.market_scan_updated.emit(gui_data_list)
+                except RuntimeError as e:
+                    if "Signal source has been deleted" in str(e):
+                        logger.debug(
+                            "[GUI] Сигнал market_scan_updated был удалён, пропускаем отправку")
+                    else:
+                        logger.error(f"Ошибка отправки сигнала: {e}")
+                    # Продолжаем работу, просто не отправляем сигнал
 
                 # Обновляем график первым символом
                 top_item = gui_data_list[0]
@@ -992,27 +1000,33 @@ class TradingSystem(QObject):
 
             # === ТОРГОВЛЯ ПО ВСЕМ СИМВОЛАМ ИЗ WHITELIST ===
             symbols_to_trade = ranked_symbols
-            
+
             logger.info("=" * 80)
             logger.info("НАЧАЛО ТОРГОВЛИ ПО СИМВОЛАМ")
             logger.info("=" * 80)
-            logger.info(f"[Trading] Торговля по {len(symbols_to_trade)} символам из {len(full_ranked_list)} доступных")
-            logger.info(f"[Trading] Текущих позиций: {len(current_positions)}, Максимум: {self.config.MAX_OPEN_POSITIONS}")
-            logger.info(f"[Trading] SYMBOLS_WHITELIST: {len(self.config.SYMBOLS_WHITELIST)} символов")
-            logger.info(f"[Trading] TOP_N_SYMBOLS: {self.config.TOP_N_SYMBOLS}")
+            logger.info(
+                f"[Trading] Торговля по {len(symbols_to_trade)} символам из {len(full_ranked_list)} доступных")
+            logger.info(
+                f"[Trading] Текущих позиций: {len(current_positions)}, Максимум: {self.config.MAX_OPEN_POSITIONS}")
+            logger.info(
+                f"[Trading] SYMBOLS_WHITELIST: {len(self.config.SYMBOLS_WHITELIST)} символов")
+            logger.info(
+                f"[Trading] TOP_N_SYMBOLS: {self.config.TOP_N_SYMBOLS}")
             logger.info("=" * 80)
 
             for symbol in symbols_to_trade:
                 # Проверяем лимит позиций (но не блокируем, а логируем)
                 if len(current_positions) + len(analysis_tasks) >= self.config.MAX_OPEN_POSITIONS:
                     logger.warning(f"[Trading] Достигнут лимит позиций ({len(current_positions)}/{self.config.MAX_OPEN_POSITIONS}). "
-                                  f"Символ {symbol} будет пропущен.")
+                                   f"Символ {symbol} будет пропущен.")
                     continue  # Пропускаем, но не прерываем цикл
 
                 # Проверяем, есть ли уже позиция по этому символу
-                symbol_positions = [p for p in current_positions if p.symbol == symbol]
+                symbol_positions = [
+                    p for p in current_positions if p.symbol == symbol]
                 if symbol_positions:
-                    logger.debug(f"[Trading] Пропуск {symbol}: уже есть открытая позиция")
+                    logger.debug(
+                        f"[Trading] Пропуск {symbol}: уже есть открытая позиция")
                     continue
 
                 self.start_performance_timer(
@@ -1025,15 +1039,18 @@ class TradingSystem(QObject):
                 df_optimal = data_dict.get(f"{symbol}_{optimal_timeframe}")
 
                 if df_optimal is None:
-                    logger.warning(f"[Trading] Нет данных для {symbol} на таймфрейме {optimal_timeframe}")
+                    logger.warning(
+                        f"[Trading] Нет данных для {symbol} на таймфрейме {optimal_timeframe}")
                     continue
 
-                logger.info(f"[Trading] Добавлен символ {symbol} на обработку (всего задач: {len(analysis_tasks) + 1})")
+                logger.info(
+                    f"[Trading] Добавлен символ {symbol} на обработку (всего задач: {len(analysis_tasks) + 1})")
                 task = self._process_single_symbol(symbol, df_optimal, optimal_timeframe, account_info,
                                                    current_positions)
                 analysis_tasks.append(task)
 
-            logger.info(f"[Trading] Всего добавлено задач: {len(analysis_tasks)}")
+            logger.info(
+                f"[Trading] Всего добавлено задач: {len(analysis_tasks)}")
             logger.info("=" * 80)
 
             if analysis_tasks:
@@ -1053,36 +1070,39 @@ class TradingSystem(QObject):
         """
         logger.info(
             "=== Запуск непрерывного цикла обучения (R&D Department) ===")
-        
+
         # Ждем 120 секунд чтобы система успела набрать данные
         logger.info("[R&D] Ожидание 120 сек для накопления данных...")
         self.stop_event.wait(120)
-        
+
         while not self.stop_event.is_set():
             try:
                 if not self.is_heavy_init_complete:
-                    logger.warning("[R&D] Тяжелая инициализация не завершена, ожидание...")
+                    logger.warning(
+                        "[R&D] Тяжелая инициализация не завершена, ожидание...")
                     self.stop_event.wait(10)
                     continue
-                
+
                 # Проверяем есть ли данные для обучения
                 if not self.latest_full_ranked_list or len(self.latest_full_ranked_list) == 0:
-                    logger.warning("[R&D] Список ранжированных символов пуст. Ожидание данных...")
+                    logger.warning(
+                        "[R&D] Список ранжированных символов пуст. Ожидание данных...")
                     self.stop_event.wait(60)
                     continue
-                
+
                 logger.info("[R&D] Запуск цикла обучения...")
                 self._continuous_training_cycle()
-                
+
                 sleep_time = self.config.TRAINING_INTERVAL_SECONDS
-                logger.info(f"[R&D] Цикл завершен. Следующий через {sleep_time} сек")
+                logger.info(
+                    f"[R&D] Цикл завершен. Следующий через {sleep_time} сек")
                 self.stop_event.wait(sleep_time)
-                
+
             except Exception as e:
                 logger.error(
                     f"Критическая ошибка в фоновом цикле обучения: {e}", exc_info=True)
                 self.stop_event.wait(60)
-        
+
         logger.info("Цикл обучения (R&D) остановлен.")
 
     def _vector_db_cleanup_loop(self):
@@ -1620,26 +1640,28 @@ class TradingSystem(QObject):
     def set_trading_mode(self, mode_id: str, settings: Optional[Dict[str, Any]] = None):
         """
         Прокси-метод для установки режима торговли через RiskEngine.
-        
+
         Args:
             mode_id: Идентификатор режима ("conservative", "standard", "aggressive", "yolo", "custom", "disabled")
             settings: Пользовательские настройки (для кастомного режима)
         """
         # Обработка отключения режимов
         if mode_id == "disabled":
-            logger.info("⚙️ Режимы торговли ОТКЛЮЧЕНЫ - возврат к базовым настройкам из конфига")
+            logger.info(
+                "⚙️ Режимы торговли ОТКЛЮЧЕНЫ - возврат к базовым настройкам из конфига")
             # Возвращаем базовые настройки из конфига
             self.risk_engine.base_risk_per_trade_percent = self.config.RISK_PERCENTAGE
             self.risk_engine.max_daily_drawdown_percent = self.config.MAX_DAILY_DRAWDOWN_PERCENT
             logger.info("✅ Базовые настройки риск-менеджмента восстановлены")
             return
-        
+
         logger.info(f"🎯 Запрос на установку режима торговли: {mode_id}")
         try:
             self.risk_engine.set_trading_mode(mode_id, settings)
             logger.info(f"✅ Режим торговли '{mode_id}' успешно применен")
         except Exception as e:
-            logger.error(f"❌ Ошибка при установке режима торговли: {e}", exc_info=True)
+            logger.error(
+                f"❌ Ошибка при установке режима торговли: {e}", exc_info=True)
 
     def update_runtime_settings(self, new_settings: dict):
         logger.warning(
@@ -2263,14 +2285,32 @@ class TradingSystem(QObject):
                         return
                 logger.critical(
                     f"[{symbol}] ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ! ОТПРАВКА ОРДЕРА...")
-                position_ticket = await self.execution_service.execute_trade(symbol=symbol, signal=confirmed_signal,
-                                                                             lot_size=lot_size, df=df,
-                                                                             timeframe=timeframe,
-                                                                             strategy_name=final_strategy_name,
-                                                                             stop_loss_in_price=stop_loss_in_price,
-                                                                             observer_mode=self.observer_mode,
-                                                                             prediction_input=pred_input,
-                                                                             entry_price_for_learning=entry_price)
+                
+                # P0: Проверка Paper Trading режима
+                if hasattr(self, 'paper_trading_engine') and self.paper_trading_engine.enabled:
+                    logger.info(f"[{symbol}] Paper Trading режим активен — симуляция сделки")
+                    
+                    # Симулируем сделку через Paper Trading Engine
+                    position_ticket = self.paper_trading_engine.execute_trade(
+                        signal=confirmed_signal,
+                        lot_size=lot_size,
+                        stop_loss=stop_loss_in_price,
+                        take_profit=None  # Можно добавить из сигнала
+                    )
+                    
+                    if position_ticket:
+                        logger.info(f"[{symbol}] Paper Trading сделка открыта: {position_ticket}")
+                else:
+                    # Реальная сделка через execution_service
+                    position_ticket = await self.execution_service.execute_trade(symbol=symbol, signal=confirmed_signal,
+                                                                                 lot_size=lot_size, df=df,
+                                                                                 timeframe=timeframe,
+                                                                                 strategy_name=final_strategy_name,
+                                                                                 stop_loss_in_price=stop_loss_in_price,
+                                                                                 observer_mode=self.observer_mode,
+                                                                                 prediction_input=pred_input,
+                                                                                 entry_price_for_learning=entry_price)
+                
                 if position_ticket and "AI" in final_strategy_name and pred_input is not None and not self.observer_mode:
                     self._calculate_and_save_xai_async(
                         position_ticket, symbol, pred_input, df)
@@ -2325,7 +2365,7 @@ class TradingSystem(QObject):
     def set_observer_mode(self, enabled: bool) -> None:
         """
         Переключить режим наблюдателя.
-        
+
         Args:
             enabled: True для включения режима наблюдателя
         """
@@ -2333,6 +2373,44 @@ class TradingSystem(QObject):
         status_message = f"Режим Наблюдателя {'ВКЛЮЧЕН' if self.observer_mode else 'ВЫКЛЮЧЕН'}."
         logger.info(status_message)
         self._safe_gui_update('update_status', status_message)
+    
+    def toggle_observer_mode(self) -> None:
+        """Переключить режим наблюдателя на противоположный."""
+        self.set_observer_mode(not self.observer_mode)
+        logger.info(f"Режим торговли переключён: {'Наблюдатель' if self.observer_mode else 'Торговля'}")
+    
+    def set_paper_trading_mode(self, enabled: bool) -> None:
+        """
+        Включить/выключить режим Paper Trading.
+        
+        Args:
+            enabled: True для включения Paper Trading
+        """
+        if hasattr(self, 'paper_trading_engine'):
+            self.paper_trading_engine.enabled = enabled
+            status_message = f"Paper Trading {'ВКЛЮЧЕН' if enabled else 'ВЫКЛЮЧЕН'}."
+            logger.info(status_message)
+            self._safe_gui_update('update_status', status_message)
+            
+            # Если включаем Paper Trading, выключаем observer mode
+            if enabled and self.observer_mode:
+                self.set_observer_mode(False)
+        else:
+            logger.warning("Paper Trading Engine не инициализирован")
+    
+    def get_trading_mode(self) -> str:
+        """
+        Возвращает текущий режим торговли.
+        
+        Returns:
+            "Paper Trading", "Observer", или "Real Trading"
+        """
+        if hasattr(self, 'paper_trading_engine') and self.paper_trading_engine.enabled:
+            return "Paper Trading"
+        elif self.observer_mode:
+            return "Наблюдатель"
+        else:
+            return "Реальная торговля"
 
     def update_configuration(self, new_config: Settings):
         self.config = new_config
@@ -3206,46 +3284,47 @@ class TradingSystem(QObject):
         thread.start()
 
     # === ИНТЕГРАЦИЯ: Методы для управления сервисами ===
-    
+
     def enable_new_services(self, enabled: bool = True) -> None:
         """
         Включить/выключить использование новых сервисов.
-        
+
         Args:
             enabled: True для использования новых сервисов
         """
         if hasattr(self, 'service_manager'):
             self.service_manager.enable_new_services(enabled)
-            logger.info(f"Новые сервисы {'ВКЛЮЧЕНЫ' if enabled else 'ВЫКЛЮЧЕНЫ'}")
-    
+            logger.info(
+                f"Новые сервисы {'ВКЛЮЧЕНЫ' if enabled else 'ВЫКЛЮЧЕНЫ'}")
+
     def get_service_status(self) -> Dict[str, Any]:
         """
         Получить статус сервисов.
-        
+
         Returns:
             Dict[str, Any]: Статус сервисов
         """
         if hasattr(self, 'service_manager'):
             return self.service_manager.get_status()
         return {"error": "ServiceManager не инициализирован"}
-    
+
     def get_service_health(self) -> Dict[str, bool]:
         """
         Проверить здоровье сервисов.
-        
+
         Returns:
             Dict[str, bool]: Здоровье сервисов
         """
         if hasattr(self, 'service_manager'):
             return self.service_manager.health_check()
         return {"error": "ServiceManager не инициализирован"}
-    
+
     # =====================================================
 
     def emergency_close_position(self, ticket: int) -> None:
         """
         Экстренно закрыть позицию.
-        
+
         Args:
             ticket: Тикет позиции для закрытия
         """
@@ -3256,15 +3335,15 @@ class TradingSystem(QObject):
         self.execution_service.emergency_close_all_positions()
 
     def add_directive(
-        self, 
-        directive_type: str, 
-        reason: str, 
-        duration_hours: int, 
+        self,
+        directive_type: str,
+        reason: str,
+        duration_hours: int,
         value: Any
     ) -> None:
         """
         Добавить директиву.
-        
+
         Args:
             directive_type: Тип директивы
             reason: Причина
@@ -3273,8 +3352,8 @@ class TradingSystem(QObject):
         """
         expires_at = datetime.utcnow() + timedelta(hours=duration_hours)
         directive = ActiveDirective(
-            directive_type=directive_type, 
-            value=str(value), 
+            directive_type=directive_type,
+            value=str(value),
             reason=reason,
             expires_at=expires_at
         )
@@ -3287,10 +3366,10 @@ class TradingSystem(QObject):
     def delete_directive(self, directive_type: str) -> bool:
         """
         Удалить директиву.
-        
+
         Args:
             directive_type: Тип директивы для удаления
-            
+
         Returns:
             bool: True если успешно
         """
