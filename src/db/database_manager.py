@@ -1298,13 +1298,33 @@ class DatabaseManager:
                 old_champion.is_champion = False
 
             challenger.is_champion = True
-            challenger.performance_report = json.dumps(report)
+            
+            # Преобразуем numpy float32 в обычные float для JSON сериализации
+            import numpy as np
+            def convert_numpy_types(obj):
+                """Рекурсивно преобразует numpy типы в Python типы."""
+                if isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, dict):
+                    return {k: convert_numpy_types(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_numpy_types(item) for item in obj]
+                else:
+                    return obj
+            
+            report_converted = convert_numpy_types(report)
+            challenger.performance_report = json.dumps(report_converted)
+            
             session.commit()
             logger.critical(
                 f"!!! НОВЫЙ ЧЕМПИОН: {challenger.model_type} v{challenger.version} для {challenger.symbol} (ID: {challenger.id}) !!!")
         except Exception as e:
             session.rollback()
-            logger.error(f"Ошибка при продвижении модели-претендента: {e}")
+            logger.error(f"Ошибка при продвижении модели-претендента: {e}", exc_info=True)
         finally:
             session.close()
 
