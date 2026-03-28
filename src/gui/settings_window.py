@@ -313,27 +313,54 @@ class SettingsWindow(QDialog):
 
         title_layout.addStretch()
 
-        # Чекбокс включения режимов торговли
-        self.trading_modes_enable_checkbox = QCheckBox("✅ Включить режимы торговли")
+        # Переключатель в виде toggle switch (бегунок)
+        toggle_container = QWidget()
+        toggle_layout = QHBoxLayout(toggle_container)
+        toggle_layout.setContentsMargins(0, 0, 0, 0)
+        toggle_layout.setSpacing(10)
+
+        # Левая метка
+        off_label = QLabel("⛔ Выкл")
+        off_label.setStyleSheet("color: #95a5a6; font-weight: bold; font-size: 13px;")
+
+        # Toggle Switch (кастомный чекбокс)
+        self.trading_modes_enable_checkbox = QCheckBox()
         self.trading_modes_enable_checkbox.setChecked(False)
+        self.trading_modes_enable_checkbox.setCursor(Qt.PointingHandCursor)
         self.trading_modes_enable_checkbox.setStyleSheet("""
             QCheckBox {
-                font-size: 14px;
-                font-weight: bold;
-                color: #f8f8f2;
-                spacing: 10px;
-                padding: 10px;
+                spacing: 0px;
             }
             QCheckBox::indicator {
-                width: 24px;
-                height: 24px;
+                width: 60px;
+                height: 30px;
+                border-radius: 15px;
+                background-color: #34495e;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #27ae60;
+            }
+            QCheckBox::indicator:hover {
+                border: 2px solid #27ae60;
+            }
+            QCheckBox::indicator:unchecked:hover {
+                border: 2px solid #95a5a6;
             }
         """)
         self.trading_modes_enable_checkbox.setToolTip(
             "Включите для активации карточек режимов торговли\n"
             "Пока выключено - используется базовая конфигурация риск-менеджмента"
         )
-        title_layout.addWidget(self.trading_modes_enable_checkbox)
+
+        # Правая метка
+        on_label = QLabel("✅ Вкл")
+        on_label.setStyleSheet("color: #27ae60; font-weight: bold; font-size: 13px;")
+
+        toggle_layout.addWidget(off_label)
+        toggle_layout.addWidget(self.trading_modes_enable_checkbox)
+        toggle_layout.addWidget(on_label)
+
+        title_layout.addWidget(toggle_container)
 
         main_layout.addLayout(title_layout)
 
