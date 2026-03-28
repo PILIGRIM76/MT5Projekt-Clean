@@ -300,19 +300,20 @@ class TradingSystem(QObject):
                 f"Загрузка модели эмбеддингов: {self.config.vector_db.embedding_model}...")
             
             # Устанавливаем путь к кэшу моделей из настроек
+            cache_dir = None
             if hasattr(self.config, 'HF_MODELS_CACHE_DIR') and self.config.HF_MODELS_CACHE_DIR:
                 cache_dir = self.config.HF_MODELS_CACHE_DIR
                 logger.info(f"Используется кэш моделей: {cache_dir}")
+                import os
                 os.environ['TRANSFORMERS_CACHE'] = cache_dir
                 os.environ['HF_HOME'] = cache_dir
             else:
-                cache_dir = None
                 logger.info("Используется кэш моделей по умолчанию")
             
             # Устанавливаем таймауты через environment variable
-            import os
-            old_timeout = os.environ.get('REQUESTS_TIMEOUT')
-            os.environ['REQUESTS_TIMEOUT'] = '120'  # 120 секунд
+            import os as os_module
+            old_timeout = os_module.environ.get('REQUESTS_TIMEOUT')
+            os_module.environ['REQUESTS_TIMEOUT'] = '120'  # 120 секунд
             
             from huggingface_hub.utils import disable_progress_bars
             disable_progress_bars()
@@ -337,9 +338,9 @@ class TradingSystem(QObject):
             
             # Восстанавливаем таймаут
             if old_timeout:
-                os.environ['REQUESTS_TIMEOUT'] = old_timeout
-            elif 'REQUESTS_TIMEOUT' in os.environ:
-                del os.environ['REQUESTS_TIMEOUT']
+                os_module.environ['REQUESTS_TIMEOUT'] = old_timeout
+            elif 'REQUESTS_TIMEOUT' in os_module.environ:
+                del os_module.environ['REQUESTS_TIMEOUT']
 
             # Передаем модель в компоненты
             self.nlp_processor.embedding_model = embedding_model

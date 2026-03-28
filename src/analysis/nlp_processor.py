@@ -54,15 +54,28 @@ class CausalNLPProcessor:
             default_cache_path = os.path.join(home_dir, ".cache", "huggingface", "hub")
             logger.info(f"Используется стандартная директория для кэша Hugging Face: {default_cache_path}")
 
+        # Увеличиваем таймаут для загрузки моделей
+        import os as os_module
+        old_timeout = os_module.environ.get('REQUESTS_TIMEOUT')
+        os_module.environ['REQUESTS_TIMEOUT'] = '120'  # 120 секунд
+
         # --- Этап 1: Загрузка основных моделей для генерации связей ---
         for model_name in self.model_names:
             try:
                 logger.info(f"Загрузка NLP-модели: '{model_name}'... (Это может занять время при первом запуске!)")
-                tokenizer = AutoTokenizer.from_pretrained(model_name)
+                
+                # Загружаем с увеличенным таймаутом
+                tokenizer = AutoTokenizer.from_pretrained(
+                    model_name,
+                    request_timeout=120
+                )
 
                 # --- ИСПРАВЛЕНИЕ: Принудительная загрузка на CPU для стабильности ---
                 # Примечание: Убираем load_in_8bit, так как он конфликтует с принудительным CPU
-                model = T5ForConditionalGeneration.from_pretrained(model_name)
+                model = T5ForConditionalGeneration.from_pretrained(
+                    model_name,
+                    request_timeout=120
+                )
 
                 # Принудительно переносим на CPU, чтобы избежать исчерпания VRAM
                 # Если self.device == 'cuda', модель все равно будет перенесена на GPU,
@@ -75,6 +88,12 @@ class CausalNLPProcessor:
                 logger.info(f"Модель '{model_name}' успешно загружена.")
             except Exception as e:
                 logger.error(f"Не удалось загрузить модель '{model_name}': {e}", exc_info=True)
+        
+        # Восстанавливаем старый таймаут
+        if old_timeout:
+            os_module.environ['REQUESTS_TIMEOUT'] = old_timeout
+        elif 'REQUESTS_TIMEOUT' in os_module.environ:
+            del os_module.environ['REQUESTS_TIMEOUT']
 
         # --- Этап 2: Загрузка модели для эмбеддингов (для векторной БД) ---
         if self.config.vector_db.enabled and self.embedding_model is None:

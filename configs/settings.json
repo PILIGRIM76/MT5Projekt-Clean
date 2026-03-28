@@ -340,7 +340,7 @@
       "tp_hit_reward": 1.0
     }
   },
-  "HF_MODELS_CACHE_DIR": "F:/Enjen/hub",
+  "HF_MODELS_CACHE_DIR": "F:/Enjen/all-MiniLM-L6-v2",
   "vector_db": {
     "enabled": true,
     "path": "vector_db",
