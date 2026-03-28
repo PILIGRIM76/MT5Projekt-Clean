@@ -1657,8 +1657,11 @@ class TradingSystem(QObject):
 
         logger.info(f"🎯 Запрос на установку режима торговли: {mode_id}")
         try:
-            self.risk_engine.set_trading_mode(mode_id, settings)
-            logger.info(f"✅ Режим торговли '{mode_id}' успешно применен")
+            if hasattr(self, 'risk_engine') and self.risk_engine is not None:
+                self.risk_engine.set_trading_mode(mode_id, settings)
+                logger.info(f"✅ Режим торговли '{mode_id}' успешно применен")
+            else:
+                logger.warning(f"⚠️ RiskEngine ещё не инициализирован. Режим '{mode_id}' будет применён после инициализации.")
         except Exception as e:
             logger.error(
                 f"❌ Ошибка при установке режима торговли: {e}", exc_info=True)
