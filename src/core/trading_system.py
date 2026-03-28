@@ -307,6 +307,8 @@ class TradingSystem(QObject):
                 import os
                 os.environ['TRANSFORMERS_CACHE'] = cache_dir
                 os.environ['HF_HOME'] = cache_dir
+                # Отключаем онлайн проверку если модель в кэше
+                os.environ['HF_HUB_OFFLINE'] = '1'
             else:
                 logger.info("Используется кэш моделей по умолчанию")
             
@@ -323,13 +325,23 @@ class TradingSystem(QObject):
             
             if cached_file is not None:
                 logger.info("Модель найдена в кэше, загрузка не требуется")
-            
-            # Загружаем модель
-            embedding_model = SentenceTransformer(
-                self.config.vector_db.embedding_model, 
-                device='cpu',
-                cache_folder=cache_dir
-            )
+                # Загружаем локально без проверки интернета
+                from sentence_transformers import SentenceTransformer
+                embedding_model = SentenceTransformer(
+                    self.config.vector_db.embedding_model, 
+                    device='cpu',
+                    cache_folder=cache_dir,
+                    trust_remote_code=True
+                )
+            else:
+                # Кэша нет — загружаем из интернета
+                logger.info("Кэш не найден, загрузка из интернета...")
+                from sentence_transformers import SentenceTransformer
+                embedding_model = SentenceTransformer(
+                    self.config.vector_db.embedding_model, 
+                    device='cpu',
+                    cache_folder=cache_dir
+                )
 
             # Передаем модель в компоненты
             self.nlp_processor.embedding_model = embedding_model
