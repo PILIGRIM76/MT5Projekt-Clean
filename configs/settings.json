@@ -423,7 +423,7 @@
       },
       "email": {
         "enabled": false,
-        "smtp_server": "smtp.gmail.com",
+        "smtp_server": "",
         "smtp_port": 587,
         "use_tls": true,
         "from_email_env": "ALERT_EMAIL_FROM",
@@ -443,7 +443,7 @@
     "quiet_hours": {
       "enabled": false,
       "start": "22:00",
-      "end": "09:00",
+      "end": "08:00",
       "timezone": "UTC"
     },
     "daily_digest": {

@@ -2420,32 +2420,31 @@ class TradingSystem(QObject):
         logging.info(
             "Конфигурация системы обновлена. Применение к зависимым компонентам...")
         try:
-            if hasattr(self, 'risk_engine'):
+            if hasattr(self, 'risk_engine') and self.risk_engine is not None:
                 self.risk_engine.config = self.config
-            if hasattr(self, 'data_provider'):
+            if hasattr(self, 'data_provider') and self.data_provider is not None:
                 self.data_provider.config = self.config
-            if hasattr(self, 'session_manager'):
+            if hasattr(self, 'session_manager') and self.session_manager is not None:
                 self.session_manager.config = self.config
-            if hasattr(self, 'market_screener'):
+            if hasattr(self, 'market_screener') and self.market_screener is not None:
                 self.market_screener.config = self.config
-            if hasattr(self, 'strategy_optimizer'):
+            if hasattr(self, 'strategy_optimizer') and self.strategy_optimizer is not None:
                 self.strategy_optimizer.config = self.config
-            if hasattr(self, 'consensus_engine'):
+            if hasattr(self, 'consensus_engine') and self.consensus_engine is not None:
                 self.consensus_engine.config = self.config
-            if hasattr(self, 'market_regime_manager'):
+            if hasattr(self, 'market_regime_manager') and self.market_regime_manager is not None:
                 self.market_regime_manager.config = self.config
-            if hasattr(self, 'portfolio_service'):
+            if hasattr(self, 'portfolio_service') and self.portfolio_service is not None:
                 self.portfolio_service.config = self.config
-            if hasattr(self, 'execution_service'):
+            if hasattr(self, 'execution_service') and self.execution_service is not None:
                 self.execution_service.config = self.config
-            if hasattr(self, 'orchestrator'):
+            if hasattr(self, 'orchestrator') and self.orchestrator is not None:
                 self.orchestrator.config = self.config
-            if hasattr(self.risk_engine,
-                       'base_risk_per_trade_percent'):
-                self.risk_engine.base_risk_per_trade_percent = self.config.RISK_PERCENTAGE
-            if hasattr(self.risk_engine,
-                       'max_daily_drawdown_percent'):
-                self.risk_engine.max_daily_drawdown_percent = self.config.MAX_DAILY_DRAWDOWN_PERCENT
+            if hasattr(self, 'risk_engine') and self.risk_engine is not None:
+                if hasattr(self.risk_engine, 'base_risk_per_trade_percent'):
+                    self.risk_engine.base_risk_per_trade_percent = self.config.RISK_PERCENTAGE
+                if hasattr(self.risk_engine, 'max_daily_drawdown_percent'):
+                    self.risk_engine.max_daily_drawdown_percent = self.config.MAX_DAILY_DRAWDOWN_PERCENT
             logging.info(
                 "Компоненты системы успешно переинициализированы с новой конфигурацией.")
         except Exception as e:
