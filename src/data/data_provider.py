@@ -155,10 +155,14 @@ class DataProvider:
             return []
         return [s.name for s in all_symbols if s.visible and s.trade_mode == mt5.SYMBOL_TRADE_MODE_FULL]
 
-    def _add_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _add_features(self, df: pd.DataFrame, symbol: str = None) -> pd.DataFrame:
         if df is None or df.empty:
             return pd.DataFrame()
         df_out = df.copy()
+        
+        # Добавляем колонку symbol для идентификации
+        if symbol:
+            df_out['symbol'] = symbol
 
         try:
             # --- БЛОК 1: Базовые индикаторы ---
@@ -410,7 +414,7 @@ class DataProvider:
             f"[{symbol}] Данные ({len(df)} баров) успешно получены из источника: {source}.")
 
         # ОПТИМИЗАЦИЯ: Обработка признаков вне блокировки MT5
-        df_with_features = self._add_features(df)
+        df_with_features = self._add_features(df, symbol)
 
         if not df_with_features.empty:
             return f"{symbol}_{tf}", df_with_features
@@ -441,7 +445,7 @@ class DataProvider:
 
             if 'tick_volume' not in df.columns:
                 df['tick_volume'] = 0
-            return self._add_features(df)
+            return self._add_features(df, symbol)
         except Exception as e:
             logger.error(
                 f"Критическая ошибка при загрузке исторических данных для {symbol}: {e}", exc_info=True)

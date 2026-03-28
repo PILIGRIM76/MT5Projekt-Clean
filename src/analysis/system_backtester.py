@@ -199,9 +199,10 @@ class SystemBacktester:
 
             # Передаем правильный индекс (последний элемент слайса)
             current_slice_index = len(df_slice) - 1
+            symbol = df_slice['symbol'].iloc[current_slice_index] if 'symbol' in df_slice.columns else None
 
             for name, strategy_instance in self.strategies.items():
-                signal = strategy_instance.check_entry_conditions(df_slice, current_slice_index, timeframe=0)
+                signal = strategy_instance.check_entry_conditions(df_slice, current_slice_index, timeframe=0, symbol=symbol)
                 if signal and signal.type != SignalType.HOLD:
                     final_signal = signal
                     final_strategy_name = name
@@ -234,10 +235,10 @@ class SystemBacktester:
         # Имитируем, что R&D находит новую стратегию (например, GP_Hybrid_1)
         if 'GP_Hybrid_1' not in self.strategies:
             class GP_Hybrid_1(BaseStrategy):
-                def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int) -> Optional[
+                def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int, symbol: str = None) -> Optional[
                     TradeSignal]:
                     # Упрощенное правило: RSI < 30 ИЛИ EMA_50 > EMA_200
-                    symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'
+                    symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else (symbol if symbol else 'UNKNOWN')
                     if 'RSI_14' in df.columns and 'EMA_50' in df.columns and 'EMA_200' in df.columns:
                         if df['RSI_14'].iloc[current_index] < 30 or df['EMA_50'].iloc[current_index] > \
                                 df['EMA_200'].iloc[current_index]:

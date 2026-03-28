@@ -219,7 +219,8 @@ class BreakoutStrategy(BaseStrategy):
         self,
         df: pd.DataFrame,
         current_index: int,
-        timeframe: int
+        timeframe: int,
+        symbol: str = None
     ) -> Optional[TradeSignal]:
         """
         Проверка условий для входа в позицию.
@@ -228,6 +229,7 @@ class BreakoutStrategy(BaseStrategy):
             df: DataFrame с данными (цены + признаки из FeatureStore)
             current_index: Индекс текущей свечи
             timeframe: Таймфрейм в минутах
+            symbol: Символ для торговли (опционально)
 
         Returns:
             TradeSignal или None
@@ -240,7 +242,7 @@ class BreakoutStrategy(BaseStrategy):
         if 'atr' not in df.columns:
             df = self.feature_store.calculate_all_features(
                 df,
-                df['symbol'].iloc[0] if 'symbol' in df.columns else 'UNKNOWN'
+                df['symbol'].iloc[0] if 'symbol' in df.columns else (symbol if symbol else 'UNKNOWN')
             )
 
         # Расчет breakout-признаков
@@ -253,7 +255,7 @@ class BreakoutStrategy(BaseStrategy):
 
         # Проверка на пробой
         signal = self._check_breakout(
-            df, current_index, breakout_features, timeframe
+            df, current_index, breakout_features, timeframe, symbol
         )
 
         if signal:
@@ -289,7 +291,8 @@ class BreakoutStrategy(BaseStrategy):
         df: pd.DataFrame,
         current_index: int,
         features: BreakoutFeatures,
-        timeframe: int
+        timeframe: int,
+        symbol: str = None
     ) -> Optional[TradeSignal]:
         """
         Проверка на пробой с фильтрацией ложных сигналов.
@@ -300,8 +303,8 @@ class BreakoutStrategy(BaseStrategy):
         current_price = df['close'].iloc[current_index]
         prev_price = df['close'].iloc[current_index - 1]
 
-        # Получение символа через универсальный метод
-        symbol = self._get_symbol_from_dataframe(df, current_index)
+        # Получение символа через универсальный метод с default_symbol
+        symbol = self._get_symbol_from_dataframe(df, current_index, default_symbol=symbol)
         if symbol == 'UNKNOWN':
             logger.warning(
                 f"Не удалось определить символ для Breakout стратегии")
@@ -352,6 +355,7 @@ class BreakoutStrategy(BaseStrategy):
             type=signal_type,
             confidence=round(confidence, 3),
             symbol=symbol,
+            strategy_name=self.__class__.__name__,
             entry_price=current_price,
             stop_loss=self._calculate_stop_loss(
                 df, current_index, features, signal_type),
@@ -723,7 +727,8 @@ class BreakoutStrategy(BaseStrategy):
     ) -> Optional[ExitSignal]:
         """Проверка на разворот стратегии."""
         # Проверка на противоположный сигнал
-        opposite_signal = self.check_entry_conditions(df, current_index, 60)
+        symbol = position.symbol if hasattr(position, 'symbol') else None
+        opposite_signal = self.check_entry_conditions(df, current_index, 60, symbol)
 
         if opposite_signal:
             if position.type == SignalType.BUY and opposite_signal.type == SignalType.SELL:

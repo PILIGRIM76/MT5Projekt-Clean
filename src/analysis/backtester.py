@@ -61,7 +61,8 @@ class StrategyBacktester(ABC):
 
             # Поиск нового сигнала
             if not open_trade:
-                signal = self.strategy.check_entry_conditions(self.data, i, self.timeframe)
+                symbol = self.data['symbol'].iloc[i] if 'symbol' in self.data.columns else None
+                signal = self.strategy.check_entry_conditions(self.data, i, self.timeframe, symbol)
                 if signal and signal.type != SignalType.HOLD:
                     entry_price = current_candle['open']
                     sl_distance = self.data['ATR_14'].iloc[i] * self.stop_loss_atr_multiplier

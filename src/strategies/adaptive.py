@@ -83,7 +83,8 @@ class AdaptiveStrategy(BaseStrategy):
         self,
         df: pd.DataFrame,
         current_index: int,
-        timeframe: int
+        timeframe: int,
+        symbol: str = None
     ) -> Optional[TradeSignal]:
         """
         Проверка условий для входа с адаптивным выбором стратегии.
@@ -92,26 +93,27 @@ class AdaptiveStrategy(BaseStrategy):
             df: DataFrame с данными
             current_index: Индекс текущей свечи
             timeframe: Таймфрейм в минутах
+            symbol: Символ для торговли (опционально)
 
         Returns:
             TradeSignal или None
         """
-        # Получение сигналов от под-стратегий
+        # Получение сигналов от под-стратегий с передачей symbol
         breakout_signal = self.strategies['breakout'].check_entry_conditions(
-            df, current_index, timeframe
+            df, current_index, timeframe, symbol
         )
         reversion_signal = self.strategies['mean_reversion'].check_entry_conditions(
-            df, current_index, timeframe
+            df, current_index, timeframe, symbol
         )
 
         # Сохранение в кэш
-        self._last_signals[f"{df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'}_{current_index}"] = (
+        self._last_signals[f"{df['symbol'].iloc[current_index] if 'symbol' in df.columns else (symbol if symbol else 'UNKNOWN')}_{current_index}"] = (
             breakout_signal,
             reversion_signal
         )
 
-        # Получение символа
-        symbol = self._get_symbol_from_dataframe(df, current_index)
+        # Получение символа с использованием default_symbol
+        symbol = self._get_symbol_from_dataframe(df, current_index, default_symbol=symbol)
         if symbol == 'UNKNOWN':
             logger.warning(
                 f"Не удалось определить символ для Adaptive стратегии")
@@ -141,6 +143,7 @@ class AdaptiveStrategy(BaseStrategy):
                     type=breakout_signal.type,
                     confidence=round(enhanced_confidence, 3),
                     symbol=symbol,
+                    strategy_name=self.__class__.__name__,
                     entry_price=breakout_signal.entry_price or reversion_signal.entry_price,
                     stop_loss=breakout_signal.stop_loss or reversion_signal.stop_loss,
                     take_profit=breakout_signal.take_profit or reversion_signal.take_profit
@@ -208,6 +211,7 @@ class AdaptiveStrategy(BaseStrategy):
             type=best_signal.type,
             confidence=round(adjusted_confidence, 3),
             symbol=symbol,
+            strategy_name=self.__class__.__name__,
             entry_price=best_signal.entry_price,
             stop_loss=best_signal.stop_loss,
             take_profit=best_signal.take_profit

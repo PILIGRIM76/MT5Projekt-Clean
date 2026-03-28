@@ -35,7 +35,7 @@ class MeanReversionStrategy(BaseStrategy):
                 except json.JSONDecodeError:
                     pass
 
-    def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int) -> Optional[TradeSignal]:
+    def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int, symbol: str = None) -> Optional[TradeSignal]:
         if 'BBU_20_2.0' not in df.columns or 'BBL_20_2.0' not in df.columns:
             return None
         if current_index < 1:
@@ -48,7 +48,7 @@ class MeanReversionStrategy(BaseStrategy):
         prev_price = df['close'].iloc[current_index - 1]
 
         # Получение символа из DataFrame или индекса
-        symbol = self._get_symbol_from_dataframe(df, current_index)
+        symbol = self._get_symbol_from_dataframe(df, current_index, default_symbol=symbol)
         if symbol == 'UNKNOWN':
             logger.warning(
                 f"Не удалось определить символ для Mean Reversion стратегии")
@@ -59,8 +59,8 @@ class MeanReversionStrategy(BaseStrategy):
 
         # Проверка сигналов
         if last_price < lower_band:
-            return TradeSignal(type=SignalType.BUY, confidence=0.8, symbol=symbol)
+            return TradeSignal(type=SignalType.BUY, confidence=0.8, symbol=symbol, strategy_name=self.__class__.__name__)
         elif last_price > upper_band:
-            return TradeSignal(type=SignalType.SELL, confidence=0.8, symbol=symbol)
+            return TradeSignal(type=SignalType.SELL, confidence=0.8, symbol=symbol, strategy_name=self.__class__.__name__)
 
         return None

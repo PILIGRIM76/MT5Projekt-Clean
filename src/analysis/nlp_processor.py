@@ -58,11 +58,8 @@ class CausalNLPProcessor:
         for model_name in self.model_names:
             try:
                 logger.info(f"Загрузка NLP-модели: '{model_name}'... (Это может занять время при первом запуске!)")
-                
-                # Загружаем с увеличенным таймаутом через HfFolder
-                from huggingface_hub import HfFolder
-                HfFolder.set_token("anonymous")  # Для публичных моделей
-                
+
+                # Загружаем токенизатор и модель
                 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
                 # --- ИСПРАВЛЕНИЕ: Принудительная загрузка на CPU для стабильности ---

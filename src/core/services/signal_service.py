@@ -49,7 +49,7 @@ class SignalService:
         return np.array(X)
 
     # --- НОВЫЙ МЕТОД: Сбор сигналов от классических стратегий ---
-    def _get_classic_signals(self, df: pd.DataFrame, timeframe: int, market_regime: str) -> List[TradeSignal]:
+    def _get_classic_signals(self, df: pd.DataFrame, timeframe: int, market_regime: str, symbol: str = None) -> List[TradeSignal]:
         """Собирает сигналы от всех классических стратегий, релевантных режиму."""
         signals = []
         if not self.strategies:
@@ -72,7 +72,7 @@ class SignalService:
 
             if is_relevant:
                 signal = strategy.check_entry_conditions(
-                    df, len(df) - 1, timeframe)
+                    df, len(df) - 1, timeframe, symbol)
                 logger.info(
                     f"CLASSIC SIGNALS: {strategy_name}.check_entry_conditions() returned signal type={signal.type if signal else None}")
                 if signal and signal.type != SignalType.HOLD:
@@ -133,7 +133,7 @@ class SignalService:
             primary_signal, primary_name, _, primary_pred_input, primary_entry_price = self.get_primary_signal(
                 symbol, df, timeframe, market_regime)
             logger.info(
-                f"[{symbol}] get_primary_signal вернул: signal={primary_signal}, name={primary_name}")
+                f"[{symbol}] get_primary_signal вернул: signal={primary_signal}, name={primary_name}, type={type(primary_signal)}")
             if primary_signal and primary_signal.type != SignalType.HOLD:
                 logger.info(
                     f"[{symbol}] Получен сигнал от primary стратегии: {primary_signal.type.name}")
@@ -155,7 +155,7 @@ class SignalService:
 
         # 5. Собираем все факторы для Консенсуса
         classic_signals = self._get_classic_signals(
-            df, timeframe, market_regime)
+            df, timeframe, market_regime, symbol)
 
         # Если нет AI-сигнала — используем классические стратегии напрямую
         if not ai_signal or ai_signal.type == SignalType.HOLD:
@@ -254,7 +254,7 @@ class SignalService:
             return signal, "AI_Model", None, pred_input, entry_price
         elif primary_strategy_instance:
             signal = primary_strategy_instance.check_entry_conditions(
-                df, len(df) - 1, timeframe)
+                df, len(df) - 1, timeframe, symbol)
             return signal, primary_strategy_name, None, None, None
 
         return None, None, None, None, None
@@ -692,7 +692,7 @@ class SignalService:
         for strategy in self.strategies:
             strategy_name = strategy.__class__.__name__
             confirmation_signal = strategy.check_entry_conditions(
-                df, current_index, timeframe)
+                df, current_index, timeframe, ai_signal.symbol)
             if not confirmation_signal or confirmation_signal.type != ai_signal.type:
                 continue
 

@@ -295,56 +295,86 @@ class TradingSystem(QObject):
             "INIT STEP 6/8: Loading NLP/Embedding Models (CRITICAL ZONE)...")
 
         # --- ДОБАВЛЕНО: Загрузка SentenceTransformer ---
-        try:
-            logger.info(
-                f"Загрузка модели эмбеддингов: {self.config.vector_db.embedding_model}...")
-            
-            # Устанавливаем путь к кэшу моделей из настроек
-            cache_dir = None
-            if hasattr(self.config, 'HF_MODELS_CACHE_DIR') and self.config.HF_MODELS_CACHE_DIR:
-                cache_dir = self.config.HF_MODELS_CACHE_DIR
-                logger.info(f"Используется кэш моделей: {cache_dir}")
-                import os
-                os.environ['TRANSFORMERS_CACHE'] = cache_dir
-                os.environ['HF_HOME'] = cache_dir
-            else:
-                logger.info("Используется кэш моделей по умолчанию")
-            
-            from huggingface_hub.utils import disable_progress_bars
-            disable_progress_bars()
-            
-            # Проверяем есть ли модель в кэше
-            import os.path as path
-            modules_file = path.join(cache_dir, 'modules.json') if cache_dir else None
-            
-            if modules_file and path.exists(modules_file):
-                logger.info(f"Модель найдена в кэше: {modules_file}")
-                # Загружаем ТОЛЬКО локально без интернета
-                from sentence_transformers import SentenceTransformer
-                embedding_model = SentenceTransformer(
-                    self.config.vector_db.embedding_model, 
-                    device='cpu',
-                    cache_folder=cache_dir,
-                    local_files_only=True  # ← ВАЖНО: только локальные файлы!
-                )
-                logger.info("Модель загружена локально без обращения к интернету")
-            else:
-                # Кэша нет — загружаем из интернета
-                logger.warning("Модель не найдена в кэше, загрузка из интернета...")
-                from sentence_transformers import SentenceTransformer
-                embedding_model = SentenceTransformer(
-                    self.config.vector_db.embedding_model, 
-                    device='cpu',
-                    cache_folder=cache_dir
+        # Отключаем загрузку, если VectorDB выключен
+        if self.config.vector_db.enabled:
+            try:
+                logger.info(
+                    f"Загрузка модели эмбеддингов: {self.config.vector_db.embedding_model}...")
+
+                # Устанавливаем путь к кэшу моделей из настроек
+                cache_dir = None
+                if hasattr(self.config, 'HF_MODELS_CACHE_DIR') and self.config.HF_MODELS_CACHE_DIR:
+                    cache_dir = self.config.HF_MODELS_CACHE_DIR
+                    logger.info(f"Используется кэш моделей: {cache_dir}")
+                    import os
+                    os.environ['TRANSFORMERS_CACHE'] = cache_dir
+                    os.environ['HF_HOME'] = cache_dir
+                else:
+                    logger.info("Используется кэш моделей по умолчанию")
+
+                from huggingface_hub.utils import disable_progress_bars
+                disable_progress_bars()
+
+                # Проверяем есть ли модель в кэше
+                import os.path as path
+                modules_file = path.join(cache_dir, 'modules.json') if cache_dir else None
+                config_file = path.join(cache_dir, 'config.json') if cache_dir else None
+
+                # Проверяем наличие основных файлов модели
+                model_files_exist = (
+                    modules_file and path.exists(modules_file) and
+                    config_file and path.exists(config_file)
                 )
 
-            # Передаем модель в компоненты
-            self.nlp_processor.embedding_model = embedding_model
-            self.consensus_engine.embedding_model = embedding_model
-            logger.info("Модель эмбеддингов успешно загружена и передана.")
-        except Exception as e:
-            logger.error(f"Ошибка загрузки SentenceTransformer: {e}")
-            logger.warning("Продолжаем работу без модели эмбеддингов")
+                if model_files_exist:
+                    logger.info(f"Модель найдена в кэше: {modules_file}")
+                    # Загружаем ТОЛЬКО локально без интернета
+                    from sentence_transformers import SentenceTransformer
+                    try:
+                        embedding_model = SentenceTransformer(
+                            self.config.vector_db.embedding_model,
+                            device='cpu',
+                            cache_folder=cache_dir,
+                            local_files_only=True
+                        )
+                        logger.info("Модель загружена локально без обращения к интернету")
+                    except TypeError as te:
+                        # Новая версия SentenceTransformer не поддерживает local_files_only
+                        logger.warning(f"local_files_only не поддерживается, загружаем без этого параметра: {te}")
+                        embedding_model = SentenceTransformer(
+                            self.config.vector_db.embedding_model,
+                            device='cpu',
+                            cache_folder=cache_dir
+                        )
+                        logger.info("Модель загружена из кэша")
+                    except Exception as local_e:
+                        logger.error(f"Ошибка загрузки локальной модели: {local_e}")
+                        logger.warning("Попробуем загрузить из интернета...")
+                        from sentence_transformers import SentenceTransformer
+                        embedding_model = SentenceTransformer(
+                            self.config.vector_db.embedding_model,
+                            device='cpu',
+                            cache_folder=cache_dir
+                        )
+                else:
+                    # Кэша нет — загружаем из интернета
+                    logger.warning("Модель не найдена в кэше или неполная, загрузка из интернета...")
+                    from sentence_transformers import SentenceTransformer
+                    embedding_model = SentenceTransformer(
+                        self.config.vector_db.embedding_model,
+                        device='cpu',
+                        cache_folder=cache_dir
+                    )
+
+                # Передаем модель в компоненты
+                self.nlp_processor.embedding_model = embedding_model
+                self.consensus_engine.embedding_model = embedding_model
+                logger.info("Модель эмбеддингов успешно загружена и передана.")
+            except Exception as e:
+                logger.error(f"Ошибка загрузки SentenceTransformer: {e}")
+                logger.warning("Продолжаем работу без модели эмбеддингов")
+        else:
+            logger.info("VectorDB отключен, загрузка модели эмбеддингов пропущена")
         # -----------------------------------------------
 
         self.nlp_processor.device = self.device

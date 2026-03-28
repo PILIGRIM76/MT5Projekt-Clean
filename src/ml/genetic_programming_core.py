@@ -170,9 +170,9 @@ class GeneticProgrammingCore:
                 self.buy_tree = individual.get('buy_tree')
                 self.sell_tree = individual.get('sell_tree')
 
-            def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int) -> Optional[TradeSignal]:
+            def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int, symbol: str = None) -> Optional[TradeSignal]:
                 try:
-                    symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'
+                    symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else (symbol if symbol else 'UNKNOWN')
                     buy_signal = self.buy_tree.evaluate(df).iloc[current_index] if self.buy_tree else False
                     sell_signal = self.sell_tree.evaluate(df).iloc[current_index] if self.sell_tree else False
                     if buy_signal and sell_signal: return None

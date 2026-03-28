@@ -342,7 +342,7 @@
   },
   "HF_MODELS_CACHE_DIR": "F:/Enjen/all-MiniLM-L6-v2",
   "vector_db": {
-    "enabled": true,
+    "enabled": false,
     "path": "vector_db",
     "collection_name": "news_and_events",
     "embedding_model": "all-MiniLM-L6-v2",

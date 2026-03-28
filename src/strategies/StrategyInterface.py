@@ -23,13 +23,14 @@ class BaseStrategy(ABC):
         """
         pass
 
-    def _get_symbol_from_dataframe(self, df: pd.DataFrame, current_index: int) -> str:
+    def _get_symbol_from_dataframe(self, df: pd.DataFrame, current_index: int, default_symbol: str = None) -> str:
         """
         Универсальный метод для получения символа из DataFrame.
 
         Args:
             df: DataFrame с данными
             current_index: Индекс текущей свечи
+            default_symbol: Символ по умолчанию (если не удалось определить из DataFrame)
 
         Returns:
             Символ или 'UNKNOWN' если не удалось определить
@@ -45,5 +46,9 @@ class BaseStrategy(ABC):
             symbol_val = df.index.get_level_values('symbol')[current_index]
             if pd.notna(symbol_val) and str(symbol_val) != 'nan':
                 return str(symbol_val)
+
+        # Если не удалось определить из DataFrame, используем default_symbol
+        if default_symbol and default_symbol != 'UNKNOWN':
+            return default_symbol
 
         return 'UNKNOWN'

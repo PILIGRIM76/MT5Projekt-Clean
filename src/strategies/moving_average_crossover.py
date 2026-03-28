@@ -34,7 +34,7 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
                 except json.JSONDecodeError:
                     pass
 
-    def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int) -> Optional[TradeSignal]:
+    def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int, symbol: str = None) -> Optional[TradeSignal]:
 
         # Создаем явную копию DataFrame, чтобы избежать SettingWithCopyWarning
         df_copy = df.copy()
@@ -62,14 +62,14 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
         if pd.isna(short_ma) or pd.isna(long_ma) or pd.isna(prev_short_ma) or pd.isna(prev_long_ma):
             return None
 
-        symbol = self._get_symbol_from_dataframe(df, current_index)
+        symbol = self._get_symbol_from_dataframe(df, current_index, default_symbol=symbol)
         if symbol == 'UNKNOWN':
             logger.warning(
                 f"Не удалось определить символ для MA Crossover стратегии")
             return None
 
         if short_ma > long_ma and prev_short_ma <= prev_long_ma:
-            return TradeSignal(type=SignalType.BUY, confidence=0.6, symbol=symbol)
+            return TradeSignal(type=SignalType.BUY, confidence=0.6, symbol=symbol, strategy_name=self.__class__.__name__)
         elif short_ma < long_ma and prev_short_ma >= prev_long_ma:
-            return TradeSignal(type=SignalType.SELL, confidence=0.6, symbol=symbol)
+            return TradeSignal(type=SignalType.SELL, confidence=0.6, symbol=symbol, strategy_name=self.__class__.__name__)
         return None
