@@ -298,34 +298,44 @@ class TradingSystem(QObject):
         try:
             logger.info(
                 f"Загрузка модели эмбеддингов: {self.config.vector_db.embedding_model}...")
-            # Загружаем на CPU для экономии VRAM, так как это не требует обучения
             
-            # Устанавливаем таймауты через huggingface_hub
-            from huggingface_hub import HfFolder
-            from huggingface_hub.utils import disable_progress_bars, enable_progress_bars
+            # Устанавливаем путь к кэшу моделей из настроек
+            if hasattr(self.config, 'HF_MODELS_CACHE_DIR') and self.config.HF_MODELS_CACHE_DIR:
+                cache_dir = self.config.HF_MODELS_CACHE_DIR
+                logger.info(f"Используется кэш моделей: {cache_dir}")
+                os.environ['TRANSFORMERS_CACHE'] = cache_dir
+                os.environ['HF_HOME'] = cache_dir
+            else:
+                cache_dir = None
+                logger.info("Используется кэш моделей по умолчанию")
+            
+            # Устанавливаем таймауты через environment variable
+            import os
+            old_timeout = os.environ.get('REQUESTS_TIMEOUT')
+            os.environ['REQUESTS_TIMEOUT'] = '120'  # 120 секунд
+            
+            from huggingface_hub.utils import disable_progress_bars
             disable_progress_bars()
             
-            # Проверяем есть ли модель в кэше
+            # Проверяем кэш
             from huggingface_hub import try_to_load_from_cache
             cached_file = try_to_load_from_cache(
                 self.config.vector_db.embedding_model, 
-                'modules.json'
+                'modules.json',
+                cache_dir=cache_dir
             )
             
             if cached_file is not None:
                 logger.info("Модель найдена в кэше, загрузка не требуется")
             
-            # Загружаем с увеличенным таймаутом через REQUESTS_TIMEOUT
-            import os
-            old_timeout = os.environ.get('REQUESTS_TIMEOUT')
-            os.environ['REQUESTS_TIMEOUT'] = '120'  # 120 секунд
-            
+            # Загружаем модель
             embedding_model = SentenceTransformer(
                 self.config.vector_db.embedding_model, 
-                device='cpu'
+                device='cpu',
+                cache_folder=cache_dir
             )
             
-            # Восстанавливаем старый таймаут
+            # Восстанавливаем таймаут
             if old_timeout:
                 os.environ['REQUESTS_TIMEOUT'] = old_timeout
             elif 'REQUESTS_TIMEOUT' in os.environ:
