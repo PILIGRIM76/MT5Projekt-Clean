@@ -117,8 +117,9 @@ class NewsCollector:
                 'category': symbol,
                 'token': self.finnhub_api_key
             }
-            
-            async with httpx.AsyncClient(timeout=10.0) as client:
+
+            # ИСПРАВЛЕНИЕ: отключаем прокси
+            async with httpx.AsyncClient(timeout=10.0, proxy=None) as client:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
@@ -167,7 +168,7 @@ class NewsCollector:
         
         try:
             from_date = datetime.now() - timedelta(days=days)
-            
+
             url = 'https://newsapi.org/v2/everything'
             params = {
                 'q': query,
@@ -176,8 +177,9 @@ class NewsCollector:
                 'apiKey': self.newsapi_key,
                 'language': 'en'
             }
-            
-            async with httpx.AsyncClient(timeout=10.0) as client:
+
+            # ИСПРАВЛЕНИЕ: отключаем прокси
+            async with httpx.AsyncClient(timeout=10.0, proxy=None) as client:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
@@ -219,7 +221,8 @@ class NewsCollector:
         
         for url in rss_urls:
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
+                # ИСПРАВЛЕНИЕ: отключаем прокси
+                async with httpx.AsyncClient(timeout=10.0, proxy=None) as client:
                     response = await client.get(url)
                     response.raise_for_status()
                     

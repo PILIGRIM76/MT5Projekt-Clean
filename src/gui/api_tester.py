@@ -7,8 +7,8 @@ class ApiTester:
 
     def __init__(self, api_key: str):
         self.api_key = api_key
-        # Используем обычный, синхронный клиент
-        self.client = httpx.Client(timeout=10)
+        # ИСПРАВЛЕНИЕ: отключаем прокси
+        self.client = httpx.Client(timeout=10, proxy=None)
 
     def test_finnhub(self) -> Tuple[bool, str]:
         """Тестирует ключ Finnhub, запрашивая профиль Apple."""

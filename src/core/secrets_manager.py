@@ -445,18 +445,37 @@ class SecretsManager:
         """Получает секрет из зашифрованного файла."""
         try:
             if not self.secrets_file.exists():
+                logger.debug(f"Secrets file не существует: {self.secrets_file}")
                 return None
+
+            logger.debug(f"Чтение секрета '{key}' из {self.secrets_file}")
             
             with open(self.secrets_file, 'rb') as f:
                 encrypted_data = f.read()
             
-            decrypted_data = self._cipher.decrypt(encrypted_data)
+            logger.debug(f"Прочитано {len(encrypted_data)} байт зашифрованных данных")
+
+            try:
+                decrypted_data = self._cipher.decrypt(encrypted_data)
+            except Exception as decrypt_error:
+                logger.error(f"Ошибка расшифровки: {decrypt_error}")
+                logger.error("Возможно, файл был повреждён или используется неверный ключ шифрования")
+                return None
+            
             data = json.loads(decrypted_data)
+            logger.debug(f"Успешно расшифровано. Количество секретов: {len(data)}")
+            logger.debug(f"Доступные ключи: {list(data.keys())}")
+
+            value = data.get(key)
+            if value:
+                logger.debug(f"Секрет '{key}' найден")
+            else:
+                logger.debug(f"Секрет '{key}' не найден в файле")
             
-            return data.get(key)
-            
+            return value
+
         except Exception as e:
-            logger.debug(f"Ошибка чтения из зашифрованного файла: {e}")
+            logger.error(f"Ошибка чтения из зашифрованного файла: {e}", exc_info=True)
             return None
     
     def _store_in_encrypted_file(self, key: str, value: str) -> None:

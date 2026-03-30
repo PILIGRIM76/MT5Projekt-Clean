@@ -155,10 +155,12 @@ class RiskService(BaseService):
             if result:
                 self._hedge_count += 1
                 symbol, signal, lot_size = result
+                # Исправление: type может быть строкой или SignalType
+                signal_type_name = signal.type if isinstance(signal.type, str) else (signal.type.name if hasattr(signal.type, 'name') else str(signal.type))
                 self._logger.critical(
-                    f"ХЕДЖИРОВАНИЕ: {signal.type.name} {lot_size:.2f} по {symbol}"
+                    f"ХЕДЖИРОВАНИЕ: {signal_type_name} {lot_size:.2f} по {symbol}"
                 )
-            
+
             return result
         except Exception as e:
             self._logger.error(f"Ошибка хеджирования: {e}", exc_info=True)

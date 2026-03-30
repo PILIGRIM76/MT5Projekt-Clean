@@ -50,6 +50,11 @@ class MonitoringService(BaseService):
         self._heavy_check_interval = 3  # секунды
         self._graph_update_interval = 30  # секунды
         self._kpi_update_interval = 60  # секунды
+        
+        # НОВОЕ: Счётчик ошибок авторизации для экспоненциальной задержки
+        self._auth_error_count = 0
+        self._last_auth_error_time = None
+        self._auth_error_logged = False  # Флаг для дедупликации логов
 
     def _on_start(self) -> None:
         """Запуск сервиса мониторинга"""
@@ -115,43 +120,83 @@ class MonitoringService(BaseService):
     def _perform_mt5_check(self, current_time: float) -> None:
         """Выполнить проверку MT5"""
         lock_acquired = False
-        
+
         try:
             # Быстрая проверка лока (1 сек таймаут)
             if not self.trading_system.mt5_lock.acquire(timeout=1):
                 self._logger.debug("[Monitoring] MT5 Lock занят, пропуск цикла")
                 return
-            
+
             lock_acquired = True
-            
-            # Инициализация MT5
+
+            # Инициализация MT5 - сначала мягкое подключение
             if not mt5.initialize(path=self.trading_system.config.MT5_PATH):
+                # Если не вышло, пробуем полную авторизацию
                 if not mt5.initialize(
                     path=self.trading_system.config.MT5_PATH,
                     login=int(self.trading_system.config.MT5_LOGIN),
                     password=self.trading_system.config.MT5_PASSWORD,
                     server=self.trading_system.config.MT5_SERVER
                 ):
-                    self._logger.error("[Monitoring] Не удалось инициализировать MT5")
-                    return
-            
+                    err_code = mt5.last_error()
+                    
+                    # Специальная обработка ошибки -6 (Authorization failed)
+                    if isinstance(err_code, tuple) and err_code[0] == -6:
+                        # Увеличиваем счётчик ошибок
+                        self._auth_error_count += 1
+                        self._last_auth_error_time = datetime.now()
+                        
+                        # Логгируем только первую ошибку или каждую 10-ю для снижения шума
+                        if not self._auth_error_logged or self._auth_error_count % 10 == 0:
+                            self._logger.error(
+                                f"[Monitoring] КРИТИЧНО: MT5 Authorization Failed. "
+                                f"Терминал может быть закрыт или учетная запись заблокирована. "
+                                f"Ошибка: {err_code} (попытка #{self._auth_error_count})")
+                            if not self._auth_error_logged:
+                                self._logger.warning(
+                                    f"[Monitoring] Переключение на FALLBACK: классические стратегии без live-ордеров")
+                                self._auth_error_logged = True
+                            else:
+                                self._logger.debug(f"[Monitoring] Повтор ошибки авторизации (всего: {self._auth_error_count})")
+                        
+                        # Устанавливаем флаг что торговля недоступна
+                        self.trading_system.mt5_connection_failed = True
+                        
+                        # Экспоненциальная задержка: min(2^count, 30) секунд
+                        delay = min(2 ** min(self._auth_error_count, 5), 30)
+                        self._logger.debug(f"[Monitoring] Задержка перед следующей попыткой: {delay} сек.")
+                        self._stop_event.wait(delay)
+                        return
+                    else:
+                        self._logger.error(f"[Monitoring] Не удалось инициализировать MT5. Код ошибки: {err_code}")
+                        return
+
+            # Если соединение восстановлено, сбросим флаг
+            if self.trading_system.mt5_connection_failed:
+                self._logger.info(
+                    f"[Monitoring] ✓ MT5 соединение восстановлено! Возврат в NORMAL режим торговли")
+                self.trading_system.mt5_connection_failed = False
+                # Сбрасываем счётчик ошибок при успешном подключении
+                self._auth_error_count = 0
+                self._auth_error_logged = False
+
             try:
                 # Обновление баланса
                 account_info = mt5.account_info()
                 if account_info:
                     self._update_balance(account_info)
-                
+
                 # Обновление позиций (легкое)
                 self._update_positions_light()
-                
+
                 # Тяжелая проверка
                 if current_time - self._last_heavy_check_time > self._heavy_check_interval:
                     self._perform_heavy_check()
                     self._last_heavy_check_time = current_time
-                    
+
             finally:
                 mt5.shutdown()
-                
+
         except Exception as e:
             self._logger.error(f"Ошибка MT5 проверки: {e}", exc_info=True)
             self.record_error(str(e))

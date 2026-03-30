@@ -270,11 +270,12 @@ class AlertManager:
         # Экранируем специальные символы Markdown
         message_escaped = message.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`')
         payload['text'] = message_escaped
-        
-        with httpx.Client(timeout=10.0) as client:
+
+        # ИСПРАВЛЕНИЕ: отключаем прокси
+        with httpx.Client(timeout=10.0, proxy=None) as client:
             response = client.post(url, json=payload)
             response.raise_for_status()
-        
+
         self.stats['telegram_sent'] += 1
         logger.debug(f"Telegram алерт отправлен: {message[:50]}...")
     
@@ -332,8 +333,9 @@ class AlertManager:
             payload['priority'] = 2
             payload['retry'] = 300  # Повтор каждые 5 минут
             payload['expire'] = 3600  # Истекает через 1 час
-        
-        with httpx.Client(timeout=10.0) as client:
+
+        # ИСПРАВЛЕНИЕ: отключаем прокси
+        with httpx.Client(timeout=10.0, proxy=None) as client:
             response = client.post(url, data=payload)
             response.raise_for_status()
         

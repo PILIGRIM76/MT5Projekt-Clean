@@ -74,10 +74,27 @@ class CausalNLPProcessor:
                 logger.error(f"Не удалось загрузить модель '{model_name}': {e}", exc_info=True)
 
         # --- Этап 2: Загрузка модели для эмбеддингов (для векторной БД) ---
-        if self.config.vector_db.enabled and self.embedding_model is None:
-            logger.warning(
-                "VectorDB включен, но embedding_model не была передана. Отключение VectorDB.")
-            self.config.vector_db.enabled = False
+        if self.config.vector_db.enabled:
+            if self.embedding_model is None:
+                # Модель ещё не загружена, пробуем загрузить
+                try:
+                    embedding_model_name = self.config.vector_db.embedding_model  # all-MiniLM-L6-v2 по умолчанию
+                    logger.info(f"Загрузка embedding модели: '{embedding_model_name}'...")
+                    
+                    # Загружаем модель для эмбеддингов
+                    self.embedding_model = SentenceTransformer(embedding_model_name)
+                    self.embedding_model.to(torch.device("cpu"))
+                    
+                    logger.info(f"Embedding модель '{embedding_model_name}' успешно загружена.")
+                except Exception as e:
+                    logger.error(f"Не удалось загрузить embedding модель '{embedding_model_name}': {e}", exc_info=True)
+                    logger.warning("VectorDB будет отключен из-за отсутствия embedding модели.")
+                    self.config.vector_db.enabled = False
+            else:
+                # Модель уже загружена (из TradingSystem)
+                logger.info(f"Embedding модель уже загружена (передана из TradingSystem).")
+        else:
+            logger.info("VectorDB отключен в конфигурации.")
 
         # --- Этап 3: Финальная проверка готовности ---
         if self.models:

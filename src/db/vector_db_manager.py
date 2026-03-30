@@ -151,7 +151,12 @@ class VectorDBManager:
         logger.critical(f"VectorDB Cleanup: Очистка завершена. Осталось {self.index.ntotal} документов.")
 
     def is_ready(self) -> bool:
-        return self.config.enabled and self.index is not None
+        # Проверяем наличие атрибута index (может не существовать при раннем вызове)
+        has_index = hasattr(self, 'index') and self.index is not None
+        ready = self.config.enabled and has_index
+        if not ready:
+            logger.debug(f"[VectorDB] is_ready() = False: enabled={self.config.enabled}, has_index={has_index}")
+        return ready
 
     def _load(self):
         # --- 1. Инициализация всех атрибутов (для гарантии) ---

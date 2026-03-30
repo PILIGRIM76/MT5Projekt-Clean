@@ -1,5 +1,16 @@
 # -*- coding: utf-8 -*-
 # main_pyside.py
+# ============================================================================
+# ИСПРАВЛЕНИЕ: Отключаем использование системного прокси для всех HTTP-запросов
+# ============================================================================
+import os
+# Удаляем переменные окружения прокси, если они есть
+for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+    os.environ.pop(proxy_var, None)
+# Устанавливаем переменную для игнорирования прокси в urllib3
+os.environ['NO_PROXY'] = '*'
+# ============================================================================
+
 from src.analysis.event_driven_backtester import EventDrivenBacktester
 from src.analysis.system_backtester import SystemBacktester
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
@@ -989,10 +1000,10 @@ class MainWindow(QMainWindow):
         logger.info(
             "Система Genesis v24.0 полностью активна. Переключение на основной GUI.")
 
-        # 1. Инициализация основного GUI (теперь это безопасно)
-        self._init_widgets()
-        self.connect_signals()
-        self.apply_style("Темная")
+        # 1. GUI уже инициализирован в __init__, просто показываем основной виджет
+        # self._init_widgets()  # УДАЛЕНО: не вызывать повторно!
+        # self.connect_signals()  # УДАЛЕНО: не подключать повторно!
+        # self.apply_style("Темная")  # УДАЛЕНО: стиль уже применён
 
         # 2. Замена временного виджета на основной GUI
         self.setCentralWidget(self.main_central_widget)
@@ -1116,14 +1127,27 @@ class MainWindow(QMainWindow):
             stats = self.trading_system.get_vector_db_stats()
             count = stats.get('count', 0)
             ready = stats.get('is_ready', False)
+            has_embedding = stats.get('has_embedding_model', False)
+            reason = stats.get('reason', '')
 
             logger.info(
-                f"[VectorDB-GUI] Статистика получена: готов={ready}, документов={count}")
+                f"[VectorDB-GUI] Статистика получена: готов={ready}, документов={count}, embedding={has_embedding}")
 
             self.vdb_count_label.setText(f"Документов в индексе: {count}")
 
-            status_text = "АКТИВНА" if ready else "НЕ ГОТОВА"
-            color = "#50fa7b" if ready else "#ff5555"
+            if ready:
+                status_text = "АКТИВНА"
+                color = "#50fa7b"
+            elif reason:
+                status_text = f"ОШИБКА: {reason}"
+                color = "#ff5555"
+            elif not has_embedding:
+                status_text = "НЕТ EMBEDDING МОДЕЛИ"
+                color = "#ff5555"
+            else:
+                status_text = "НЕ ГОТОВА"
+                color = "#ff5555"
+            
             self.vdb_status_label.setText(f"Статус: {status_text}")
             self.vdb_status_label.setStyleSheet(
                 f"color: {color}; font-weight: bold;")
@@ -1411,14 +1435,20 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(False)
 
         def worker():
-            self.trading_system.core_system.initialize_heavy_components()
-            # После завершения отправляем сигнал обратно в GUI
-            self.bridge.status_updated.emit(
-                "AI-модели загружены. Система готова к запуску.", False)
-            # Разблокируем кнопку (нужно делать через сигнал, чтобы быть потокобезопасным)
-            self.bridge.heavy_initialization_finished.emit()
-            # Разблокируем кнопку после загрузки AI
-            self.start_button.setEnabled(True)
+            try:
+                self.trading_system.core_system.initialize_heavy_components()
+                # После завершения отправляем сигнал об успехе
+                self.bridge.status_updated.emit(
+                    "AI-модели загружены. Система готова к запуску.", False)
+                self.bridge.heavy_initialization_finished.emit()
+                self.start_button.setEnabled(True)
+            except Exception as e:
+                # При ошибке отправляем сигнал об ошибке
+                logger.critical(f"Ошибка при инициализации: {e}", exc_info=True)
+                self.bridge.status_updated.emit(
+                    f"ОШИБКА: {e}", True)
+                # Разблокируем кнопку, чтобы пользователь мог попробовать снова
+                self.start_button.setEnabled(True)
 
         # Запускаем воркера в отдельном потоке, чтобы не блокировать GUI
         init_thread = threading.Thread(target=worker, daemon=True)
@@ -3100,19 +3130,22 @@ class MainWindow(QMainWindow):
 
     def update_observer_pnl_chart(self, pnl_history: list):
         if not pnl_history:
-            self.observer_pnl_curve.setData([], [])
+            self.observer_pnl_curve.setData(x=[], y=[])
             return
         try:
             initial_balance = 10000  # Стартовый баланс для симуляции
             cumulative_pnl = np.cumsum(pnl_history)
             equity_curve = initial_balance + cumulative_pnl
 
-            self.observer_pnl_curve.setData(
-                x=np.arange(len(equity_curve)), y=equity_curve)
+            # Преобразуем в списки для совместимости с pyqtgraph
+            x_data = list(np.arange(len(equity_curve)))
+            y_data = [float(v) for v in equity_curve]
+            
+            self.observer_pnl_curve.setData(x=x_data, y=y_data)
             self.observer_pnl_plot.setTitle(
                 f"Доходность (Наблюдатель: {cumulative_pnl[-1]:.2f})")
         except Exception as e:
-            logger.error(f"Ошибка при построении графика P&L наблюдателя: {e}")
+            logger.error(f"Ошибка при построении графика P&L наблюдателя: {e}", exc_info=True)
 
     def update_pnl_chart(self, trade_history: list):
         logger.info(
@@ -3147,7 +3180,11 @@ class MainWindow(QMainWindow):
             timestamps = df['time_close'].values
             cumulative_profit = df['cumulative_profit'].values
 
-            self.pnl_curve.setData(x=timestamps, y=cumulative_profit)
+            # Преобразуем numpy массивы в списки для совместимости с pyqtgraph
+            x_data = [float(t) for t in timestamps]
+            y_data = [float(p) for p in cumulative_profit]
+            
+            self.pnl_curve.setData(x=x_data, y=y_data)
             self.pnl_plot.setTitle(
                 f"Кривая доходности (P&L: {cumulative_profit[-1]:.2f})")
             logger.debug(
@@ -3159,18 +3196,32 @@ class MainWindow(QMainWindow):
     def update_training_chart(self, history_object):
         logger.info(f"[GUI-Training] Обновление графика обучения")
         try:
+            if not hasattr(history_object, 'history') or not history_object.history:
+                logger.warning("[GUI-Training] История обучения пуста")
+                self.loss_curve.setData(x=[], y=[])
+                return
+                
             history_dict = history_object.history
             if 'loss' in history_dict and history_dict['loss']:
                 loss_values = history_dict['loss']
-                self.loss_curve.setData(
-                    y=loss_values, x=list(range(len(loss_values))))
-                self.loss_plot.setTitle(
-                    f"Прогресс обучения (Loss: {loss_values[-1]:.4f})")
-                logger.debug(
-                    f"[GUI-Training] График обновлен, эпох: {len(loss_values)}, финальный loss: {loss_values[-1]:.4f}")
+                
+                # Проверяем, что loss_values это список/массив с данными
+                if len(loss_values) > 0:
+                    x_values = list(range(len(loss_values)))
+                    # Преобразуем в float для совместимости с pyqtgraph
+                    y_values = [float(v) for v in loss_values]
+                    self.loss_curve.setData(x=x_values, y=y_values)
+                    self.loss_plot.setTitle(
+                        f"Прогресс обучения (Loss: {loss_values[-1]:.4f})")
+                    logger.debug(
+                        f"[GUI-Training] График обновлен, эпох: {len(loss_values)}, финальный loss: {loss_values[-1]:.4f}")
+                else:
+                    logger.warning("[GUI-Training] Список loss пуст")
+                    self.loss_curve.setData(x=[], y=[])
             else:
                 logger.warning(
                     "[GUI-Training] История обучения не содержит данных о loss")
+                self.loss_curve.setData(x=[], y=[])
         except Exception as e:
             logger.error(
                 f"[GUI-Training] Ошибка при обновлении графика обучения: {e}", exc_info=True)
@@ -3292,27 +3343,32 @@ class MainWindow(QMainWindow):
             if len(self.drift_alert_points) > 50:
                 self.drift_alert_points.pop(0)
 
-            # --- ИСПРАВЛЕНИЕ: Обновление двух ScatterPlotItem ---
+            # --- ИСПРАВЛЕНИЕ: Обновление двух ScatterPlotItem с проверкой ---
 
             # 1. Обновляем нормальные точки (зеленые круги)
-            self.drift_scatter.setData(
-                x=[p['x'] for p in self.drift_data_points],
-                y=[p['y'] for p in self.drift_data_points],
-                # brush, size, symbol уже заданы при создании
-            )
+            x_data = [p['x'] for p in self.drift_data_points] if self.drift_data_points else []
+            y_data = [p['y'] for p in self.drift_data_points] if self.drift_data_points else []
+            
+            # Проверяем, что данные не пустые и имеют правильный тип
+            if x_data and y_data:
+                self.drift_scatter.setData(x=x_data, y=y_data)
+            else:
+                self.drift_scatter.setData(x=[], y=[])
 
             # 2. Обновляем точки дрейфа (красные крестики)
-            self.drift_alert_scatter.setData(
-                x=[p['x'] for p in self.drift_alert_points],
-                y=[p['y'] for p in self.drift_alert_points],
-                # brush, pen, size, symbol уже заданы при создании
-            )
+            alert_x = [p['x'] for p in self.drift_alert_points] if self.drift_alert_points else []
+            alert_y = [p['y'] for p in self.drift_alert_points] if self.drift_alert_points else []
+            
+            if alert_x and alert_y:
+                self.drift_alert_scatter.setData(x=alert_x, y=alert_y)
+            else:
+                self.drift_alert_scatter.setData(x=[], y=[])
 
             # Принудительно обновляем виджет
             self.drift_plot_widget.update()
 
         except Exception as e:
-            logging.error(f"[GUI Error] Ошибка отрисовки Drift Chart: {e}")
+            logging.error(f"[GUI Error] Ошибка отрисовки Drift Chart: {e}", exc_info=True)
 
     def closeEvent(self, event):
         logger.info("Получена команда на закрытие окна GUI.")

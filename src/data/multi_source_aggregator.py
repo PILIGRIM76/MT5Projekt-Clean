@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Tuple, Optional, Dict, Any
 import httpx
+from httpx import AsyncClient, AsyncHTTPTransport
 import feedparser
 import pandas as pd
 import requests
@@ -36,9 +37,11 @@ class MultiSourceDataAggregator:
             self.news_api_client = None
             logger.warning(
                 "Ключ для NewsAPI не найден или библиотека не установлена. Сбор новостей из NewsAPI будет пропущен.")
-        
+
         self.fcs_api_key = self.config.FCS_API_KEY
-        self.client = httpx.AsyncClient(verify=False)
+        # ИСПРАВЛЕНИЕ: Создаём транспорт без прокси
+        no_proxy_transport = AsyncHTTPTransport(proxy=None, verify=False)
+        self.client = httpx.AsyncClient(transport=no_proxy_transport)
         self.telegram_channels = self.config.telegram_channels
         self.twitter_influencers = self.config.twitter_influencers
         self.rss_feeds = self.config.rss_feeds
@@ -122,8 +125,8 @@ class MultiSourceDataAggregator:
         on_chain_data = None
         
         try:
-            # Загружаем новости из различных источников
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            # Загружаем новости из различных источников - ИСПРАВЛЕНИЕ: отключаем прокси
+            async with httpx.AsyncClient(timeout=30.0, proxy=None) as client:
                 # 1. Fear & Greed Index
                 fear_greed_index = await self._fetch_fear_and_greed_index_async(client)
                 

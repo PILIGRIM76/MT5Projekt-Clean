@@ -111,3 +111,4 @@ System Volume Information/
 *.pem
 *.crt
 *.p12
+secrets/

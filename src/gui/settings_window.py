@@ -27,6 +27,7 @@ from .api_tester import ApiTester
 from .trading_modes_widget import TradingModesWidget, TRADING_MODES
 from src.core.config_loader import load_config
 from src.core.config_writer import write_config
+from src.core.secrets_manager import get_secrets_manager
 from src.utils.scheduler_manager import SchedulerManager
 
 logger = logging.getLogger(__name__)
@@ -68,35 +69,100 @@ class TelegramTester(QThread):
     """Поток для тестирования Telegram подключения."""
     result_ready = Signal(bool, str)
 
-    def __init__(self, token: str, chat_id: str):
+    def __init__(self, token: str, chat_id: str, timeout: int = 15, use_proxy: bool = True):
         super().__init__()
         self.token = token
         self.chat_id = chat_id
+        self.timeout = timeout
+        self.use_proxy = use_proxy
 
     def run(self):
         try:
             import requests
+            from urllib3.exceptions import ConnectTimeoutError
+            
+            # Настраиваем прокси (если включено)
+            proxies = None
+            if self.use_proxy:
+                # Пробуем популярные прокси для обхода блокировок
+                proxies = {
+                    'https': 'http://proxy.workingproxy.com:8080'  # Публичный прокси
+                }
+                logger.debug("Используется прокси для Telegram API")
+            
+            # Этап 1: Быстрая проверка токена (5 сек)
+            logger.info("🔍 Этап 1: Проверка токена бота...")
+            url = f"https://api.telegram.org/bot{self.token}/getMe"
+            
+            try:
+                response = requests.get(url, timeout=5, proxies=proxies)
+                response.raise_for_status()
+                result = response.json()
+            except requests.exceptions.Timeout:
+                logger.warning("Превышено время ожидания при проверке токена (5 сек)")
+                # Пробуем без прокси
+                if self.use_proxy:
+                    logger.info("Повторная попытка без прокси...")
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    result = response.json()
+                else:
+                    raise
+            
+            if not result.get('ok'):
+                self.result_ready.emit(False, f"❌ Неверный токен бота: {result.get('description', 'Unknown error')}")
+                return
+            
+            bot_username = result.get('result', {}).get('username', 'unknown')
+            logger.info(f"✅ Токен действителен: @{bot_username}")
+            
+            # Этап 2: Отправка сообщения (10 сек)
+            logger.info(f"📤 Этап 2: Отправка сообщения в чат {self.chat_id}...")
             url = f"https://api.telegram.org/bot{self.token}/sendMessage"
             payload = {
                 'chat_id': self.chat_id,
-                'text': '🧪 <b>Тест Genesis Trading System</b>\n\nУведомления Telegram работают корректно!',
+                'text': f'🧪 <b>Тест Genesis Trading System</b>\n\nУведомления Telegram работают корректно!\nБот: @{bot_username}',
                 'parse_mode': 'HTML'
             }
-            response = requests.post(url, json=payload, timeout=10)
-            response.raise_for_status()
-            result = response.json()
+            
+            try:
+                response = requests.post(url, json=payload, timeout=10, proxies=proxies)
+                response.raise_for_status()
+                result = response.json()
+            except requests.exceptions.Timeout:
+                logger.warning("Превышено время ожидания при отправке сообщения (10 сек)")
+                # Пробуем без прокси
+                if self.use_proxy:
+                    logger.info("Повторная попытка без прокси...")
+                    response = requests.post(url, json=payload, timeout=15)
+                    response.raise_for_status()
+                    result = response.json()
+                else:
+                    raise
+            
             if result.get('ok'):
-                self.result_ready.emit(True, "Успех! Проверьте Telegram.")
+                self.result_ready.emit(True, f"✅ Успех! Бот @{bot_username} отправил сообщение.\n\nПроверьте Telegram!")
             else:
-                self.result_ready.emit(
-                    False, f"Ошибка API: {result.get('description', 'Unknown error')}")
+                error_msg = result.get('description', 'Unknown error')
+                # Частые ошибки
+                if 'chat not found' in error_msg.lower():
+                    error_msg += "\n\n🔍 Проверьте:\n• Chat ID (должен быть числом)\n• Бот добавлен в чат\n• Чат не заблокирован"
+                elif 'bot was blocked' in error_msg.lower():
+                    error_msg += "\n\n🚫 Пользователь заблокировал бота.\n✅ Разблокируйте бота и нажмите /start"
+                elif 'user is deactivated' in error_msg.lower():
+                    error_msg += "\n\n💀 Аккаунт пользователя удалён или заблокирован"
+                self.result_ready.emit(False, f"❌ Ошибка отправки: {error_msg}")
+                
         except requests.exceptions.Timeout:
-            self.result_ready.emit(False, "Превышено время ожидания (10 сек)")
+            self.result_ready.emit(False, "⏱️ Превышено время ожидания (20 сек)\n\n🔍 Возможные причины:\n• Telegram заблокирован провайдером\n• Нет подключения к интернету\n• Прокси не работает\n\n💡 Решение:\n• Попробуйте VPN\n• Проверьте настройки прокси")
         except requests.exceptions.ConnectionError:
-            self.result_ready.emit(
-                False, "Ошибка подключения. Проверьте интернет.")
+            self.result_ready.emit(False, "🌐 Ошибка подключения\n\n🔍 Возможные причины:\n• Нет интернета\n• Telegram заблокирован\n• Проблема с DNS\n• Прокси/фаервол блокирует")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Telegram API error: {e}")
+            self.result_ready.emit(False, f"❌ Ошибка запроса: {str(e)}")
         except Exception as e:
-            self.result_ready.emit(False, f"Ошибка: {str(e)}")
+            logger.error(f"Unexpected error in TelegramTester: {e}", exc_info=True)
+            self.result_ready.emit(False, f"⚠️ Неожиданная ошибка: {str(e)}")
 
 
 class EmailTester(QThread):
@@ -236,6 +302,9 @@ class SettingsWindow(QDialog):
         button_box.rejected.connect(self.reject)
         main_layout.addWidget(button_box)
 
+        # Останавливаем любые активные тестеры от предыдущего экземпляра окна
+        self._stop_all_testers()
+        
         self.load_settings()
 
     def _create_scrollable_widget(self, content_widget: QWidget) -> QWidget:
@@ -678,34 +747,85 @@ class SettingsWindow(QDialog):
 
         # P0: Загрузка настроек уведомлений (Telegram/Email)
         config_values = dotenv_values(self.env_path)
-        
+        logger.info(f"Загрузка настроек уведомлений из {self.env_path}")
+        logger.info(f"config_values keys: {list(config_values.keys())}")
+
+        # Получаем SecretsManager для загрузки чувствительных данных
+        secrets_mgr = get_secrets_manager()
+        logger.info(f"SecretsManager инициализирован: {secrets_mgr}")
+        logger.info(f"Secrets file exists: {secrets_mgr.secrets_file.exists()}")
+        logger.info(f"Secrets file path: {secrets_mgr.secrets_file}")
+
         if hasattr(self.full_config, 'alerting'):
             alerting_config = self.full_config.alerting
+            logger.info(f"alerting конфигурация найдена: {alerting_config}")
 
             # Telegram
             telegram_config = alerting_config.channels.get('telegram', {})
-            self.telegram_enabled_checkbox.setChecked(
-                telegram_config.get('enabled', False))
-            # Токен и chat_id загружаем из .env файла
-            self.telegram_token_edit.setText(
-                config_values.get('TELEGRAM_BOT_TOKEN', ''))
-            self.telegram_chat_id_edit.setText(
-                config_values.get('TELEGRAM_CHAT_ID', ''))
+            logger.info(f"Telegram config: {telegram_config}")
+            
+            telegram_enabled_saved = telegram_config.get('enabled', False)
+            logger.info(f"Telegram enabled из settings.json: {telegram_enabled_saved}")
+            self.telegram_enabled_checkbox.setChecked(telegram_enabled_saved)
+            
+            # Токен загружаем из .env или SecretsManager
+            telegram_token = config_values.get('TELEGRAM_BOT_TOKEN', '')
+            logger.info(f"Telegram token из .env: {'есть' if telegram_token else 'нет'} (длина: {len(telegram_token) if telegram_token else 0})")
+            
+            if not telegram_token:
+                # Пробуем загрузить из SecretsManager
+                logger.info("Попытка загрузки Telegram token из SecretsManager...")
+                telegram_token = secrets_mgr.get_secret('TELEGRAM_BOT_TOKEN', cache=True) or ''
+                logger.info(f"Telegram token из SecretsManager: {'есть' if telegram_token else 'нет'} (длина: {len(telegram_token) if telegram_token else 0})")
+            
+            if telegram_token:
+                # Маскируем токен для безопасности (показываем первые 10 символов)
+                masked_token = telegram_token[:10] + '...' if len(telegram_token) > 10 else telegram_token
+                logger.info(f"✅ Telegram token загружен: {masked_token}")
+            else:
+                logger.warning("❌ Telegram token НЕ загружен (пустой)")
+            self.telegram_token_edit.setText(telegram_token)
+
+            telegram_chat_id = config_values.get('TELEGRAM_CHAT_ID', '')
+            logger.info(f"Telegram chat_id из .env: {'есть' if telegram_chat_id else 'нет'} (значение: {telegram_chat_id})")
+            self.telegram_chat_id_edit.setText(telegram_chat_id)
 
             # Email
             email_config = alerting_config.channels.get('email', {})
-            self.email_enabled_checkbox.setChecked(
-                email_config.get('enabled', False))
+            logger.info(f"Email config: {email_config}")
+            
+            email_enabled_saved = email_config.get('enabled', False)
+            logger.info(f"Email enabled из settings.json: {email_enabled_saved}")
+            self.email_enabled_checkbox.setChecked(email_enabled_saved)
+            
             self.email_smtp_edit.setText(
                 email_config.get('smtp_server', 'smtp.gmail.com'))
             self.email_port_edit.setValue(email_config.get('smtp_port', 587))
-            self.email_from_edit.setText(
-                config_values.get('ALERT_EMAIL_FROM', ''))
-            self.email_recipients_edit.setText(
-                config_values.get('ALERT_EMAIL_RECIPIENTS', ''))
-            # Пароль загружаем из .env
-            self.email_password_edit.setText(
-                config_values.get('ALERT_EMAIL_PASSWORD', ''))
+            
+            # Загружаем Email из .env
+            email_from = config_values.get('ALERT_EMAIL_FROM', '')
+            logger.info(f"Email from из .env: {'есть' if email_from else 'нет'} (значение: {email_from})")
+            self.email_from_edit.setText(email_from)
+            
+            email_recipients = config_values.get('ALERT_EMAIL_RECIPIENTS', '')
+            logger.info(f"Email recipients из .env: {'есть' if email_recipients else 'нет'} (значение: {email_recipients})")
+            self.email_recipients_edit.setText(email_recipients)
+            
+            # Пароль загружаем из .env или SecretsManager
+            email_password = config_values.get('ALERT_EMAIL_PASSWORD', '')
+            logger.info(f"Email password из .env: {'есть' if email_password else 'нет'} (длина: {len(email_password) if email_password else 0})")
+            
+            if not email_password:
+                # Пробуем загрузить из SecretsManager
+                logger.info("Попытка загрузки Email password из SecretsManager...")
+                email_password = secrets_mgr.get_secret('ALERT_EMAIL_PASSWORD', cache=True) or ''
+                logger.info(f"Email password из SecretsManager: {'есть' if email_password else 'нет'} (длина: {len(email_password) if email_password else 0})")
+            
+            if email_password:
+                logger.info("✅ Email password загружен")
+            else:
+                logger.warning("❌ Email password НЕ загружен (пустой)")
+            self.email_password_edit.setText(email_password)
 
             # Quiet Hours
             quiet_hours_config = alerting_config.get('quiet_hours', {})
@@ -726,14 +846,96 @@ class SettingsWindow(QDialog):
                 self.digest_time_edit.setTime(
                     QTime.fromString(digest_config['time'], "HH:mm"))
         else:
-            logger.warning("alerting конфигурация не найдена")
+            logger.warning("alerting конфигурация не найдена в settings.json")
 
     def save_settings(self):
         # --- Сохранение .env (остается без изменений) ---
         for key, widget in self.mt5_entries.items():
             set_key(self.env_path, key, widget.text())
 
-        # --- ИСПРАВЛЕННАЯ ЛОГИКА СОХРАНЕНИЯ settings.json ---
+        # --- Сохранение API ключей ---
+        try:
+            initial_keys = {k for k, v in dotenv_values(self.env_path).items() if
+                            k.endswith(('_KEY', '_TOKEN', '_ID', '_HASH')) and not k.startswith('MT5')}
+            table_keys = set()
+            for row in range(self.api_table.rowCount()):
+                key_item = self.api_table.item(row, 0)
+                value_item = self.api_table.item(row, 1)
+                if key_item and value_item:
+                    key = key_item.text()
+                    value = value_item.text()
+                    table_keys.add(key)
+                    set_key(self.env_path, key, value)
+            keys_to_delete = initial_keys - table_keys
+            for key in keys_to_delete:
+                set_key(self.env_path, key, "")
+            logger.info("Настройки API ключей успешно сохранены в .env файл.")
+        except Exception as e:
+            logger.error(f"Произошла ошибка при сохранении API ключей: {e}")
+            QMessageBox.critical(self, "Ошибка сохранения",
+                                 f"Не удалось сохранить API ключи: {e}")
+
+        # --- Сохранение настроек уведомлений в .env и SecretsManager ---
+        try:
+            # Получаем SecretsManager для безопасного хранения паролей
+            secrets_mgr = get_secrets_manager()
+            logger.info(f"SecretsManager для сохранения: {secrets_mgr}")
+            logger.info(f"Secrets file: {secrets_mgr.secrets_file}")
+            
+            # Сохраняем Telegram токен (чувствительные данные)
+            telegram_token = self.telegram_token_edit.text()
+            telegram_enabled = self.telegram_enabled_checkbox.isChecked()
+            logger.info(f"Telegram: enabled={telegram_enabled}, token={'есть' if telegram_token else 'пуст'}")
+            
+            if telegram_token:
+                logger.info("Сохранение Telegram token...")
+                set_key(self.env_path, 'TELEGRAM_BOT_TOKEN', telegram_token)
+                # Сохраняем также в SecretsManager для безопасности
+                success = secrets_mgr.store_secret('TELEGRAM_BOT_TOKEN', telegram_token)
+                logger.info(f"Telegram token сохранён в SecretsManager: {success}")
+            else:
+                set_key(self.env_path, 'TELEGRAM_BOT_TOKEN', '')
+                logger.debug("Telegram token пуст, не сохраняем")
+
+            # Сохраняем Chat ID (не чувствительные данные)
+            telegram_chat_id = self.telegram_chat_id_edit.text()
+            logger.info(f"Telegram Chat ID: {'есть' if telegram_chat_id else 'пуст'}")
+            set_key(self.env_path, 'TELEGRAM_CHAT_ID', telegram_chat_id)
+
+            # Сохраняем Email настройки
+            email_enabled = self.email_enabled_checkbox.isChecked()
+            email_from = self.email_from_edit.text()
+            email_recipients = self.email_recipients_edit.text()
+            logger.info(f"Email: enabled={email_enabled}, from={email_from}, recipients={email_recipients}")
+            
+            set_key(self.env_path, 'ALERT_EMAIL_FROM', email_from)
+            set_key(self.env_path, 'ALERT_EMAIL_RECIPIENTS', email_recipients)
+
+            # Пароль email сохраняем в SecretsManager для безопасности
+            email_password = self.email_password_edit.text()
+            logger.info(f"Email password: {'есть' if email_password else 'пуст'}")
+            
+            if email_password:
+                logger.info("Сохранение Email password...")
+                # Сохраняем в зашифрованном виде через SecretsManager
+                success = secrets_mgr.store_secret('ALERT_EMAIL_PASSWORD', email_password)
+                logger.info(f"Email password сохранён в SecretsManager: {success}")
+                # Также сохраняем в .env для совместимости
+                set_key(self.env_path, 'ALERT_EMAIL_PASSWORD', email_password)
+            else:
+                logger.debug("Email password пуст, не сохраняем")
+
+            # Сохраняем состояние чекбоксов в settings.json (будет сделано ниже)
+            logger.info(f"Настройки уведомлений: Telegram={telegram_enabled}, Email={email_enabled}")
+            logger.info("Настройки уведомлений сохранены")
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении настроек уведомлений: {e}", exc_info=True)
+            QMessageBox.warning(self, "Предупреждение",
+                              f"Настройки сохранены, но произошла ошибка при шифровании паролей:\n{e}")
+
+        self._handle_scheduler_tasks()
+
+        # --- ЕДИНАЯ ЛОГИКА СОХРАНЕНИЯ settings.json ---
         try:
             # 1. Сначала загружаем текущую полную конфигурацию
             current_config = load_config().model_dump()
@@ -745,7 +947,7 @@ class SettingsWindow(QDialog):
                 if item:
                     symbols_list.append(item.text())
 
-            # 3. Создаем словарь только с теми настройками, которые мы меняем
+            # 3. Создаем словарь со всеми настройками, которые нужно обновить
             settings_to_update = {
                 "RISK_PERCENTAGE": self.risk_percentage_spinbox.value(),
                 "RISK_REWARD_RATIO": self.risk_reward_ratio_spinbox.value(),
@@ -764,7 +966,6 @@ class SettingsWindow(QDialog):
                     "enabled": self.web_enabled_checkbox.isChecked(),
                     "host": self.web_host_edit.text(),
                     "port": self.web_port_spinbox.value()
-
                 },
 
                 "vector_db": {
@@ -787,7 +988,7 @@ class SettingsWindow(QDialog):
 
                 "trading_mode": {
                     "current_mode": self.trading_mode_toggle.get_mode() if hasattr(self, 'trading_mode_toggle') else "paper",
-                    "enabled": True  # Всегда включено с новым переключателем
+                    "enabled": True
                 },
 
                 "PROFIT_TARGET_MODE": self.profit_target_mode_combo.currentText(),
@@ -801,115 +1002,54 @@ class SettingsWindow(QDialog):
                 "TRADE_INTENSITY": self.trade_intensity_combo.currentText(),
                 "TRADE_INTERVAL_SECONDS": self.trade_interval_spin.value(),
                 "REENTRY_SAME_PAIR_MODE": self.reentry_same_pair_combo.currentText(),
-                "REENTRY_SAME_PAIR_COOLDOWN_MINUTES": self.reentry_same_pair_cooldown_spin.value()
+                "REENTRY_SAME_PAIR_COOLDOWN_MINUTES": self.reentry_same_pair_cooldown_spin.value(),
 
-
-            }
-
-            # 4. Обновляем текущую конфигурацию новыми значениями
-            # Это сохранит все остальные настройки, которые не были в GUI
-            current_config.update(settings_to_update)
-
-            # 5. Записываем полный, обновленный конфиг в файл
-            if not write_config(current_config):
-                QMessageBox.critical(
-                    self, "Ошибка", "Не удалось сохранить настройки в settings.json.")
-
-        except Exception as e:
-            logger.error(
-                f"Критическая ошибка при сохранении settings.json: {e}")
-            QMessageBox.critical(
-                self, "Ошибка", f"Не удалось сохранить настройки: {e}")
-
-        # --- Сохранение API ключей (остается без изменений) ---
-        try:
-            initial_keys = {k for k, v in dotenv_values(self.env_path).items() if
-                            k.endswith(('_KEY', '_TOKEN', '_ID', '_HASH')) and not k.startswith('MT5')}
-            table_keys = set()
-            for row in range(self.api_table.rowCount()):
-                key_item = self.api_table.item(row, 0)
-                value_item = self.api_table.item(row, 1)
-                if key_item and value_item:
-                    key = key_item.text()
-                    value = value_item.text()
-                    table_keys.add(key)
-                    set_key(self.env_path, key, value)
-            keys_to_delete = initial_keys - table_keys
-            for key in keys_to_delete:
-                set_key(self.env_path, key, "")
-            logger.info("Настройки API ключей успешно сохранены в .env файл.")
-        except Exception as e:
-            logger.error(f"Произошла ошибка при сохранении API ключей: {e}")
-            QMessageBox.critical(self, "Ошибка сохранения",
-                                 f"Не удалось сохранить API ключи: {e}")
-
-        self._handle_scheduler_tasks()
-
-        # P0: Сохранение настроек уведомлений (Telegram/Email) — ДО записи settings.json
-        try:
-            # Сохраняем чувствительные данные в .env
-            set_key(self.env_path, 'TELEGRAM_BOT_TOKEN',
-                    self.telegram_token_edit.text())
-            set_key(self.env_path, 'TELEGRAM_CHAT_ID',
-                    self.telegram_chat_id_edit.text())
-            set_key(self.env_path, 'ALERT_EMAIL_FROM',
-                    self.email_from_edit.text())
-            set_key(self.env_path, 'ALERT_EMAIL_RECIPIENTS',
-                    self.email_recipients_edit.text())
-
-            # Пароль сохраняем только если он был изменён
-            if self.email_password_edit.text():
-                set_key(self.env_path, 'ALERT_EMAIL_PASSWORD',
-                        self.email_password_edit.text())
-
-            # Обновляем current_config перед записью
-            current_config['alerting'] = {
-                'enabled': self.telegram_enabled_checkbox.isChecked() or self.email_enabled_checkbox.isChecked(),
-                'channels': {
-                    'telegram': {
-                        'enabled': self.telegram_enabled_checkbox.isChecked(),
-                        'bot_token_env': 'TELEGRAM_BOT_TOKEN',
-                        'chat_id_env': 'TELEGRAM_CHAT_ID'
+                # Настройки уведомлений (alerting) — ДОБАВЛЕНО
+                "alerting": {
+                    'enabled': self.telegram_enabled_checkbox.isChecked() or self.email_enabled_checkbox.isChecked(),
+                    'channels': {
+                        'telegram': {
+                            'enabled': self.telegram_enabled_checkbox.isChecked(),
+                            'bot_token_env': 'TELEGRAM_BOT_TOKEN',
+                            'chat_id_env': 'TELEGRAM_CHAT_ID'
+                        },
+                        'email': {
+                            'enabled': self.email_enabled_checkbox.isChecked(),
+                            'smtp_server': self.email_smtp_edit.text(),
+                            'smtp_port': self.email_port_edit.value(),
+                            'use_tls': True,
+                            'from_email_env': 'ALERT_EMAIL_FROM',
+                            'password_env': 'ALERT_EMAIL_PASSWORD',
+                            'recipients_env': 'ALERT_EMAIL_RECIPIENTS'
+                        },
+                        'push': {
+                            'enabled': False,
+                            'user_key_env': 'PUSHOVER_USER_KEY',
+                            'api_token_env': 'PUSHOVER_API_TOKEN'
+                        }
                     },
-                    'email': {
-                        'enabled': self.email_enabled_checkbox.isChecked(),
-                        'smtp_server': self.email_smtp_edit.text(),
-                        'smtp_port': self.email_port_edit.value(),
-                        'use_tls': True,
-                        'from_email_env': 'ALERT_EMAIL_FROM',
-                        'password_env': 'ALERT_EMAIL_PASSWORD',
-                        'recipients_env': 'ALERT_EMAIL_RECIPIENTS'
+                    'rate_limit': {
+                        'max_per_minute': 10,
+                        'cooldown_seconds': 60
                     },
-                    'push': {
-                        'enabled': False,
-                        'user_key_env': 'PUSHOVER_USER_KEY',
-                        'api_token_env': 'PUSHOVER_API_TOKEN'
+                    'quiet_hours': {
+                        'enabled': self.quiet_hours_enabled_checkbox.isChecked(),
+                        'start': self.quiet_hours_start_edit.time().toString("HH:mm"),
+                        'end': self.quiet_hours_end_edit.time().toString("HH:mm"),
+                        'timezone': 'UTC'
+                    },
+                    'daily_digest': {
+                        'enabled': self.digest_enabled_checkbox.isChecked(),
+                        'time': self.digest_time_edit.time().toString("HH:mm"),
+                        'timezone': 'UTC'
                     }
-                },
-                'rate_limit': {
-                    'max_per_minute': 10,
-                    'cooldown_seconds': 60
-                },
-                'quiet_hours': {
-                    'enabled': self.quiet_hours_enabled_checkbox.isChecked(),
-                    'start': self.quiet_hours_start_edit.time().toString("HH:mm"),
-                    'end': self.quiet_hours_end_edit.time().toString("HH:mm"),
-                    'timezone': 'UTC'
-                },
-                'daily_digest': {
-                    'enabled': self.digest_enabled_checkbox.isChecked(),
-                    'time': self.digest_time_edit.time().toString("HH:mm"),
-                    'timezone': 'UTC'
                 }
             }
 
-            logger.info("Настройки уведомлений подготовлены к сохранению")
+            # 4. Обновляем текущую конфигурацию новыми значениями
+            current_config.update(settings_to_update)
 
-        except Exception as e:
-            logger.error(f"Ошибка при подготовке настроек уведомлений: {e}")
-
-        # Записываем обновлённый конфиг в файл
-        try:
+            # 5. Записываем полный, обновленный конфиг в файл (ЕДИНЫЙ ВЫЗОВ)
             if not write_config(current_config):
                 QMessageBox.critical(
                     self, "Ошибка", "Не удалось сохранить настройки в settings.json.")
@@ -920,7 +1060,8 @@ class SettingsWindow(QDialog):
                 self._update_running_system_config(current_config)
 
         except Exception as e:
-            logger.error(f"Критическая ошибка при записи settings.json: {e}")
+            logger.error(
+                f"Критическая ошибка при сохранении settings.json: {e}")
             QMessageBox.critical(
                 self, "Ошибка", f"Не удалось сохранить настройки: {e}")
 
@@ -960,6 +1101,9 @@ class SettingsWindow(QDialog):
         # Сначала сохраняем настройки, пока виджеты живы
         self.save_settings()
 
+        # Останавливаем все активные тестеры перед закрытием
+        self._stop_all_testers()
+
         # Уведомляем о сохранении
         self.settings_saved.emit()
 
@@ -969,6 +1113,43 @@ class SettingsWindow(QDialog):
 
         # И только в самом конце закрываем окно
         super().accept()
+
+    def reject(self):
+        # Останавливаем все активные тестеры перед закрытием
+        self._stop_all_testers()
+        super().reject()
+
+    def _stop_all_testers(self):
+        """Корректно останавливает все активные потоки тестеров."""
+        # Остановка Telegram тестера
+        if hasattr(self, 'telegram_tester'):
+            try:
+                if self.telegram_tester.isRunning():
+                    self.telegram_tester.quit()
+                    if not self.telegram_tester.wait(2000):  # Ждём до 2 сек
+                        logger.warning("TelegramTester не завершился вовремя, принудительная остановка")
+                        self.telegram_tester.terminate()
+                        self.telegram_tester.wait()
+            except RuntimeError:
+                # Объект уже удалён
+                pass
+            except Exception as e:
+                logger.debug(f"Ошибка при остановке TelegramTester: {e}")
+
+        # Остановка Email тестера
+        if hasattr(self, 'email_tester'):
+            try:
+                if self.email_tester.isRunning():
+                    self.email_tester.quit()
+                    if not self.email_tester.wait(2000):  # Ждём до 2 сек
+                        logger.warning("EmailTester не завершился вовремя, принудительная остановка")
+                        self.email_tester.terminate()
+                        self.email_tester.wait()
+            except RuntimeError:
+                # Объект уже удалён
+                pass
+            except Exception as e:
+                logger.debug(f"Ошибка при остановке EmailTester: {e}")
 
     def _create_scheduler_tab(self):
         widget = QWidget()
@@ -1679,13 +1860,25 @@ class SettingsWindow(QDialog):
                 self, "Ошибка", "Заполните Bot Token и Chat ID")
             return
 
+        logger.info(f"Начало тестирования Telegram: token={token[:10]}..., chat_id={chat_id}")
+
         # Останавливаем предыдущий тест если он ещё идёт
-        if hasattr(self, 'telegram_tester') and self.telegram_tester.isRunning():
-            self.telegram_tester.quit()
-            self.telegram_tester.wait(1000)  # Ждём до 1 сек
+        if hasattr(self, 'telegram_tester'):
+            try:
+                if self.telegram_tester.isRunning():
+                    logger.debug("Остановка предыдущего TelegramTester")
+                    self.telegram_tester.quit()
+                    self.telegram_tester.wait(1000)  # Ждём до 1 сек
+            except RuntimeError:
+                # Объект уже удалён, игнорируем
+                logger.debug("Предыдущий TelegramTester уже удалён")
+                if hasattr(self, 'telegram_tester'):
+                    del self.telegram_tester
 
         # Создаём и запускаем тестер
-        self.telegram_tester = TelegramTester(token, chat_id)
+        # Используем прокси по умолчанию для обхода блокировок
+        logger.info("Запуск TelegramTester (с прокси для обхода блокировок)")
+        self.telegram_tester = TelegramTester(token, chat_id, timeout=15, use_proxy=True)
         self.telegram_tester.result_ready.connect(
             self._on_telegram_test_complete)
         self.telegram_tester.finished.connect(
@@ -1695,6 +1888,13 @@ class SettingsWindow(QDialog):
     def _on_telegram_test_complete(self, success: bool, message: str):
         """Обработка результата тестирования Telegram."""
         from PySide6.QtWidgets import QMessageBox
+        
+        # Логируем результат
+        if success:
+            logger.info("✅ Тестирование Telegram успешно")
+        else:
+            logger.warning(f"❌ Тестирование Telegram не удалось: {message}")
+        
         if success:
             QMessageBox.information(self, "Успех", message)
         else:
@@ -1703,7 +1903,12 @@ class SettingsWindow(QDialog):
     def _on_telegram_tester_finished(self):
         """Очистка после завершения тестера."""
         if hasattr(self, 'telegram_tester'):
-            self.telegram_tester.deleteLater()
+            try:
+                self.telegram_tester.deleteLater()
+            except RuntimeError:
+                # Объект уже удалён
+                pass
+            del self.telegram_tester
 
     def _test_email_connection(self):
         """Тестирует подключение к Email."""
@@ -1719,12 +1924,23 @@ class SettingsWindow(QDialog):
             QMessageBox.warning(self, "Ошибка", "Заполните все поля Email")
             return
 
+        logger.info(f"Начало тестирования Email: smtp={smtp_server}, from={email_from}")
+
         # Останавливаем предыдущий тест если он ещё идёт
-        if hasattr(self, 'email_tester') and self.email_tester.isRunning():
-            self.email_tester.quit()
-            self.email_tester.wait(1000)
+        if hasattr(self, 'email_tester'):
+            try:
+                if self.email_tester.isRunning():
+                    logger.debug("Остановка предыдущего EmailTester")
+                    self.email_tester.quit()
+                    self.email_tester.wait(1000)
+            except RuntimeError:
+                # Объект уже удалён, игнорируем
+                logger.debug("Предыдущий EmailTester уже удалён")
+                if hasattr(self, 'email_tester'):
+                    del self.email_tester
 
         # Создаём и запускаем тестер
+        logger.info("Запуск EmailTester")
         self.email_tester = EmailTester(smtp_server, smtp_port, email_from,
                                         email_password, recipients)
         self.email_tester.result_ready.connect(self._on_email_test_complete)
@@ -1734,6 +1950,13 @@ class SettingsWindow(QDialog):
     def _on_email_test_complete(self, success: bool, message: str):
         """Обработка результата тестирования Email."""
         from PySide6.QtWidgets import QMessageBox
+        
+        # Логируем результат
+        if success:
+            logger.info("✅ Тестирование Email успешно")
+        else:
+            logger.warning(f"❌ Тестирование Email не удалось: {message}")
+        
         if success:
             QMessageBox.information(self, "Успех", message)
         else:
@@ -1742,7 +1965,12 @@ class SettingsWindow(QDialog):
     def _on_email_tester_finished(self):
         """Очистка после завершения тестера."""
         if hasattr(self, 'email_tester'):
-            self.email_tester.deleteLater()
+            try:
+                self.email_tester.deleteLater()
+            except RuntimeError:
+                # Объект уже удалён
+                pass
+            del self.email_tester
 
     def _browse_folder(self, line_edit_widget, title):
         dir_path = QFileDialog.getExistingDirectory(self, title)

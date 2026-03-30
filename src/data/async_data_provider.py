@@ -68,9 +68,12 @@ class AsyncDataProvider:
         if self._initialized:
             return
 
-        # HTTP сессия
+        # HTTP сессия - ИСПРАВЛЕНИЕ: отключаем прокси
         connector = aiohttp.TCPConnector(limit=50, ttl_dns_cache=300)
-        self.session = aiohttp.ClientSession(connector=connector)
+        self.session = aiohttp.ClientSession(
+            connector=connector,
+            trust_env=False  # Игнорировать переменные окружения прокси
+        )
 
         # DB pool (если используется PostgreSQL)
         try:

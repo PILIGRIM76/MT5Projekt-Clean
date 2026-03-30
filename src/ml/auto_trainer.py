@@ -20,6 +20,7 @@ import threading
 import time
 import joblib
 import json
+import pickle
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_error
@@ -27,6 +28,12 @@ from sklearn.preprocessing import StandardScaler
 
 from src.core.config_models import Settings
 from src.db.database_manager import DatabaseManager
+
+# LightGBM импортируем опционально
+try:
+    import lightgbm as lgb
+except ImportError:
+    lgb = None
 
 logger = logging.getLogger(__name__)
 
@@ -83,42 +90,74 @@ class AutoTrainer:
     
     def load_training_data(self, symbol: str, timeframe: str = 'H1') -> Optional[pd.DataFrame]:
         """
-        Загружает данные для обучения из базы.
-        
+        Загружает данные для обучения из базы или MT5.
+
         Args:
             symbol: Торговый инструмент
             timeframe: Таймфрейм
-            
+
         Returns:
             DataFrame с данными или None
         """
+        import MetaTrader5 as mt5
+        
+        # Сначала пробуем загрузить из БД (candle_data)
         try:
-            table_name = f"historical_data_{timeframe}"
-            
-            query = f"""
-                SELECT * FROM {table_name}
-                WHERE symbol = ?
+            query = """
+                SELECT time, open, high, low, close, tick_volume
+                FROM candle_data
+                WHERE symbol = ? AND timeframe = ?
                 ORDER BY time DESC
                 LIMIT ?
             """
-            
-            # Загружаем данные
+
             df = pd.read_sql_query(
                 query,
                 self.db_manager.engine,
-                params=(symbol, self.min_samples_for_retrain * 2)
+                params=(symbol, timeframe, self.min_samples_for_retrain * 2)
             )
+
+            if len(df) >= self.min_samples_for_retrain:
+                df.rename(columns={'time': 'timestamp'}, inplace=True)
+                logger.info(f"Загружено {len(df)} баров из БД для {symbol} ({timeframe})")
+                return df
+            else:
+                logger.info(f"В БД недостаточно данных для {symbol}: {len(df)} баров")
+
+        except Exception as db_error:
+            logger.warning(f"Не удалось загрузить из БД: {db_error}")
+
+        # Если в БД нет данных, загружаем напрямую из MT5
+        logger.info(f"Загрузка данных из MT5 для {symbol}...")
+        try:
+            # Преобразуем timeframe строку в MT5 константу
+            tf_map = {
+                'M1': mt5.TIMEFRAME_M1, 'M5': mt5.TIMEFRAME_M5, 'M15': mt5.TIMEFRAME_M15,
+                'M30': mt5.TIMEFRAME_M30, 'H1': mt5.TIMEFRAME_H1, 'H4': mt5.TIMEFRAME_H4,
+                'D1': mt5.TIMEFRAME_D1, 'W1': mt5.TIMEFRAME_W1
+            }
+            mt5_timeframe = tf_map.get(timeframe, mt5.TIMEFRAME_H1)
             
-            if len(df) < self.min_samples_for_retrain:
-                logger.warning(f"Недостаточно данных для {symbol}: {len(df)} < {self.min_samples_for_retrain}")
+            # Получаем последние бары
+            rates = mt5.copy_rates_from_pos(symbol, mt5_timeframe, 0, self.min_samples_for_retrain * 2)
+            
+            if rates is None or len(rates) == 0:
+                logger.warning(f"MT5 не вернул данные для {symbol}")
                 return None
             
-            logger.info(f"Загружено {len(df)} баров для обучения {symbol}")
+            df = pd.DataFrame(rates)
+            df['time'] = pd.to_datetime(df['time'], unit='s')
+            df.set_index('time', inplace=True)
+            df['symbol'] = symbol
             
+            if 'tick_volume' not in df.columns:
+                df['tick_volume'] = 0
+            
+            logger.info(f"Загружено {len(df)} баров из MT5 для {symbol} ({timeframe})")
             return df
             
-        except Exception as e:
-            logger.error(f"Ошибка загрузки данных для обучения: {e}")
+        except Exception as mt5_error:
+            logger.error(f"Ошибка загрузки из MT5: {mt5_error}", exc_info=True)
             return None
     
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -294,8 +333,8 @@ class AutoTrainer:
     
     def _save_model(self, symbol: str, model: Any, scaler: StandardScaler, metadata: Dict[str, Any]):
         """
-        Сохраняет модель на диск.
-        
+        Сохраняет модель на диск и в базу данных.
+
         Args:
             symbol: Торговый инструмент
             model: Обученная модель
@@ -307,23 +346,42 @@ class AutoTrainer:
             model_file = self.models_path / f"{symbol}_model.joblib"
             scaler_file = self.models_path / f"{symbol}_scaler.joblib"
             metadata_file = self.models_path / f"{symbol}_metadata.json"
-            
-            # Сохраняем
+
+            # Сохраняем на диск
             joblib.dump(model, model_file)
             joblib.dump(scaler, scaler_file)
-            
+
             metadata['symbol'] = symbol
             metadata['trained_at'] = datetime.now().isoformat()
             with open(metadata_file, 'w') as f:
                 json.dump(metadata, f, indent=2)
-            
-            logger.info(f"Модель {symbol} сохранена")
-            
+
+            logger.info(f"Модель {symbol} сохранена на диск")
+
+            # Сохраняем в базу данных
+            try:
+                import uuid
+                model_id = self.db_manager.save_model_and_scalers(
+                    symbol=symbol,
+                    timeframe=16408,  # H1 timeframe (MT5 constant)
+                    model=model,
+                    model_type='LightGBM',
+                    x_scaler=scaler,
+                    y_scaler=None,
+                    features_list=metadata.get('features', []),
+                    training_batch_id=f"auto_{uuid.uuid4().hex[:8]}",
+                    hyperparameters=metadata
+                )
+                logger.info(f"Модель {symbol} сохранена в БД с ID={model_id}")
+            except Exception as db_error:
+                logger.warning(f"Не удалось сохранить модель {symbol} в БД: {db_error}")
+                # Не блокируем работу, если БД недоступна
+
             # Обновляем кэш
             self.models[symbol] = model
             self.scalers[symbol] = scaler
             self.model_metadata[symbol] = metadata
-            
+
         except Exception as e:
             logger.error(f"Ошибка сохранения модели: {e}")
     

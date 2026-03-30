@@ -506,9 +506,11 @@ class TradeExecutor:
         
         # НОВОЕ: Проверка доступности MT5 соединения
         if self.risk_engine.trading_system.mt5_connection_failed:
+            # Исправление: type может быть строкой или SignalType
+            signal_type_name = signal.type if isinstance(signal.type, str) else (signal.type.name if hasattr(signal.type, 'name') else str(signal.type))
             logger.warning(
                 f"[{symbol}] ⚠️ MT5 соединение недоступно (Fallback Mode). "
-                f"Сигнал {signal.type.name} будет кэширован для последующего исполнения. "
+                f"Сигнал {signal_type_name} будет кэширован для последующего исполнения. "
                 f"Реального ордера отправлено не будет.")
             return None
 

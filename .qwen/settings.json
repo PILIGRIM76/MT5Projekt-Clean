@@ -32,7 +32,9 @@
       "Bash(git *)",
       "Bash(type *)",
       "Bash(start-sleep *)",
-      "Bash(start *)"
+      "Bash(start *)",
+      "Bash(chcp *)",
+      "Bash(netstat *)"
     ]
   },
   "$version": 3

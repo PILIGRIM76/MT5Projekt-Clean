@@ -27,7 +27,8 @@ class BlockchainProvider:
         self.lunarcrush_base_url = "https://api.lunarcrush.com/v2"
         # ---------------------------------------
 
-        self.client = httpx.AsyncClient()
+        # ИСПРАВЛЕНИЕ: отключаем прокси
+        self.client = httpx.AsyncClient(proxy=None)
 
     async def get_lunarcrush_metrics(self, symbol: str) -> Optional[pd.DataFrame]:
         if not self.lunarcrush_api_key:

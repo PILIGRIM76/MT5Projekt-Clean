@@ -42,10 +42,10 @@ def get_symbols_for_retraining(max_symbols: int = 30) -> List[str]:
 def train_symbol_model(symbol: str) -> dict:
     """
     Обучить модель для конкретного символа.
-    
+
     Args:
         symbol: Название символа (например, EURUSD)
-        
+
     Returns:
         Словарь с результатами обучения
     """
@@ -55,34 +55,41 @@ def train_symbol_model(symbol: str) -> dict:
         'error': None,
         'metrics': {}
     }
-    
+
     try:
         logger.info(f"[{symbol}] Начало обучения модели...")
-        
+
         # Импортируем необходимые компоненты
         from src.db.database_manager import DatabaseManager
-        from src.models.model_trainer import ModelTrainer
-        
+        from src.core.config_loader import load_config
+        from src.ml.auto_trainer import AutoTrainer
+        import queue
+
         # Инициализируем компоненты
-        db = DatabaseManager()
-        trainer = ModelTrainer(db)
-        
-        # Получаем данные для обучения
-        data = trainer.prepare_training_data(symbol)
-        
-        if len(data) < 1000:
-            logger.warning(f"[{symbol}] Недостаточно данных для обучения ({len(data)} баров)")
+        config = load_config()
+        write_queue = queue.Queue()  # Создаем очередь для записи
+        db = DatabaseManager(config, write_queue)
+        trainer = AutoTrainer(config, db)
+
+        # Загружаем данные для обучения
+        data = trainer.load_training_data(symbol)
+
+        if data is None or len(data) < 1000:
+            logger.warning(f"[{symbol}] Недостаточно данных для обучения ({len(data) if data else 0} баров)")
             result['error'] = "Недостаточно данных"
             return result
-        
+
         # Обучаем модель
-        metrics = trainer.train_model(symbol, data)
-        
-        result['success'] = True
-        result['metrics'] = metrics
-        
-        logger.info(f"[{symbol}] Обучение завершено успешно: {metrics}")
-        
+        success = trainer.train_model(symbol)
+
+        result['success'] = success
+        result['metrics'] = {'status': 'trained' if success else 'failed'}
+
+        if success:
+            logger.info(f"[{symbol}] Обучение завершено успешно")
+        else:
+            logger.warning(f"[{symbol}] Обучение завершено с ошибками")
+
     except ImportError as e:
         logger.warning(f"[{symbol}] Компоненты обучения недоступны: {e}")
         result['error'] = f"ImportError: {e}"
@@ -115,27 +122,35 @@ def train_lightgbm_model(symbol: str) -> dict:
     
     try:
         logger.info(f"[{symbol}] Начало обучения LightGBM...")
-        
+
         from src.db.database_manager import DatabaseManager
-        from src.models.model_trainer import ModelTrainer
-        
-        db = DatabaseManager()
-        trainer = ModelTrainer(db, model_type='lightgbm')
-        
-        data = trainer.prepare_training_data(symbol)
-        
-        if len(data) < 1000:
+        from src.core.config_loader import load_config
+        from src.ml.auto_trainer import AutoTrainer
+        import queue
+
+        config = load_config()
+        write_queue = queue.Queue()  # Создаем очередь для записи
+        db = DatabaseManager(config, write_queue)
+        trainer = AutoTrainer(config, db)
+
+        data = trainer.load_training_data(symbol)
+
+        if data is None or len(data) < 1000:
             logger.warning(f"[{symbol}] Недостаточно данных для LightGBM")
             result['error'] = "Недостаточно данных"
             return result
-        
-        metrics = trainer.train_model(symbol, data)
-        
-        result['success'] = True
-        result['metrics'] = metrics
-        
-        logger.info(f"[{symbol}] LightGBM обучение завершено: {metrics}")
-        
+
+        # Обучаем модель (AutoTrainer сам выбирает LightGBM)
+        success = trainer.train_model(symbol)
+
+        result['success'] = success
+        result['metrics'] = {'status': 'trained' if success else 'failed'}
+
+        if success:
+            logger.info(f"[{symbol}] LightGBM обучение завершено")
+        else:
+            logger.warning(f"[{symbol}] LightGBM обучение завершено с ошибками")
+
     except ImportError as e:
         logger.warning(f"[{symbol}] LightGBM недоступен: {e}")
         result['error'] = f"ImportError: {e}"

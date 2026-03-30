@@ -138,6 +138,11 @@ class TradingSystem(QObject):
         self.optimization_notified = False
         # НОВОЕ: флаг для fallback режима при потере MT5
         self.mt5_connection_failed = False
+        
+        # НОВОЕ: Счётчик ошибок авторизации для экспоненциальной задержки
+        self._auth_error_count = 0
+        self._last_auth_error_time = None
+        self._auth_error_logged = False  # Флаг для дедупликации логов
 
         self._last_known_balance = 0.0
         self._last_known_equity = 0.0
@@ -315,56 +320,22 @@ class TradingSystem(QObject):
                 from huggingface_hub.utils import disable_progress_bars
                 disable_progress_bars()
 
-                # Проверяем есть ли модель в кэше
-                import os.path as path
-                modules_file = path.join(cache_dir, 'modules.json') if cache_dir else None
-                config_file = path.join(cache_dir, 'config.json') if cache_dir else None
-
-                # Проверяем наличие основных файлов модели
-                model_files_exist = (
-                    modules_file and path.exists(modules_file) and
-                    config_file and path.exists(config_file)
-                )
-
-                if model_files_exist:
-                    logger.info(f"Модель найдена в кэше: {modules_file}")
-                    # Загружаем ТОЛЬКО локально без интернета
-                    from sentence_transformers import SentenceTransformer
-                    try:
-                        embedding_model = SentenceTransformer(
-                            self.config.vector_db.embedding_model,
-                            device='cpu',
-                            cache_folder=cache_dir,
-                            local_files_only=True
-                        )
-                        logger.info("Модель загружена локально без обращения к интернету")
-                    except TypeError as te:
-                        # Новая версия SentenceTransformer не поддерживает local_files_only
-                        logger.warning(f"local_files_only не поддерживается, загружаем без этого параметра: {te}")
-                        embedding_model = SentenceTransformer(
-                            self.config.vector_db.embedding_model,
-                            device='cpu',
-                            cache_folder=cache_dir
-                        )
-                        logger.info("Модель загружена из кэша")
-                    except Exception as local_e:
-                        logger.error(f"Ошибка загрузки локальной модели: {local_e}")
-                        logger.warning("Попробуем загрузить из интернета...")
-                        from sentence_transformers import SentenceTransformer
-                        embedding_model = SentenceTransformer(
-                            self.config.vector_db.embedding_model,
-                            device='cpu',
-                            cache_folder=cache_dir
-                        )
-                else:
-                    # Кэша нет — загружаем из интернета
-                    logger.warning("Модель не найдена в кэше или неполная, загрузка из интернета...")
-                    from sentence_transformers import SentenceTransformer
+                # ИСПРАВЛЕНИЕ: Загружаем модель с правильным именем
+                # SentenceTransformer требует оригинальное имя для правильной загрузки конфигурации
+                from sentence_transformers import SentenceTransformer
+                
+                try:
+                    # Пробуем загрузить с кэшем - модель загрузится из кэша если есть
                     embedding_model = SentenceTransformer(
-                        self.config.vector_db.embedding_model,
+                        self.config.vector_db.embedding_model,  # "all-MiniLM-L6-v2"
                         device='cpu',
                         cache_folder=cache_dir
                     )
+                    logger.info(f"✅ Модель эмбеддингов успешно загружена: {self.config.vector_db.embedding_model}")
+                except Exception as e:
+                    logger.error(f"Ошибка загрузки SentenceTransformer: {e}")
+                    logger.warning("Продолжаем работу без модели эмбеддингов")
+                    embedding_model = None
 
                 # Передаем модель в компоненты
                 self.nlp_processor.embedding_model = embedding_model
@@ -995,8 +966,10 @@ class TradingSystem(QObject):
 
                 if hedge_result:
                     symbol, signal, lot_size = hedge_result
+                    # Исправление: type может быть строкой или SignalType
+                    signal_type_name = signal.type if isinstance(signal.type, str) else (signal.type.name if hasattr(signal.type, 'name') else str(signal.type))
                     logger.critical(
-                        f"!!! VaR ХЕДЖИРОВАНИЕ: Открытие {signal.type.name} {lot_size:.2f} по {symbol}.")
+                        f"!!! VaR ХЕДЖИРОВАНИЕ: Открытие {signal_type_name} {lot_size:.2f} по {symbol}.")
                     await self.execution_service.execute_trade(
                         symbol=symbol, signal=signal, lot_size=lot_size,
                         df=data_dict.get(f"{symbol}_{mt5.TIMEFRAME_H1}"),
@@ -1138,9 +1111,9 @@ class TradingSystem(QObject):
         logger.info(
             "=== Запуск непрерывного цикла обучения (R&D Department) ===")
 
-        # Ждем 120 секунд чтобы система успела набрать данные
-        logger.info("[R&D] Ожидание 120 сек для накопления данных...")
-        self.stop_event.wait(120)
+        # Ждем 60 секунд чтобы система успела набрать данные
+        logger.info("[R&D] Ожидание 60 сек для накопления данных...")
+        self.stop_event.wait(60)
 
         while not self.stop_event.is_set():
             try:
@@ -1153,9 +1126,17 @@ class TradingSystem(QObject):
                 # Проверяем есть ли данные для обучения
                 if not self.latest_full_ranked_list or len(self.latest_full_ranked_list) == 0:
                     logger.warning(
-                        "[R&D] Список ранжированных символов пуст. Ожидание данных...")
-                    self.stop_event.wait(60)
-                    continue
+                        "[R&D] Список ранжированных символов пуст. Запуск принудительного сбора данных...")
+                    # Собираем данные самостоятельно
+                    self._force_collect_data_for_training()
+                    # Ждем немного после сбора
+                    self.stop_event.wait(10)
+                    # Проверяем снова
+                    if not self.latest_full_ranked_list or len(self.latest_full_ranked_list) == 0:
+                        logger.warning(
+                            "[R&D] Принудительный сбор не дал результатов. Повтор через 60 сек...")
+                        self.stop_event.wait(60)
+                        continue
 
                 logger.info("[R&D] Запуск цикла обучения...")
                 self._continuous_training_cycle()
@@ -1171,6 +1152,39 @@ class TradingSystem(QObject):
                 self.stop_event.wait(60)
 
         logger.info("Цикл обучения (R&D) остановлен.")
+    
+    def _force_collect_data_for_training(self):
+        """
+        Принудительный сбор данных для R&D когда список пуст.
+        """
+        logger.info("[R&D] Запуск принудительного сбора данных...")
+        try:
+            available_symbols = self.data_provider.get_available_symbols()
+            if not available_symbols:
+                logger.warning("[R&D] Нет доступных символов для сбора данных")
+                return
+            
+            timeframes_to_check = list(self.config.optimizer.timeframes_to_check.values())
+            data_dict_raw = {}
+            
+            logger.info(f"[R&D] Сбор данных для {len(available_symbols)} символов...")
+            for symbol in available_symbols[:10]:  # Ограничиваем 10 символами для скорости
+                for tf in timeframes_to_check:
+                    result = self.data_provider._fetch_and_process_symbol_sync(symbol, tf,
+                                                                               self.config.PREDICTION_DATA_POINTS)
+                    if result:
+                        key, df = result
+                        data_dict_raw[key] = df
+            
+            if data_dict_raw:
+                logger.info(f"[R&D] Данные собраны: {len(data_dict_raw)} таймфреймов")
+                ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict_raw)
+                self.latest_full_ranked_list = full_ranked_list
+                logger.info(f"[R&D] Ранжировано {len(ranked_symbols)} символов")
+            else:
+                logger.warning("[R&D] Не удалось собрать данные")
+        except Exception as e:
+            logger.error(f"[R&D] Ошибка принудительного сбора данных: {e}", exc_info=True)
 
     def _vector_db_cleanup_loop(self):
         logger.info("[VectorDB] === Запуск цикла обслуживания ===")
@@ -1553,14 +1567,27 @@ class TradingSystem(QObject):
     def get_vector_db_stats(self) -> Dict[str, Any]:
         if not self.vector_db_manager:
             logger.debug("[VectorDB] Менеджер не инициализирован")
-            return {"is_ready": False, "count": 0}
+            return {"is_ready": False, "count": 0, "reason": "Менеджер не инициализирован"}
+        
         count = 0
         if hasattr(self.vector_db_manager, 'index') and self.vector_db_manager.index:
             count = self.vector_db_manager.index.ntotal
+        
         is_ready = self.vector_db_manager.is_ready()
+        
+        # Дополнительная проверка embedding модели
+        has_embedding = False
+        if hasattr(self, 'nlp_processor') and self.nlp_processor:
+            has_embedding = self.nlp_processor.embedding_model is not None
+        
         logger.info(
-            f"[VectorDB] Статистика: готов={is_ready}, документов={count}")
-        return {"is_ready": is_ready, "count": count}
+            f"[VectorDB] Статистика: готов={is_ready}, документов={count}, embedding_model={has_embedding}")
+        
+        return {
+            "is_ready": is_ready, 
+            "count": count,
+            "has_embedding_model": has_embedding
+        }
 
     def search_vector_db(self, query_text: str):
         logger.info(f"[VectorDB] Поиск по запросу: '{query_text}'")
@@ -1978,26 +2005,45 @@ class TradingSystem(QObject):
 
                             # НОВОЕ: Специальная обработка ошибки -6 (Authorization failed)
                             if isinstance(err_code, tuple) and err_code[0] == -6:
-                                logger.error(
-                                    f"[Monitoring] КРИТИЧНО: MT5 Authorization Failed. "
-                                    f"Терминал может быть закрыт или учетная запись заблокирована. "
-                                    f"Ошибка: {err_code}")
-                                logger.warning(
-                                    f"[Monitoring] Переключение на FALLBACK: классические стратегии без live-ордеров")
+                                # Увеличиваем счётчик ошибок
+                                self._auth_error_count += 1
+                                self._last_auth_error_time = datetime.now()
+                                
+                                # Логгируем только первую ошибку или каждую 10-ю для снижения шума
+                                if not self._auth_error_logged or self._auth_error_count % 10 == 0:
+                                    logger.error(
+                                        f"[Monitoring] КРИТИЧНО: MT5 Authorization Failed. "
+                                        f"Терминал может быть закрыт или учетная запись заблокирована. "
+                                        f"Ошибка: {err_code} (попытка #{self._auth_error_count})")
+                                    if not self._auth_error_logged:
+                                        logger.warning(
+                                            f"[Monitoring] Переключение на FALLBACK: классические стратегии без live-ордеров")
+                                        self._auth_error_logged = True
+                                    else:
+                                        logger.debug(f"[Monitoring] Повтор ошибки авторизации (всего: {self._auth_error_count})")
+                                
                                 # Устанавливаем флаг что торговля недоступна
                                 self.mt5_connection_failed = True
+                                
+                                # Экспоненциальная задержка: min(2^count, 30) секунд
+                                delay = min(2 ** min(self._auth_error_count, 5), 30)
+                                logger.debug(f"[Monitoring] Задержка перед следующей попыткой: {delay} сек.")
+                                self.stop_event.wait(delay)
+                                continue
                             else:
                                 logger.error(
                                     f"[Monitoring] Не удалось инициализировать MT5. Код ошибки: {err_code}")
-
-                            self.stop_event.wait(1)
-                            continue
+                                self.stop_event.wait(1)
+                                continue
 
                     # НОВОЕ: Если соединение восстановлено, сбросим флаг
                     if self.mt5_connection_failed:
                         logger.info(
                             f"[Monitoring] ✓ MT5 соединение восстановлено! Возврат в NORMAL режим торговли")
                         self.mt5_connection_failed = False
+                        # Сбрасываем счётчик ошибок при успешном подключении
+                        self._auth_error_count = 0
+                        self._auth_error_logged = False
 
                     try:
                         account_info = mt5.account_info()
@@ -2286,10 +2332,13 @@ class TradingSystem(QObject):
                     return
                 confirmed_signal, final_strategy_name, _, pred_input, entry_price = signal_result
 
+                # Исправление: type может быть строкой или SignalType
+                signal_type_name = confirmed_signal.type if isinstance(confirmed_signal.type, str) else (confirmed_signal.type.name if hasattr(confirmed_signal.type, 'name') else str(confirmed_signal.type))
+
                 # Отправляем торговый сигнал в GUI
                 trading_signal_data = [{
                     'symbol': symbol,
-                    'signal_type': confirmed_signal.type.name,
+                    'signal_type': signal_type_name,
                     'strategy': final_strategy_name,
                     'timestamp': datetime.now().strftime('%H:%M:%S'),
                     'entry_price': entry_price,
@@ -2336,8 +2385,12 @@ class TradingSystem(QObject):
 
                 if not self.risk_engine.is_trade_safe_from_events(symbol):
                     return
+                
+                # Исправление: type может быть строкой или SignalType
+                signal_type_name = confirmed_signal.type if isinstance(confirmed_signal.type, str) else (confirmed_signal.type.name if hasattr(confirmed_signal.type, 'name') else str(confirmed_signal.type))
+                
                 logger.warning(
-                    f"[{symbol}] ШАГ 1: ПОЛУЧЕН СИГНАЛ {confirmed_signal.type.name} от '{final_strategy_name}'!")
+                    f"[{symbol}] ШАГ 1: ПОЛУЧЕН СИГНАЛ {signal_type_name} от '{final_strategy_name}'!")
                 lot_size, stop_loss_in_price = self.risk_engine.calculate_position_size(symbol=symbol, df=df,
                                                                                         account_info=account_info,
                                                                                         trade_type=confirmed_signal.type,
@@ -2710,6 +2763,7 @@ class TradingSystem(QObject):
                     if self.gui:
                         history_obj = type(
                             'History', (), {'history': {'loss': loss_history}})()
+                        logger.debug(f"[R&D] Epoch {epoch}: loss={loss.item():.4f}, отправляем в GUI")
                         self._safe_gui_update(
                             'update_visualization', history_obj)
         elif model_type.upper() == 'LIGHTGBM':
@@ -2902,7 +2956,9 @@ class TradingSystem(QObject):
         # Остановка планировщика переобучения
         self.stop_training_scheduler()
 
-        if hasattr(self, 'web_server'):
+        # Остановка веб-сервера (если инициализирован)
+        if hasattr(self, 'web_server') and self.web_server is not None:
+            logger.info("Остановка веб-сервера...")
             self.web_server.stop()
 
     def _safe_gui_update(self, method_name: str, *args, **kwargs):
@@ -2915,12 +2971,14 @@ class TradingSystem(QObject):
 
         # Устанавливаем минимальные интервалы между обновлениями
         update_intervals = {
-            # 0.1 секунды между обновлениями графика (ИСПРАВЛЕНО: было 0.5)
+            # 0.1 секунды между обновлениями графика
             'update_candle_chart': 0.1,
             'update_positions_view': 0.3,  # 0.3 секунды между обновлениями позиций
             'update_history_view': 1.0,  # 1 секунда между обновлениями истории
             'update_balance': 0.3,  # 0.3 секунды между обновлениями баланса
             'update_pnl_graph': 1.0,  # 1 секунда между обновлениями PnL
+            # ИСПРАВЛЕНИЕ: Отключаем throttle для графика обучения, чтобы отображать все эпохи
+            'update_visualization': 0.0,  # Без ограничений для прогресса обучения
         }
 
         min_interval = update_intervals.get(
@@ -2951,9 +3009,11 @@ class TradingSystem(QObject):
                 if method_name in signal_map:
                     signal, signal_args = signal_map[method_name]
                     signal.emit(*signal_args)
-                    # Убрано избыточное логирование
+                    # Логирование для отладки прогресса обучения
+                    if method_name == 'update_visualization':
+                        logger.debug(f"[GUI] Отправлен сигнал update_visualization с {len(args[0].history.get('loss', []))} значениями loss")
             except Exception as e:
-                logger.error(f"Ошибка GUI update: {e}")
+                logger.error(f"Ошибка GUI update: {e}", exc_info=True)
         if self.web_server and self.config.web_dashboard.enabled:
             try:
                 if method_name == 'update_balance':

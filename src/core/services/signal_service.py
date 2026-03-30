@@ -77,8 +77,10 @@ class SignalService:
                     f"CLASSIC SIGNALS: {strategy_name}.check_entry_conditions() returned signal type={signal.type if signal else None}")
                 if signal and signal.type != SignalType.HOLD:
                     signals.append(signal)
+                    # Исправление: type может быть строкой или SignalType
+                    signal_type_name = signal.type if isinstance(signal.type, str) else (signal.type.name if hasattr(signal.type, 'name') else str(signal.type))
                     logger.info(
-                        f"CLASSIC SIGNALS: Добавлен сигнал от {strategy_name}: {signal.type.name}")
+                        f"CLASSIC SIGNALS: Добавлен сигнал от {strategy_name}: {signal_type_name}")
 
         logger.info(f"CLASSIC SIGNALS: Собрано {len(signals)} сигналов")
         return signals
@@ -134,9 +136,22 @@ class SignalService:
                 symbol, df, timeframe, market_regime)
             logger.info(
                 f"[{symbol}] get_primary_signal вернул: signal={primary_signal}, name={primary_name}, type={type(primary_signal)}")
-            if primary_signal and primary_signal.type != SignalType.HOLD:
-                logger.info(
-                    f"[{symbol}] Получен сигнал от primary стратегии: {primary_signal.type.name}")
+            
+            # Исправление: проверяем тип signal.type (может быть строкой или SignalType)
+            if primary_signal:
+                # Если type это строка, сравниваем напрямую
+                signal_type = primary_signal.type
+                if isinstance(signal_type, str):
+                    is_hold = signal_type == 'HOLD'
+                    type_name = signal_type
+                else:
+                    # Если type это SignalType enum
+                    is_hold = signal_type == SignalType.HOLD
+                    type_name = signal_type.name if hasattr(signal_type, 'name') else str(signal_type)
+                
+                if not is_hold:
+                    logger.info(
+                        f"[{symbol}] Получен сигнал от primary стратегии: {type_name}")
                 confirmed_signal, confirmed_strategy_name, _ = self.get_confirmed_signal(
                     symbol, df, timeframe, primary_signal, primary_name, None)
                 if confirmed_signal:
@@ -223,8 +238,10 @@ class SignalService:
                                    predicted_price=ai_signal.predicted_price)
         final_strategy_name = f"AI_MF_Consensus"
 
+        # Исправление: type может быть строкой или SignalType
+        signal_type_name = final_signal.type if isinstance(final_signal.type, str) else (final_signal.type.name if hasattr(final_signal.type, 'name') else str(final_signal.type))
         logger.critical(
-            f"[{symbol}] ФИНАЛЬНЫЙ СИГНАЛ: {final_signal.type.name} (Score: {final_score:.2f})")
+            f"[{symbol}] ФИНАЛЬНЫЙ СИГНАЛ: {signal_type_name} (Score: {final_score:.2f})")
 
         return final_signal, final_strategy_name, None, pred_input, entry_price
 
@@ -264,28 +281,53 @@ class SignalService:
                              xai_data: Optional[Dict]) -> Tuple[Optional[TradeSignal], str, Optional[Dict]]:
         market_regime = self.market_regime_manager.get_regime(df)
 
+        # Вспомогательная функция для получения имени типа сигнала
+        def get_signal_type_name(sig):
+            if sig.type is None:
+                return "UNKNOWN"
+            if isinstance(sig.type, str):
+                return sig.type
+            return sig.type.name if hasattr(sig.type, 'name') else str(sig.type)
+
         if primary_strategy == "AI_Model":
             confirming_strategy, best_score = self._find_best_confirming_strategy(primary_signal, df, market_regime,
                                                                                   timeframe)
             if confirming_strategy:
                 final_strategy_name = f"AI_Model_Confirmed_by_{confirming_strategy.__class__.__name__}"
+                signal_type_name = get_signal_type_name(primary_signal)
                 logger.info(
-                    f"[{symbol}] AI-сигнал ({primary_signal.type.name}) ПОДТВЕРЖДЕН '{confirming_strategy.__class__.__name__}' (Score: {best_score:.2f}).")
+                    f"[{symbol}] AI-сигнал ({signal_type_name}) ПОДТВЕРЖДЕН '{confirming_strategy.__class__.__name__}' (Score: {best_score:.2f}).")
                 return primary_signal, final_strategy_name, xai_data
             else:
+                signal_type_name = get_signal_type_name(primary_signal)
                 logger.info(
-                    f"[{symbol}] AI-сигнал ({primary_signal.type.name}) НЕ ПОДТВЕРЖДЕН. Сигнал отклонен.")
+                    f"[{symbol}] AI-сигнал ({signal_type_name}) НЕ ПОДТВЕРЖДЕН. Сигнал отклонен.")
                 return None, primary_strategy, None
         else:
             confirming_signal, _, _ = self._get_ai_signal(symbol, df)
-            if confirming_signal and confirming_signal.type == primary_signal.type:
+            # Сравниваем типы сигналов (может быть строкой или SignalType)
+            primary_type = primary_signal.type
+            confirming_type = confirming_signal.type if confirming_signal else None
+            
+            types_match = False
+            if confirming_type is not None:
+                if isinstance(primary_type, str) and isinstance(confirming_type, str):
+                    types_match = primary_type == confirming_type
+                elif hasattr(primary_type, 'name') and hasattr(confirming_type, 'name'):
+                    types_match = primary_type == confirming_type
+                else:
+                    types_match = str(primary_type) == str(confirming_type)
+            
+            if confirming_signal and types_match:
                 final_strategy_name = f"{primary_strategy}_Confirmed_by_AI"
+                signal_type_name = get_signal_type_name(primary_signal)
                 logger.info(
-                    f"[{symbol}] Сигнал '{primary_strategy}' ({primary_signal.type.name}) ПОДТВЕРЖДЕН AI.")
+                    f"[{symbol}] Сигнал '{primary_strategy}' ({signal_type_name}) ПОДТВЕРЖДЕН AI.")
                 return primary_signal, final_strategy_name, xai_data
             else:
+                signal_type_name = get_signal_type_name(primary_signal)
                 logger.info(
-                    f"[{symbol}] Сигнал '{primary_strategy}' ({primary_signal.type.name}) НЕ подтвержден AI, но будет исполнен.")
+                    f"[{symbol}] Сигнал '{primary_strategy}' ({signal_type_name}) НЕ подтвержден AI, но будет исполнен.")
                 return primary_signal, primary_strategy, xai_data
 
     def _get_ai_signal(self, symbol: str, df: pd.DataFrame) -> Tuple[
