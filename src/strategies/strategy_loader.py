@@ -1,17 +1,18 @@
 # src/strategies/strategy_loader.py
-import os
 import importlib
 import inspect
 import logging
+import os
 import pickle
 import sys  # <--- Добавлен sys
 from pathlib import Path
 from typing import List, Optional
+
 import pandas as pd
 
-from src.data_models import TradeSignal, SignalType
-from src.strategies.StrategyInterface import BaseStrategy
 from src.core.config_models import Settings
+from src.data_models import SignalType, TradeSignal
+from src.strategies.StrategyInterface import BaseStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ class StrategyLoader:
                 if filename.endswith(".pkl"):
                     file_path = gen_dir / filename
                     try:
-                        with open(file_path, 'rb') as f:
+                        with open(file_path, "rb") as f:
                             strategy_individual = pickle.load(f)
 
                         if not isinstance(strategy_individual, dict):
@@ -67,24 +68,31 @@ class StrategyLoader:
                         class TreeStrategy(BaseStrategy):
                             def __init__(self, individual: dict, name: str, config: Settings):
                                 super().__init__(config)
-                                self.buy_tree = individual.get('buy_tree')
-                                self.sell_tree = individual.get('sell_tree')
-                                self.__class__.__name__ = name.replace('.pkl', '')
+                                self.buy_tree = individual.get("buy_tree")
+                                self.sell_tree = individual.get("sell_tree")
+                                self.__class__.__name__ = name.replace(".pkl", "")
 
-                            def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int) -> \
-                            Optional[TradeSignal]:
+                            def check_entry_conditions(
+                                self, df: pd.DataFrame, current_index: int, timeframe: int
+                            ) -> Optional[TradeSignal]:
                                 try:
-                                    symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN'
+                                    symbol = df["symbol"].iloc[current_index] if "symbol" in df.columns else "UNKNOWN"
                                     if self.buy_tree:
                                         buy_series = self.buy_tree.evaluate(df)
-                                        if not buy_series.empty and not pd.isna(buy_series.iloc[current_index]) and \
-                                                buy_series.iloc[current_index]:
+                                        if (
+                                            not buy_series.empty
+                                            and not pd.isna(buy_series.iloc[current_index])
+                                            and buy_series.iloc[current_index]
+                                        ):
                                             return TradeSignal(type=SignalType.BUY, confidence=1.0, symbol=symbol)
 
                                     if self.sell_tree:
                                         sell_series = self.sell_tree.evaluate(df)
-                                        if not sell_series.empty and not pd.isna(sell_series.iloc[current_index]) and \
-                                                sell_series.iloc[current_index]:
+                                        if (
+                                            not sell_series.empty
+                                            and not pd.isna(sell_series.iloc[current_index])
+                                            and sell_series.iloc[current_index]
+                                        ):
                                             return TradeSignal(type=SignalType.SELL, confidence=1.0, symbol=symbol)
                                 except Exception:
                                     pass

@@ -83,7 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Filter out invalid entries
-        historyArray = historyArray.filter(item => 
+        historyArray = historyArray.filter(item =>
             item && item.profit !== undefined && item.time_close !== undefined
         );
 
@@ -96,15 +96,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Sort by time
         const sortedHistory = historyArray.sort((a, b) => new Date(a.time_close) - new Date(b.time_close));
-        
+
         const initialBalance = 10000;
         let cumulativeProfit = 0;
 
         const chartData = sortedHistory.map(trade => {
             cumulativeProfit += parseFloat(trade.profit) || 0;
-            return { 
-                x: new Date(trade.time_close).getTime(), 
-                y: initialBalance + cumulativeProfit 
+            return {
+                x: new Date(trade.time_close).getTime(),
+                y: initialBalance + cumulativeProfit
             };
         });
 

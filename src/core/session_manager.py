@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime, time
+
 from src.core.config_models import Settings
 
 logger = logging.getLogger(__name__)
@@ -28,8 +29,7 @@ class SessionManager:
         asset_type = self.get_asset_type(symbol)
 
         if asset_type not in self.sessions:
-            logger.warning(
-                f"Для типа актива {asset_type} не определена торговая сессия. Торговля разрешена по умолчанию.")
+            logger.warning(f"Для типа актива {asset_type} не определена торговая сессия. Торговля разрешена по умолчанию.")
             return True
 
         now_utc = datetime.utcnow()
@@ -60,6 +60,7 @@ class SessionManager:
 
         if not is_active:
             logger.info(
-                f"Торговля по {symbol} ({asset_type}) сейчас закрыта. Сессия: {start_time}-{end_time} UTC. Текущее время: {current_time} UTC.")
+                f"Торговля по {symbol} ({asset_type}) сейчас закрыта. Сессия: {start_time}-{end_time} UTC. Текущее время: {current_time} UTC."
+            )
 
         return is_active

@@ -1,7 +1,9 @@
 # src/analysis/market_regime_manager.py
 import logging
+
 import numpy as np
 import pandas as pd
+
 from src.core.config_models import Settings
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,7 @@ class MarketRegimeManager:
             logger.warning("Недостаточно данных для определения режима рынка.")
             return "Low Volatility Range"
 
-        required_cols = ['BBU_20_2.0', 'BBL_20_2.0', 'BBM_20_2.0', 'ATR_14', 'ADX_14', 'EMA_50', 'close']
+        required_cols = ["BBU_20_2.0", "BBL_20_2.0", "BBM_20_2.0", "ATR_14", "ADX_14", "EMA_50", "close"]
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             logger.warning(f"Отсутствуют необходимые колонки для определения режима: {missing}")
@@ -33,23 +35,25 @@ class MarketRegimeManager:
 
             # --- 1. ИСПРАВЛЕННЫЙ РАСЧЕТ ВОЛАТИЛЬНОСТИ ---
             # Рассчитываем метрики как серии, а не как одно число
-            bb_width_series = (df['BBU_20_2.0'] - df['BBL_20_2.0']) / df['BBM_20_2.0']
-            normalized_atr_series = df['ATR_14'] / df['close']
+            bb_width_series = (df["BBU_20_2.0"] - df["BBL_20_2.0"]) / df["BBM_20_2.0"]
+            normalized_atr_series = df["ATR_14"] / df["close"]
 
             # Усредняем метрики, чтобы получить единый показатель волатильности
             combined_volatility = (bb_width_series + normalized_atr_series) / 2
 
             # Рассчитываем ранг последнего значения относительно `volatility_rank_window` прошлых значений
-            volatility_percentile = combined_volatility.rolling(window=self.volatility_rank_window).apply(
-                lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False
-            ).iloc[-1]
+            volatility_percentile = (
+                combined_volatility.rolling(window=self.volatility_rank_window)
+                .apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)
+                .iloc[-1]
+            )
             # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
             # --- 2. Расчет метрик силы тренда ---
-            adx = last_row['ADX_14']
+            adx = last_row["ADX_14"]
 
             # Используем срез последних 5 точек для расчета наклона
-            y = df['EMA_50'].iloc[-5:].values
+            y = df["EMA_50"].iloc[-5:].values
             x = np.arange(len(y))
             ema_slope = np.polyfit(x, y, 1)[0]
 

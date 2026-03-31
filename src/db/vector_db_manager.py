@@ -1,13 +1,13 @@
 # src/db/vector_db_manager.py
 import logging
+import pickle
 import threading
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 # import logger  # Закомментировано, так как не используется напрямую
 import numpy as np
-import pickle
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
 
 from src.core.config_models import VectorDBSettings
 
@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import faiss
+
     # --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2: Ограничение FAISS одним потоком ---
     if faiss:
         faiss.omp_set_num_threads(1)
@@ -34,7 +35,7 @@ class VectorDBManager:
 
     def __init__(self, config: VectorDBSettings, db_root_path=None):
         self.config = config
-        
+
         # --- ИСПРАВЛЕНИЕ ЛОГИКИ ПУТИ ---
         if db_root_path is not None:
             # Используем ПЕРЕДАННЫЙ полный путь (из TradingSystem)
@@ -43,14 +44,14 @@ class VectorDBManager:
             # Используем путь из конфига (для автономного запуска vector.py)
             self.db_path = Path(self.config.path).resolve()
         # -------------------------------
-        
+
         # === СОЗДАНИЕ ДИРЕКТОРИИ ===
         try:
             self.db_path.mkdir(parents=True, exist_ok=True)
             logger.info(f"[VectorDB] Директория создана/проверена: {self.db_path}")
         except Exception as e:
             logger.error(f"[VectorDB] Ошибка создания директории: {e}")
-            if hasattr(config, 'enabled'):
+            if hasattr(config, "enabled"):
                 config.enabled = False
             return
         # ===========================
@@ -94,17 +95,17 @@ class VectorDBManager:
         new_metadatas = []
 
         for i, metadata in enumerate(self.metadatas):
-            timestamp_str = metadata.get('timestamp_iso')
+            timestamp_str = metadata.get("timestamp_iso")
             if timestamp_str:
                 try:
                     # Парсим дату и преобразуем в naive datetime (локальное время)
                     # Заменяем 'Z' на '+00:00' для корректного парсинга UTC
-                    doc_time_str = timestamp_str.replace('Z', '+00:00')
+                    doc_time_str = timestamp_str.replace("Z", "+00:00")
                     doc_time_aware = datetime.fromisoformat(doc_time_str)
-                    
+
                     # Преобразуем в naive datetime для сравнения
                     doc_time_naive = doc_time_aware.replace(tzinfo=None)
-                    
+
                     # Сравниваем naive datetime объекты
                     if doc_time_naive >= time_threshold:
                         indices_to_keep.append(i)
@@ -137,7 +138,7 @@ class VectorDBManager:
             self.index = faiss.IndexFlatL2(self.dimension)
         else:
             # Создаем IndexSubset для извлечения нужных векторов
-            subset_index = faiss.extract_index_subset(self.index, np.array(indices_to_keep, dtype='int64'))
+            subset_index = faiss.extract_index_subset(self.index, np.array(indices_to_keep, dtype="int64"))
             self.index = subset_index
 
         # Обновляем индекс и метаданные
@@ -152,7 +153,7 @@ class VectorDBManager:
 
     def is_ready(self) -> bool:
         # Проверяем наличие атрибута index (может не существовать при раннем вызове)
-        has_index = hasattr(self, 'index') and self.index is not None
+        has_index = hasattr(self, "index") and self.index is not None
         ready = self.config.enabled and has_index
         if not ready:
             logger.debug(f"[VectorDB] is_ready() = False: enabled={self.config.enabled}, has_index={has_index}")
@@ -167,7 +168,7 @@ class VectorDBManager:
         self.metadatas = []
         self.ids = []
         self._id_to_idx = {}
-        
+
         # ОПТИМИЗАЦИЯ: Счётчики для уменьшения частоты сохранения
         self._unsaved_changes = 0
         self._last_save_time = datetime.now()
@@ -182,15 +183,14 @@ class VectorDBManager:
             if self.index_file.exists() and self.meta_file.exists():
                 # --- Логика загрузки существующего индекса ---
                 self.index = faiss.read_index(str(self.index_file))
-                with open(self.meta_file, 'rb') as f:
+                with open(self.meta_file, "rb") as f:
                     meta_data = pickle.load(f)
-                    self.documents = meta_data['documents']
-                    self.metadatas = meta_data['metadatas']
-                    self.ids = meta_data['ids']
+                    self.documents = meta_data["documents"]
+                    self.metadatas = meta_data["metadatas"]
+                    self.ids = meta_data["ids"]
                     self._id_to_idx = {id_val: i for i, id_val in enumerate(self.ids)}
                 self.dimension = self.index.d
-                logger.info(
-                    f"Индекс FAISS и метаданные успешно загружены из {self.db_path}. Документов: {self.index.ntotal}")
+                logger.info(f"Индекс FAISS и метаданные успешно загружены из {self.db_path}. Документов: {self.index.ntotal}")
 
             # --- 2. Если индекс не загружен (файл не существует), создаем новый ---
             if self.index is None:
@@ -198,7 +198,6 @@ class VectorDBManager:
                 logger.warning(f"Файлы индекса не найдены. Создан новый ПУСТОЙ индекс FAISS (D={self.dimension}).")
                 # Сохраняем пустой индекс чтобы он был готов к работе
                 self._save()
-
 
         except Exception as e:
             # --- 3. Если произошла ошибка при загрузке (поврежден файл), пересоздаем ---
@@ -225,12 +224,8 @@ class VectorDBManager:
                 faiss.write_index(self.index, str(self.index_file))
 
                 # --- Попытка записи метаданных ---
-                meta_data = {
-                    'documents': self.documents,
-                    'metadatas': self.metadatas,
-                    'ids': self.ids
-                }
-                with open(self.meta_file, 'wb') as f:
+                meta_data = {"documents": self.documents, "metadatas": self.metadatas, "ids": self.ids}
+                with open(self.meta_file, "wb") as f:
                     pickle.dump(meta_data, f)
 
                 logger.critical("VectorDB: ФАЙЛЫ УСПЕШНО СОЗДАНЫ.")
@@ -239,7 +234,7 @@ class VectorDBManager:
                 # --- КРИТИЧЕСКИЙ ЛОГ ОШИБКИ ЗАПИСИ ---
                 logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА ПРИ СОХРАНЕНИИ ИНДЕКСА FAISS: {e}")
                 logger.critical(f"Проверьте права доступа к папке: {self.db_path}")
-    
+
     def force_save(self):
         """
         ОПТИМИЗАЦИЯ: Принудительное сохранение индекса (вызывается при остановке системы).
@@ -252,8 +247,9 @@ class VectorDBManager:
         else:
             logger.debug("[VectorDB] Нет несохранённых изменений для принудительного сохранения")
 
-    def add_documents(self, ids: List[str], embeddings: List[List[float]], metadatas: List[Dict[str, Any]],
-                      documents: List[str]):
+    def add_documents(
+        self, ids: List[str], embeddings: List[List[float]], metadatas: List[Dict[str, Any]], documents: List[str]
+    ):
         if not embeddings:
             return
 
@@ -269,7 +265,7 @@ class VectorDBManager:
             return
         # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-        embeddings_np = np.array(embeddings, dtype='float32')
+        embeddings_np = np.array(embeddings, dtype="float32")
 
         # FAISS требует нормализации для косинусного сходства
         faiss.normalize_L2(embeddings_np)
@@ -279,7 +275,7 @@ class VectorDBManager:
             if doc_id in self._id_to_idx:
                 continue
 
-            self.index.add(embeddings_np[i:i + 1])
+            self.index.add(embeddings_np[i : i + 1])
             self.documents.append(documents[i])
             self.metadatas.append(metadatas[i])
             self.ids.append(doc_id)
@@ -289,51 +285,49 @@ class VectorDBManager:
         if added_count > 0:
             logger.info(f"[VectorDB] Добавлено {added_count} новых документов. Всего: {self.index.ntotal}")
             self._unsaved_changes += added_count
-            
+
             # ОПТИМИЗАЦИЯ: Сохраняем только если накопилось достаточно изменений ИЛИ прошло достаточно времени
             now = datetime.now()
             time_since_last_save = (now - self._last_save_time).total_seconds()
-            
-            should_save = (
-                self._unsaved_changes >= self._save_threshold or
-                time_since_last_save >= self._save_interval_seconds
-            )
-            
+
+            should_save = self._unsaved_changes >= self._save_threshold or time_since_last_save >= self._save_interval_seconds
+
             if should_save:
-                logger.info(f"[VectorDB] Сохранение: {self._unsaved_changes} несохранённых изменений, {time_since_last_save:.0f}с с последнего сохранения")
+                logger.info(
+                    f"[VectorDB] Сохранение: {self._unsaved_changes} несохранённых изменений, {time_since_last_save:.0f}с с последнего сохранения"
+                )
                 self._save()
                 self._unsaved_changes = 0
                 self._last_save_time = now
             else:
-                logger.debug(f"[VectorDB] Отложено сохранение: {self._unsaved_changes}/{self._save_threshold} изменений, {time_since_last_save:.0f}/{self._save_interval_seconds}с")
+                logger.debug(
+                    f"[VectorDB] Отложено сохранение: {self._unsaved_changes}/{self._save_threshold} изменений, {time_since_last_save:.0f}/{self._save_interval_seconds}с"
+                )
         else:
             logger.debug(f"[VectorDB] Все {len(ids)} документов уже существуют в индексе")
 
     def query_similar(self, query_embedding: List[float], n_results: int = 5) -> Optional[Dict[str, Any]]:
         if not self.is_ready() or self.index.ntotal == 0:
-            logger.debug(f"[VectorDB] Поиск невозможен: готов={self.is_ready()}, документов={self.index.ntotal if self.index else 0}")
+            logger.debug(
+                f"[VectorDB] Поиск невозможен: готов={self.is_ready()}, документов={self.index.ntotal if self.index else 0}"
+            )
             return None
 
-        query_np = np.array([query_embedding], dtype='float32')
+        query_np = np.array([query_embedding], dtype="float32")
         faiss.normalize_L2(query_np)
 
         try:
             distances, indices = self.index.search(query_np, n_results)
 
-            results = {
-                'ids': [[]],
-                'documents': [[]],
-                'metadatas': [[]],
-                'distances': [[]]
-            }
+            results = {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
 
             if indices.size > 0:
                 for i, idx in enumerate(indices[0]):
                     if idx != -1:
-                        results['ids'][0].append(self.ids[idx])
-                        results['documents'][0].append(self.documents[idx])
-                        results['metadatas'][0].append(self.metadatas[idx])
-                        results['distances'][0].append(distances[0][i])
+                        results["ids"][0].append(self.ids[idx])
+                        results["documents"][0].append(self.documents[idx])
+                        results["metadatas"][0].append(self.metadatas[idx])
+                        results["distances"][0].append(distances[0][i])
 
             logger.debug(f"[VectorDB] Найдено {len(results['ids'][0])} результатов")
             return results

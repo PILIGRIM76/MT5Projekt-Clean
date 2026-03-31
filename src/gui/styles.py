@@ -140,8 +140,8 @@ DARK_STYLE = """
     QStatusBar {
         background-color: #44475a;
     }
-    
-    
+
+
     /* Стиль для верхней KPI-панели */
     QFrame#KpiBar {
         border-bottom: 1px solid #44475a;
@@ -157,7 +157,7 @@ DARK_STYLE = """
     }
     QProgressBar::chunk {
         background-color: #ff5555; /* Красный цвет для заполнения */
-        width: 10px; 
+        width: 10px;
         margin: 0.5px;
     }
 

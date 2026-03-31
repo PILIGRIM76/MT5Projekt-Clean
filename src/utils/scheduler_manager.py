@@ -1,11 +1,10 @@
 # src/utils/scheduler_manager.py
 
+import logging
+import os
 import subprocess
 import sys
-import os
-import logging
 import xml.etree.ElementTree as ET
-
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -18,7 +17,7 @@ class SchedulerManager:
     """
 
     def __init__(self):
-        self.is_windows = sys.platform.startswith('win')
+        self.is_windows = sys.platform.startswith("win")
 
     def get_task_trigger_time(self, task_name: str) -> Optional[str]:
         """Читает XML-определение задачи и извлекает из него время запуска."""
@@ -32,7 +31,7 @@ class SchedulerManager:
 
         try:
             # Убираем BOM (Byte Order Mark), который может присутствовать в выводе Windows
-            if xml_output.startswith('\ufeff'):
+            if xml_output.startswith("\ufeff"):
                 xml_output = xml_output[1:]
 
             root = ET.fromstring(xml_output)
@@ -43,7 +42,7 @@ class SchedulerManager:
 
             if start_boundary is not None and start_boundary.text:
                 # Извлекаем только время из строки вида "2025-01-01T03:00:00"
-                time_str = start_boundary.text.split('T')[1]
+                time_str = start_boundary.text.split("T")[1]
                 return time_str[:5]  # Возвращаем "HH:mm"
         except Exception as e:
             logger.error(f"Ошибка парсинга XML для задачи '{task_name}': {e}")
@@ -57,8 +56,13 @@ class SchedulerManager:
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             result = subprocess.run(
-                command, capture_output=True, text=True, check=False,
-                startupinfo=startupinfo, encoding='cp866', errors='replace'
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                startupinfo=startupinfo,
+                encoding="cp866",
+                errors="replace",
             )
             if result.returncode == 0:
                 return True, result.stdout
@@ -76,41 +80,41 @@ class SchedulerManager:
         success, _ = self._run_command(["schtasks", "/Query", "/TN", task_name])
         return success
 
-    def create_task(self, task_name: str, script_name: str, trigger_type: str,
-                    trigger_time: str = None, trigger_day: str = "SAT") -> tuple[bool, str]:
+    def create_task(
+        self, task_name: str, script_name: str, trigger_type: str, trigger_time: str = None, trigger_day: str = "SAT"
+    ) -> tuple[bool, str]:
         """Создает задачу с разными типами триггеров."""
         # Определяем базовую директорию проекта
         # Если запускается из scripts/, то родительская директория
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        
+
         # Проверяем, является ли script_name полным путём
         if os.path.isabs(script_name):
             script_path = script_name
         else:
             # Скрипты планировщика находятся в папке scripts/
-            scripts_dir = os.path.join(script_dir, 'scripts')
+            scripts_dir = os.path.join(script_dir, "scripts")
             if not os.path.exists(scripts_dir):
                 # Если scripts/ не найдена, возможно мы уже в ней или в src/
                 # Пробуем найти относительно корня проекта
                 parent_dir = os.path.dirname(script_dir)
-                scripts_dir = os.path.join(parent_dir, 'scripts')
-            
+                scripts_dir = os.path.join(parent_dir, "scripts")
+
             script_path = os.path.join(scripts_dir, script_name)
 
         if not os.path.exists(script_path):
             return False, f"Не найден скрипт: {script_path}"
 
         trigger_xml = ""
-        if trigger_type.upper() == 'ONSTART':
+        if trigger_type.upper() == "ONSTART":
             trigger_xml = "<BootTrigger><Enabled>true</Enabled></BootTrigger>"
 
-
-        elif trigger_type.upper() in ['DAILY', 'WEEKLY']:
+        elif trigger_type.upper() in ["DAILY", "WEEKLY"]:
 
             if not trigger_time:
                 return False, "Для триггеров DAILY и WEEKLY необходимо указать время (trigger_time)."
 
-            if trigger_type.upper() == 'DAILY':
+            if trigger_type.upper() == "DAILY":
 
                 trigger_xml = f"""<CalendarTrigger>
 
@@ -122,15 +126,16 @@ class SchedulerManager:
 
           </CalendarTrigger>"""
 
-
-            elif trigger_type.upper() == 'WEEKLY':
+            elif trigger_type.upper() == "WEEKLY":
 
                 day_map = {
-
-                    "MON": "Monday", "TUE": "Tuesday", "WED": "Wednesday",
-
-                    "THU": "Thursday", "FRI": "Friday", "SAT": "Saturday", "SUN": "Sunday"
-
+                    "MON": "Monday",
+                    "TUE": "Tuesday",
+                    "WED": "Wednesday",
+                    "THU": "Thursday",
+                    "FRI": "Friday",
+                    "SAT": "Saturday",
+                    "SUN": "Sunday",
                 }
 
                 full_day_name = day_map.get(trigger_day.upper(), "Saturday")

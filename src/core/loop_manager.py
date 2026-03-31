@@ -14,7 +14,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Callable, Optional, Dict, Any, List
+from typing import Any, Callable, Dict, List, Optional
+
 from PySide6.QtCore import QObject, Signal
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class LoopState(Enum):
     """Состояние цикла"""
+
     STOPPED = "stopped"
     RUNNING = "running"
     PAUSED = "paused"
@@ -31,6 +33,7 @@ class LoopState(Enum):
 @dataclass
 class LoopStats:
     """Статистика выполнения цикла"""
+
     name: str
     state: LoopState
     iterations: int = 0
@@ -43,7 +46,7 @@ class LoopStats:
 
 class BaseLoop(ABC):
     """Базовый класс для всех циклов"""
-    
+
     def __init__(self, name: str, interval_seconds: float = 1.0):
         self.name = name
         self.interval_seconds = interval_seconds
@@ -81,7 +84,7 @@ class BaseLoop(ABC):
         self.stop_event.set()
         self.state = LoopState.STOPPED
         self.stats.state = LoopState.STOPPED
-        
+
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=timeout)
             if self.thread.is_alive():
@@ -90,10 +93,10 @@ class BaseLoop(ABC):
     def _run_loop(self) -> None:
         """Основной цикл выполнения"""
         logger.info(f"[{self.name}] Цикл запущен")
-        
+
         while not self.stop_event.is_set():
             iteration_start = standard_time.perf_counter()
-            
+
             try:
                 self.run_iteration()
                 self.stats.iterations += 1
@@ -106,17 +109,17 @@ class BaseLoop(ABC):
                 self.stats.last_error_time = datetime.now()
                 self.state = LoopState.ERROR
                 self.stats.state = LoopState.ERROR
-            
+
             # Вычисление времени итерации
             iteration_time = standard_time.perf_counter() - iteration_start
             self._update_avg_iteration_time(iteration_time)
             self.stats.total_run_time += iteration_time
-            
+
             # Ожидание следующего интервала
             sleep_time = max(0, self.interval_seconds - iteration_time)
             if sleep_time > 0:
                 self.stop_event.wait(sleep_time)
-        
+
         logger.info(f"[{self.name}] Цикл остановлен")
 
     def _update_avg_iteration_time(self, iteration_time: float) -> None:
@@ -133,7 +136,7 @@ class BaseLoop(ABC):
 
 class AsyncLoop(BaseLoop):
     """Асинхронный цикл с использованием asyncio"""
-    
+
     def __init__(self, name: str, interval_seconds: float = 1.0):
         super().__init__(name, interval_seconds)
         self.loop: Optional[asyncio.AbstractEventLoop] = None
@@ -155,7 +158,7 @@ class AsyncLoop(BaseLoop):
         """Запуск asyncio event loop"""
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        
+
         try:
             self.loop.run_until_complete(self._async_run_loop())
         except Exception as e:
@@ -168,16 +171,16 @@ class AsyncLoop(BaseLoop):
             if pending:
                 self.loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             self.loop.close()
-        
+
         logger.info(f"[{self.name}] Асинхронный цикл остановлен")
 
     async def _async_run_loop(self) -> None:
         """Асинхронный основной цикл"""
         logger.info(f"[{self.name}] Асинхронный цикл запущен")
-        
+
         while not self.stop_event.is_set():
             iteration_start = standard_time.perf_counter()
-            
+
             try:
                 await self.run_async_iteration()
                 self.stats.iterations += 1
@@ -190,18 +193,18 @@ class AsyncLoop(BaseLoop):
                 self.stats.last_error_time = datetime.now()
                 self.state = LoopState.ERROR
                 self.stats.state = LoopState.ERROR
-            
+
             iteration_time = standard_time.perf_counter() - iteration_start
             self._update_avg_iteration_time(iteration_time)
             self.stats.total_run_time += iteration_time
-            
+
             sleep_time = max(0, self.interval_seconds - iteration_time)
             if sleep_time > 0:
                 try:
                     await asyncio.sleep(sleep_time)
                 except asyncio.CancelledError:
                     break
-        
+
         logger.info(f"[{self.name}] Асинхронный цикл остановлен")
 
     @abstractmethod
@@ -213,6 +216,7 @@ class AsyncLoop(BaseLoop):
 @dataclass
 class LoopConfig:
     """Конфигурация для создания цикла"""
+
     name: str
     interval: float
     loop_type: str = "sync"  # "sync" или "async"
@@ -223,11 +227,12 @@ class LoopConfig:
 class LoopManager(QObject):
     """
     Менеджер циклов - централизованное управление всеми фоновыми циклами.
-    
+
     Сигналы для интеграции с GUI:
     - loop_status_updated: Обновление статуса цикла
     - loop_error: Произошла ошибка в цикле
     """
+
     loop_status_updated = Signal(str, str)  # name, status
     loop_error = Signal(str, str)  # name, error_message
 
@@ -241,15 +246,14 @@ class LoopManager(QObject):
         """Зарегистрировать цикл в менеджере"""
         if loop.name in self.loops:
             logger.warning(f"[LoopManager] Цикл '{loop.name}' уже зарегистрирован, заменяем")
-        
+
         self.loops[loop.name] = loop
         if config:
             self.configs[loop.name] = config
-        
+
         logger.info(f"[LoopManager] Зарегистрирован цикл: {loop.name} (interval={loop.interval_seconds}s)")
 
-    def create_and_register(self, config: LoopConfig, iteration_func: Callable, 
-                           is_async: bool = False) -> BaseLoop:
+    def create_and_register(self, config: LoopConfig, iteration_func: Callable, is_async: bool = False) -> BaseLoop:
         """Создать и зарегистрировать цикл из функции"""
         if is_async:
             # Для async нужно обернуть функцию
@@ -260,7 +264,7 @@ class LoopManager(QObject):
         else:
             loop = BaseLoop(config.name, config.interval)
             loop.run_iteration = iteration_func
-        
+
         self.register_loop(loop, config)
         return loop
 
@@ -272,13 +276,13 @@ class LoopManager(QObject):
 
         logger.info("[LoopManager] Запуск всех циклов...")
         self._started = True
-        
+
         for name, loop in self.loops.items():
             config = self.configs.get(name)
             if config and not config.enabled:
                 logger.info(f"[LoopManager] Пропуск отключенного цикла: {name}")
                 continue
-            
+
             try:
                 loop.start()
                 self.loop_status_updated.emit(name, "RUNNING")
@@ -291,7 +295,7 @@ class LoopManager(QObject):
         """Остановить все циклы"""
         logger.info("[LoopManager] Остановка всех циклов...")
         self._started = False
-        
+
         for name, loop in self.loops.items():
             try:
                 loop.stop(timeout=timeout)
@@ -304,7 +308,7 @@ class LoopManager(QObject):
         if name not in self.loops:
             logger.error(f"[LoopManager] Цикл '{name}' не найден")
             return False
-        
+
         try:
             self.loops[name].start()
             self.loop_status_updated.emit(name, "RUNNING")
@@ -320,7 +324,7 @@ class LoopManager(QObject):
         if name not in self.loops:
             logger.error(f"[LoopManager] Цикл '{name}' не найден")
             return False
-        
+
         try:
             self.loops[name].stop(timeout=timeout)
             self.loop_status_updated.emit(name, "STOPPED")

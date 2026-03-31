@@ -8,13 +8,13 @@
 - RDTableModel: Модель для R&D директив
 """
 
-from PySide6.QtCore import QAbstractTableModel, Qt
 import pandas as pd
+from PySide6.QtCore import QAbstractTableModel, Qt
 
 
 class DictTableModel(QAbstractTableModel):
     """Модель для отображения списка словарей в таблице."""
-    
+
     def __init__(self, data: list[dict], headers: list[str], key_map: list[str]):
         super().__init__()
         self._data = data
@@ -33,7 +33,7 @@ class DictTableModel(QAbstractTableModel):
             col = index.column()
             if 0 <= row < len(self._data) and 0 <= col < len(self._key_map):
                 key = self._key_map[col]
-                value = self._data[row].get(key, '')
+                value = self._data[row].get(key, "")
                 return str(value)
         return None
 
@@ -46,7 +46,7 @@ class DictTableModel(QAbstractTableModel):
 
 class GenericTableModel(QAbstractTableModel):
     """Универсальная модель для отображения pandas DataFrame."""
-    
+
     def __init__(self, df: pd.DataFrame, headers: list[str] = None):
         super().__init__()
         self._df = df
@@ -76,16 +76,16 @@ class GenericTableModel(QAbstractTableModel):
 
 class RDTableModel(GenericTableModel):
     """Модель для отображения R&D директив с дополнительными методами."""
-    
+
     def __init__(self, df: pd.DataFrame, headers: list[str] = None):
         super().__init__(df, headers)
-    
+
     def get_directive(self, row: int) -> dict:
         """Получение данных директивы по строке."""
         if 0 <= row < len(self._df):
             return self._df.iloc[row].to_dict()
         return None
-    
+
     def update_directive(self, row: int, data: dict):
         """Обновление данных директивы."""
         if 0 <= row < len(self._df):

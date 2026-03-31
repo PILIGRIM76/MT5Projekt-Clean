@@ -14,19 +14,22 @@ Breakout Strategy v2.0 - Стратегия пробоя каналов с ул�
 Автор: Genesis Trading System
 Версия: 2.0.0
 """
+
+import json
 import logging
-from typing import Optional, Tuple, Dict, Any
 from dataclasses import dataclass, field
 from enum import Enum
-import json
 from pathlib import Path
-import pandas as pd
-import numpy as np
+from typing import Any, Dict, Optional, Tuple
 
-from src.data_models import TradeSignal, SignalType
+import numpy as np
+import pandas as pd
+
 from src.core.config_models import Settings
+from src.data_models import SignalType, TradeSignal
+
+from .features import BreakoutFeatureEngine, BreakoutFeatures, FeatureStore
 from .StrategyInterface import BaseStrategy
-from .features import FeatureStore, BreakoutFeatureEngine, BreakoutFeatures
 
 
 class Position:
@@ -49,7 +52,7 @@ class Position:
         entry_price: float,
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None,
-        size: float = 1.0
+        size: float = 1.0,
     ):
         self.symbol = symbol
         self.type = type
@@ -65,6 +68,7 @@ PARAMS_FILE = Path("configs/optimized_params.json")
 
 class BreakoutType(Enum):
     """Типы пробоев."""
+
     UPPER_BREAKOUT = "upper_breakout"
     LOWER_BREAKOUT = "lower_breakout"
     FALSE_BREAKOUT_UPPER = "false_upper"
@@ -74,6 +78,7 @@ class BreakoutType(Enum):
 @dataclass
 class ExitSignal:
     """Сигнал на выход из позиции."""
+
     type: SignalType
     reason: str
     confidence: float
@@ -85,6 +90,7 @@ class ExitSignal:
 @dataclass
 class BreakoutMetrics:
     """Метрики стратегии для мониторинга."""
+
     total_signals: int = 0
     breakout_signals: int = 0
     false_breakouts: int = 0
@@ -100,15 +106,15 @@ class BreakoutMetrics:
     def to_dict(self) -> Dict[str, Any]:
         """Конвертация в словарь для сериализации."""
         return {
-            'total_signals': self.total_signals,
-            'breakout_signals': self.breakout_signals,
-            'false_breakouts': self.false_breakouts,
-            'successful_breakouts': self.successful_breakouts,
-            'avg_confidence': round(self.avg_confidence, 3),
-            'avg_breakout_strength': round(self.avg_breakout_strength, 4),
-            'win_rate': round(self.win_rate, 3),
-            'profit_factor': round(self.profit_factor, 3),
-            'total_pnl': round(self.total_pnl, 2)
+            "total_signals": self.total_signals,
+            "breakout_signals": self.breakout_signals,
+            "false_breakouts": self.false_breakouts,
+            "successful_breakouts": self.successful_breakouts,
+            "avg_confidence": round(self.avg_confidence, 3),
+            "avg_breakout_strength": round(self.avg_breakout_strength, 4),
+            "win_rate": round(self.win_rate, 3),
+            "profit_factor": round(self.profit_factor, 3),
+            "total_pnl": round(self.total_pnl, 2),
         }
 
 
@@ -146,8 +152,7 @@ class BreakoutStrategy(BaseStrategy):
         # Кэш последних сигналов
         self._last_signals: Dict[str, TradeSignal] = {}
 
-        logger.info(
-            f"{self.strategy_name} инициализирована с window={self.window}")
+        logger.info(f"{self.strategy_name} инициализирована с window={self.window}")
 
     def _init_parameters(self):
         """Инициализация и валидация параметров."""
@@ -165,29 +170,26 @@ class BreakoutStrategy(BaseStrategy):
 
         # Параметры для exit signals
         self.atr_stop_multiplier = 2.5  # ATR множитель для stop loss
-        self.risk_reward_ratio = 2.5    # Соотношение риск/прибыль
+        self.risk_reward_ratio = 2.5  # Соотношение риск/прибыль
         # Активация trailing stop (в % от TP)
         self.trailing_stop_activation = 0.5
 
     def _load_optimized_params(self):
         """Загрузка оптимизированных параметров из файла."""
         try:
-            with open(PARAMS_FILE, 'r', encoding='utf-8') as f:
+            with open(PARAMS_FILE, "r", encoding="utf-8") as f:
                 optimized_params = json.load(f)
                 if self.strategy_name in optimized_params:
                     params = optimized_params[self.strategy_name]
                     old_window = self.window
-                    self.window = params.get('window', self.window)
+                    self.window = params.get("window", self.window)
                     logger.info(
-                        f"{self.strategy_name}: загружены ОПТИМИЗИРОВАННЫЕ параметры: "
-                        f"window={old_window} → {self.window}"
+                        f"{self.strategy_name}: загружены ОПТИМИЗИРОВАННЫЕ параметры: " f"window={old_window} → {self.window}"
                     )
         except json.JSONDecodeError as e:
-            logger.error(
-                f"{self.strategy_name}: ошибка парсинга {PARAMS_FILE}: {e}")
+            logger.error(f"{self.strategy_name}: ошибка парсинга {PARAMS_FILE}: {e}")
         except Exception as e:
-            logger.error(
-                f"{self.strategy_name}: ошибка загрузки параметров: {e}")
+            logger.error(f"{self.strategy_name}: ошибка загрузки параметров: {e}")
 
     def _validate_parameters(self):
         """Валидация параметров стратегии."""
@@ -196,14 +198,11 @@ class BreakoutStrategy(BaseStrategy):
 
         # Проверка window
         if not (5 <= self.window <= 100):
-            errors.append(
-                f"window должен быть в диапазоне [5, 100], текущий: {self.window}")
+            errors.append(f"window должен быть в диапазоне [5, 100], текущий: {self.window}")
         elif self.window < 10:
-            warnings.append(
-                f"window={self.window} может давать много ложных сигналов")
+            warnings.append(f"window={self.window} может давать много ложных сигналов")
         elif self.window > 50:
-            warnings.append(
-                f"window={self.window} может пропускать ранние входы")
+            warnings.append(f"window={self.window} может пропускать ранние входы")
 
         # Логирование
         for error in errors:
@@ -212,15 +211,10 @@ class BreakoutStrategy(BaseStrategy):
             logger.warning(f"{self.strategy_name}: {warning}")
 
         if errors:
-            raise ValueError(
-                f"{self.strategy_name}: Критические ошибки параметров: {errors}")
+            raise ValueError(f"{self.strategy_name}: Критические ошибки параметров: {errors}")
 
     def check_entry_conditions(
-        self,
-        df: pd.DataFrame,
-        current_index: int,
-        timeframe: int,
-        symbol: str = None
+        self, df: pd.DataFrame, current_index: int, timeframe: int, symbol: str = None
     ) -> Optional[TradeSignal]:
         """
         Проверка условий для входа в позицию.
@@ -239,36 +233,30 @@ class BreakoutStrategy(BaseStrategy):
             return None
 
         # Расчет признаков (если ещё не рассчитаны)
-        if 'atr' not in df.columns:
+        if "atr" not in df.columns:
             df = self.feature_store.calculate_all_features(
-                df,
-                df['symbol'].iloc[0] if 'symbol' in df.columns else (symbol if symbol else 'UNKNOWN')
+                df, df["symbol"].iloc[0] if "symbol" in df.columns else (symbol if symbol else "UNKNOWN")
             )
 
         # Расчет breakout-признаков
-        breakout_features = self.breakout_engine.calculate_breakout_features(
-            df, self.window, current_index
-        )
+        breakout_features = self.breakout_engine.calculate_breakout_features(df, self.window, current_index)
 
         # Обновление метрик
         self.metrics.total_signals += 1
 
         # Проверка на пробой
-        signal = self._check_breakout(
-            df, current_index, breakout_features, timeframe, symbol
-        )
+        signal = self._check_breakout(df, current_index, breakout_features, timeframe, symbol)
 
         if signal:
             self.metrics.breakout_signals += 1
-            self._log_signal_decision(
-                signal, breakout_features, df, current_index)
+            self._log_signal_decision(signal, breakout_features, df, current_index)
             self._last_signals[signal.symbol] = signal
 
         return signal
 
     def _validate_dataframe(self, df: pd.DataFrame, current_index: int) -> bool:
         """Валидация входных данных."""
-        required_cols = ['high', 'low', 'close']
+        required_cols = ["high", "low", "close"]
         missing_cols = [col for col in required_cols if col not in df.columns]
 
         if missing_cols:
@@ -276,8 +264,7 @@ class BreakoutStrategy(BaseStrategy):
             return False
 
         if current_index < self.window + 1:
-            logger.debug(
-                f"Недостаточно данных: index={current_index}, window={self.window}")
+            logger.debug(f"Недостаточно данных: index={current_index}, window={self.window}")
             return False
 
         if df.empty:
@@ -287,12 +274,7 @@ class BreakoutStrategy(BaseStrategy):
         return True
 
     def _check_breakout(
-        self,
-        df: pd.DataFrame,
-        current_index: int,
-        features: BreakoutFeatures,
-        timeframe: int,
-        symbol: str = None
+        self, df: pd.DataFrame, current_index: int, features: BreakoutFeatures, timeframe: int, symbol: str = None
     ) -> Optional[TradeSignal]:
         """
         Проверка на пробой с фильтрацией ложных сигналов.
@@ -300,20 +282,17 @@ class BreakoutStrategy(BaseStrategy):
         Returns:
             TradeSignal если обнаружен валидный пробой
         """
-        current_price = df['close'].iloc[current_index]
-        prev_price = df['close'].iloc[current_index - 1]
+        current_price = df["close"].iloc[current_index]
+        prev_price = df["close"].iloc[current_index - 1]
 
         # Получение символа через универсальный метод с default_symbol
         symbol = self._get_symbol_from_dataframe(df, current_index, default_symbol=symbol)
-        if symbol == 'UNKNOWN':
-            logger.warning(
-                f"Не удалось определить символ для Breakout стратегии")
+        if symbol == "UNKNOWN":
+            logger.warning(f"Не удалось определить символ для Breakout стратегии")
             return None
 
         # Определение типа пробоя
-        breakout_type = self._determine_breakout_type(
-            current_price, prev_price, features.channel_high, features.channel_low
-        )
+        breakout_type = self._determine_breakout_type(current_price, prev_price, features.channel_high, features.channel_low)
 
         if breakout_type is None:
             return None
@@ -321,32 +300,24 @@ class BreakoutStrategy(BaseStrategy):
         # Фильтр ложных пробоев
         if not self._filter_false_breakout(df, current_index, features, breakout_type):
             self.metrics.false_breakouts += 1
-            logger.debug(
-                f"{symbol}: Пробой отфильтрован (false breakout prob={features.false_breakout_probability:.2f})"
-            )
+            logger.debug(f"{symbol}: Пробой отфильтрован (false breakout prob={features.false_breakout_probability:.2f})")
             return None
 
         # Расчет динамического confidence
-        confidence = self._calculate_dynamic_confidence(
-            df, current_index, features, breakout_type, timeframe
-        )
+        confidence = self._calculate_dynamic_confidence(df, current_index, features, breakout_type, timeframe)
 
         # Минимальный порог confidence
         if confidence < 0.5:
-            logger.debug(
-                f"{symbol}: Confidence {confidence:.2f} ниже порога 0.5")
+            logger.debug(f"{symbol}: Confidence {confidence:.2f} ниже порога 0.5")
             return None
 
         # Обновление метрик
         self.metrics.avg_confidence = (
-            (self.metrics.avg_confidence *
-             (self.metrics.breakout_signals - 1) + confidence)
-            / self.metrics.breakout_signals
-        )
+            self.metrics.avg_confidence * (self.metrics.breakout_signals - 1) + confidence
+        ) / self.metrics.breakout_signals
         self.metrics.avg_breakout_strength = (
-            (self.metrics.avg_breakout_strength * (self.metrics.breakout_signals - 1)
-             + features.breakout_strength) / self.metrics.breakout_signals
-        )
+            self.metrics.avg_breakout_strength * (self.metrics.breakout_signals - 1) + features.breakout_strength
+        ) / self.metrics.breakout_signals
 
         # Создание сигнала
         signal_type = SignalType.BUY if breakout_type == BreakoutType.UPPER_BREAKOUT else SignalType.SELL
@@ -357,20 +328,14 @@ class BreakoutStrategy(BaseStrategy):
             symbol=symbol,
             strategy_name=self.__class__.__name__,
             entry_price=current_price,
-            stop_loss=self._calculate_stop_loss(
-                df, current_index, features, signal_type),
-            take_profit=self._calculate_take_profit(
-                df, current_index, features, signal_type)
+            stop_loss=self._calculate_stop_loss(df, current_index, features, signal_type),
+            take_profit=self._calculate_take_profit(df, current_index, features, signal_type),
         )
 
         return signal
 
     def _determine_breakout_type(
-        self,
-        current_price: float,
-        prev_price: float,
-        channel_high: float,
-        channel_low: float
+        self, current_price: float, prev_price: float, channel_high: float, channel_low: float
     ) -> Optional[BreakoutType]:
         """Определение типа пробоя."""
         # Пробой вверх
@@ -384,11 +349,7 @@ class BreakoutStrategy(BaseStrategy):
         return None
 
     def _filter_false_breakout(
-        self,
-        df: pd.DataFrame,
-        current_index: int,
-        features: BreakoutFeatures,
-        breakout_type: BreakoutType
+        self, df: pd.DataFrame, current_index: int, features: BreakoutFeatures, breakout_type: BreakoutType
     ) -> bool:
         """
         Фильтр ложных пробоев на основе множественных факторов.
@@ -398,27 +359,26 @@ class BreakoutStrategy(BaseStrategy):
         """
         # Фактор 1: Вероятность ложного пробоя (из BreakoutFeatureEngine)
         if features.false_breakout_probability > 0.7:
-            logger.debug(
-                f"Высокая вероятность ложного пробоя: {features.false_breakout_probability:.2f}")
+            logger.debug(f"Высокая вероятность ложного пробоя: {features.false_breakout_probability:.2f}")
             return False
 
         # Фактор 2: Подтверждение объёмом (если доступно)
-        if 'volume_ratio' in df.columns:
-            volume_ratio = df['volume_ratio'].iloc[current_index]
+        if "volume_ratio" in df.columns:
+            volume_ratio = df["volume_ratio"].iloc[current_index]
             if volume_ratio < 0.8:  # Объём ниже 80% от среднего
                 logger.debug(f"Слабый объём: {volume_ratio:.2f}")
                 # Не блокируем полностью, но учитываем в confidence
 
         # Фактор 3: ADX (сила тренда)
-        if 'adx' in df.columns:
-            adx = df['adx'].iloc[current_index]
+        if "adx" in df.columns:
+            adx = df["adx"].iloc[current_index]
             if adx < 15:  # Очень слабый тренд
                 logger.debug(f"Слабый ADX: {adx:.1f}")
                 return False
 
         # Фактор 4: RSI (перекупленность/перепроданность)
-        if 'rsi' in df.columns:
-            rsi = df['rsi'].iloc[current_index]
+        if "rsi" in df.columns:
+            rsi = df["rsi"].iloc[current_index]
             if breakout_type == BreakoutType.UPPER_BREAKOUT and rsi > 80:
                 logger.debug(f"RSI перекуплен: {rsi:.1f}")
                 return False
@@ -439,12 +399,7 @@ class BreakoutStrategy(BaseStrategy):
         return True
 
     def _calculate_dynamic_confidence(
-        self,
-        df: pd.DataFrame,
-        current_index: int,
-        features: BreakoutFeatures,
-        breakout_type: BreakoutType,
-        timeframe: int
+        self, df: pd.DataFrame, current_index: int, features: BreakoutFeatures, breakout_type: BreakoutType, timeframe: int
     ) -> float:
         """
         Расчет динамического confidence на основе 7 факторов.
@@ -463,26 +418,25 @@ class BreakoutStrategy(BaseStrategy):
         """
         # Веса факторов
         weights = {
-            'breakout_strength': 0.25,
-            'volume': 0.15,
-            'trend_strength': 0.15,
-            'volatility': 0.10,
-            'channel_time': 0.10,
-            'timeframe': 0.10,
-            'rsi': 0.15
+            "breakout_strength": 0.25,
+            "volume": 0.15,
+            "trend_strength": 0.15,
+            "volatility": 0.10,
+            "channel_time": 0.10,
+            "timeframe": 0.10,
+            "rsi": 0.15,
         }
 
         scores = {}
 
         # 1. Сила пробоя (0-1)
-        strength_score = min(
-            1.0, features.breakout_strength / 0.5)  # 0.5% = максимум
-        scores['breakout_strength'] = strength_score
+        strength_score = min(1.0, features.breakout_strength / 0.5)  # 0.5% = максимум
+        scores["breakout_strength"] = strength_score
 
         # 2. Объём (0-1)
         volume_score = 0.5  # Базовый score
-        if 'volume_ratio' in df.columns:
-            volume_ratio = df['volume_ratio'].iloc[current_index]
+        if "volume_ratio" in df.columns:
+            volume_ratio = df["volume_ratio"].iloc[current_index]
             if volume_ratio > 1.5:
                 volume_score = 1.0
             elif volume_ratio > 1.2:
@@ -493,12 +447,12 @@ class BreakoutStrategy(BaseStrategy):
                 volume_score = 0.4
             else:
                 volume_score = 0.2
-        scores['volume'] = volume_score
+        scores["volume"] = volume_score
 
         # 3. Сила тренда (ADX) (0-1)
         adx_score = 0.5
-        if 'adx' in df.columns:
-            adx = df['adx'].iloc[current_index]
+        if "adx" in df.columns:
+            adx = df["adx"].iloc[current_index]
             if adx > 40:
                 adx_score = 1.0
             elif adx > 30:
@@ -509,32 +463,32 @@ class BreakoutStrategy(BaseStrategy):
                 adx_score = 0.4
             else:
                 adx_score = 0.2
-        scores['trend_strength'] = adx_score
+        scores["trend_strength"] = adx_score
 
         # 4. Волатильность (0-1) - предпочитаем умеренную
         vol_score = 0.7 if features.volatility_adjusted else 0.3
-        scores['volatility'] = vol_score
+        scores["volatility"] = vol_score
 
         # 5. Время в канале (0-1) - чем дольше, тем сильнее пробой
         channel_time_score = min(1.0, self.window / 20)  # 20 баров = максимум
-        scores['channel_time'] = channel_time_score
+        scores["channel_time"] = channel_time_score
 
         # 6. Таймфрейм (0-1) - старшие таймфреймы надёжнее
         timeframe_scores = {
-            1: 0.3,    # M1
-            5: 0.5,    # M5
-            15: 0.7,   # M15
-            30: 0.8,   # M30
-            60: 0.9,   # H1
+            1: 0.3,  # M1
+            5: 0.5,  # M5
+            15: 0.7,  # M15
+            30: 0.8,  # M30
+            60: 0.9,  # H1
             240: 1.0,  # H4
-            1440: 1.0  # D1
+            1440: 1.0,  # D1
         }
-        scores['timeframe'] = timeframe_scores.get(timeframe, 0.5)
+        scores["timeframe"] = timeframe_scores.get(timeframe, 0.5)
 
         # 7. RSI (0-1) - предпочитаем нейтральный RSI
         rsi_score = 0.5
-        if 'rsi' in df.columns:
-            rsi = df['rsi'].iloc[current_index]
+        if "rsi" in df.columns:
+            rsi = df["rsi"].iloc[current_index]
             if 40 <= rsi <= 60:
                 rsi_score = 1.0
             elif 30 <= rsi <= 70:
@@ -543,13 +497,13 @@ class BreakoutStrategy(BaseStrategy):
                 rsi_score = 0.4
             else:
                 rsi_score = 0.2
-        scores['rsi'] = rsi_score
+        scores["rsi"] = rsi_score
 
         # Расчет взвешенного confidence
         confidence = sum(scores[k] * weights[k] for k in weights.keys())
 
         # Коррекция на вероятность ложного пробоя
-        confidence *= (1.0 - features.false_breakout_probability * 0.3)
+        confidence *= 1.0 - features.false_breakout_probability * 0.3
 
         # Ограничение диапазона
         confidence = max(0.0, min(1.0, confidence))
@@ -557,18 +511,14 @@ class BreakoutStrategy(BaseStrategy):
         return confidence
 
     def _calculate_stop_loss(
-        self,
-        df: pd.DataFrame,
-        current_index: int,
-        features: BreakoutFeatures,
-        signal_type: SignalType
+        self, df: pd.DataFrame, current_index: int, features: BreakoutFeatures, signal_type: SignalType
     ) -> float:
         """Расчет stop loss на основе ATR."""
-        current_price = df['close'].iloc[current_index]
+        current_price = df["close"].iloc[current_index]
 
         # ATR-based stop loss
-        if 'atr' in df.columns:
-            atr = df['atr'].iloc[current_index]
+        if "atr" in df.columns:
+            atr = df["atr"].iloc[current_index]
             if signal_type == SignalType.BUY:
                 stop_loss = current_price - atr * self.atr_stop_multiplier
             else:
@@ -583,18 +533,14 @@ class BreakoutStrategy(BaseStrategy):
         return round(stop_loss, 5)
 
     def _calculate_take_profit(
-        self,
-        df: pd.DataFrame,
-        current_index: int,
-        features: BreakoutFeatures,
-        signal_type: SignalType
+        self, df: pd.DataFrame, current_index: int, features: BreakoutFeatures, signal_type: SignalType
     ) -> float:
         """Расчет take profit на основе risk-reward ratio."""
-        current_price = df['close'].iloc[current_index]
+        current_price = df["close"].iloc[current_index]
 
         # Расчет риска
-        if 'atr' in df.columns:
-            atr = df['atr'].iloc[current_index]
+        if "atr" in df.columns:
+            atr = df["atr"].iloc[current_index]
             risk = atr * self.atr_stop_multiplier
         else:
             risk = abs(features.channel_high - features.channel_low)
@@ -607,12 +553,7 @@ class BreakoutStrategy(BaseStrategy):
 
         return round(take_profit, 5)
 
-    def check_exit_conditions(
-        self,
-        df: pd.DataFrame,
-        current_index: int,
-        position: Position
-    ) -> Optional[ExitSignal]:
+    def check_exit_conditions(self, df: pd.DataFrame, current_index: int, position: Position) -> Optional[ExitSignal]:
         """
         Проверка условий для выхода из позиции.
 
@@ -624,70 +565,43 @@ class BreakoutStrategy(BaseStrategy):
         Returns:
             ExitSignal или None
         """
-        if position.symbol not in [df['symbol'].iloc[current_index] if 'symbol' in df.columns else 'UNKNOWN']:
+        if position.symbol not in [df["symbol"].iloc[current_index] if "symbol" in df.columns else "UNKNOWN"]:
             return None
 
-        current_price = df['close'].iloc[current_index]
+        current_price = df["close"].iloc[current_index]
 
         # Проверка stop loss
         if position.stop_loss:
             if position.type == SignalType.BUY and current_price <= position.stop_loss:
-                return ExitSignal(
-                    type=SignalType.SELL,
-                    reason="stop_loss",
-                    confidence=1.0,
-                    price=current_price
-                )
+                return ExitSignal(type=SignalType.SELL, reason="stop_loss", confidence=1.0, price=current_price)
             if position.type == SignalType.SELL and current_price >= position.stop_loss:
-                return ExitSignal(
-                    type=SignalType.BUY,
-                    reason="stop_loss",
-                    confidence=1.0,
-                    price=current_price
-                )
+                return ExitSignal(type=SignalType.BUY, reason="stop_loss", confidence=1.0, price=current_price)
 
         # Проверка take profit
         if position.take_profit:
             if position.type == SignalType.BUY and current_price >= position.take_profit:
-                return ExitSignal(
-                    type=SignalType.SELL,
-                    reason="take_profit",
-                    confidence=1.0,
-                    price=current_price
-                )
+                return ExitSignal(type=SignalType.SELL, reason="take_profit", confidence=1.0, price=current_price)
             if position.type == SignalType.SELL and current_price <= position.take_profit:
-                return ExitSignal(
-                    type=SignalType.BUY,
-                    reason="take_profit",
-                    confidence=1.0,
-                    price=current_price
-                )
+                return ExitSignal(type=SignalType.BUY, reason="take_profit", confidence=1.0, price=current_price)
 
         # Проверка trailing stop (если позиция в прибыли)
-        trailing_signal = self._check_trailing_stop(
-            df, current_index, position)
+        trailing_signal = self._check_trailing_stop(df, current_index, position)
         if trailing_signal:
             return trailing_signal
 
         # Проверка разворота (exit при противоположном сигнале)
-        reversal_signal = self._check_reversal_exit(
-            df, current_index, position)
+        reversal_signal = self._check_reversal_exit(df, current_index, position)
         if reversal_signal:
             return reversal_signal
 
         return None
 
-    def _check_trailing_stop(
-        self,
-        df: pd.DataFrame,
-        current_index: int,
-        position: Position
-    ) -> Optional[ExitSignal]:
+    def _check_trailing_stop(self, df: pd.DataFrame, current_index: int, position: Position) -> Optional[ExitSignal]:
         """Проверка trailing stop."""
         if not position.take_profit:
             return None
 
-        current_price = df['close'].iloc[current_index]
+        current_price = df["close"].iloc[current_index]
         profit_distance = abs(current_price - position.entry_price)
         tp_distance = abs(position.take_profit - position.entry_price)
 
@@ -696,38 +610,22 @@ class BreakoutStrategy(BaseStrategy):
             return None
 
         # Расчет trailing stop
-        if 'atr' in df.columns:
-            atr = df['atr'].iloc[current_index]
-            trailing_stop = current_price - atr * \
-                1.5 if position.type == SignalType.BUY else current_price + atr * 1.5
+        if "atr" in df.columns:
+            atr = df["atr"].iloc[current_index]
+            trailing_stop = current_price - atr * 1.5 if position.type == SignalType.BUY else current_price + atr * 1.5
 
             # Проверка активации trailing stop
             if position.type == SignalType.BUY and current_price <= trailing_stop:
-                return ExitSignal(
-                    type=SignalType.SELL,
-                    reason="trailing_stop",
-                    confidence=0.9,
-                    price=current_price
-                )
+                return ExitSignal(type=SignalType.SELL, reason="trailing_stop", confidence=0.9, price=current_price)
             if position.type == SignalType.SELL and current_price >= trailing_stop:
-                return ExitSignal(
-                    type=SignalType.BUY,
-                    reason="trailing_stop",
-                    confidence=0.9,
-                    price=current_price
-                )
+                return ExitSignal(type=SignalType.BUY, reason="trailing_stop", confidence=0.9, price=current_price)
 
         return None
 
-    def _check_reversal_exit(
-        self,
-        df: pd.DataFrame,
-        current_index: int,
-        position: Position
-    ) -> Optional[ExitSignal]:
+    def _check_reversal_exit(self, df: pd.DataFrame, current_index: int, position: Position) -> Optional[ExitSignal]:
         """Проверка на разворот стратегии."""
         # Проверка на противоположный сигнал
-        symbol = position.symbol if hasattr(position, 'symbol') else None
+        symbol = position.symbol if hasattr(position, "symbol") else None
         opposite_signal = self.check_entry_conditions(df, current_index, 60, symbol)
 
         if opposite_signal:
@@ -736,33 +634,27 @@ class BreakoutStrategy(BaseStrategy):
                     type=SignalType.SELL,
                     reason="reversal",
                     confidence=opposite_signal.confidence * 0.8,
-                    price=df['close'].iloc[current_index]
+                    price=df["close"].iloc[current_index],
                 )
             if position.type == SignalType.SELL and opposite_signal.type == SignalType.BUY:
                 return ExitSignal(
                     type=SignalType.BUY,
                     reason="reversal",
                     confidence=opposite_signal.confidence * 0.8,
-                    price=df['close'].iloc[current_index]
+                    price=df["close"].iloc[current_index],
                 )
 
         return None
 
-    def _log_signal_decision(
-        self,
-        signal: TradeSignal,
-        features: BreakoutFeatures,
-        df: pd.DataFrame,
-        current_index: int
-    ):
+    def _log_signal_decision(self, signal: TradeSignal, features: BreakoutFeatures, df: pd.DataFrame, current_index: int):
         """Расширенное логирование решения о сигнале."""
-        current_price = df['close'].iloc[current_index]
+        current_price = df["close"].iloc[current_index]
 
         # Дополнительные данные для лога
-        adx = df['adx'].iloc[current_index] if 'adx' in df.columns else 'N/A'
-        rsi = df['rsi'].iloc[current_index] if 'rsi' in df.columns else 'N/A'
-        atr = df['atr'].iloc[current_index] if 'atr' in df.columns else 'N/A'
-        volume_ratio = df['volume_ratio'].iloc[current_index] if 'volume_ratio' in df.columns else 'N/A'
+        adx = df["adx"].iloc[current_index] if "adx" in df.columns else "N/A"
+        rsi = df["rsi"].iloc[current_index] if "rsi" in df.columns else "N/A"
+        atr = df["atr"].iloc[current_index] if "atr" in df.columns else "N/A"
+        volume_ratio = df["volume_ratio"].iloc[current_index] if "volume_ratio" in df.columns else "N/A"
 
         logger.info(
             f"🎯 {self.strategy_name} | {signal.symbol} | {signal.type.name} | "
@@ -792,11 +684,9 @@ class BreakoutStrategy(BaseStrategy):
             self.metrics._loss_trades.append(pnl)
 
         # Пересчет win rate
-        total_trades = len(self.metrics._win_trades) + \
-            len(self.metrics._loss_trades)
+        total_trades = len(self.metrics._win_trades) + len(self.metrics._loss_trades)
         if total_trades > 0:
-            self.metrics.win_rate = len(
-                self.metrics._win_trades) / total_trades
+            self.metrics.win_rate = len(self.metrics._win_trades) / total_trades
 
         # Пересчет profit factor
         gross_profit = sum(t for t in self.metrics._win_trades if t > 0)
@@ -804,7 +694,7 @@ class BreakoutStrategy(BaseStrategy):
         if gross_loss > 0:
             self.metrics.profit_factor = gross_profit / gross_loss
         elif gross_profit > 0:
-            self.metrics.profit_factor = float('inf')
+            self.metrics.profit_factor = float("inf")
 
     def get_metrics(self) -> Dict[str, Any]:
         """Получение текущих метрик стратегии."""
@@ -813,13 +703,11 @@ class BreakoutStrategy(BaseStrategy):
     def get_status(self) -> Dict[str, Any]:
         """Получение статуса стратегии."""
         return {
-            'name': self.strategy_name,
-            'window': self.window,
-            'active_positions': len(self._active_positions),
-            'metrics': self.get_metrics(),
-            'last_signals': {
-                k: {'type': v.type.name,
-                    'confidence': v.confidence, 'symbol': v.symbol}
-                for k, v in self._last_signals.items()
-            }
+            "name": self.strategy_name,
+            "window": self.window,
+            "active_positions": len(self._active_positions),
+            "metrics": self.get_metrics(),
+            "last_signals": {
+                k: {"type": v.type.name, "confidence": v.confidence, "symbol": v.symbol} for k, v in self._last_signals.items()
+            },
         }

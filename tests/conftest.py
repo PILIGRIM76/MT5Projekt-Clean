@@ -7,47 +7,47 @@
 - Утилиты для тестирования
 """
 
-import pytest
 import asyncio
 import logging
-from datetime import datetime
-from typing import Generator, Dict, Any
-from unittest.mock import Mock, MagicMock, patch
-from pathlib import Path
-import sys
 import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Generator
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 # Добавляем src в path для импортов
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Импорты компонентов
-from src.core.events import Event, EventType, EventFactory
-from src.core.event_bus import EventBus, event_bus
 from src.core.config_models import Settings
+from src.core.event_bus import EventBus, event_bus
 
+# Импорты компонентов
+from src.core.events import Event, EventFactory, EventType
 
 # ===========================================
 # Logging Configuration
 # ===========================================
 
+
 @pytest.fixture(autouse=True)
 def setup_logging() -> None:
     """Настройка логирования для всех тестов."""
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 
 # ===========================================
 # Event Bus Fixtures
 # ===========================================
 
+
 @pytest.fixture
 def clean_event_bus() -> Generator[EventBus, None, None]:
     """
     Фикстура для очистки Event Bus между тестами.
-    
+
     Usage:
         def test_something(clean_event_bus):
             clean_event_bus.publish(...)
@@ -56,9 +56,9 @@ def clean_event_bus() -> Generator[EventBus, None, None]:
     event_bus._subscribers.clear()
     event_bus._async_subscribers.clear()
     event_bus._event_history.clear()
-    
+
     yield event_bus
-    
+
     # Cleanup после теста
     event_bus._subscribers.clear()
     event_bus._async_subscribers.clear()
@@ -68,12 +68,13 @@ def clean_event_bus() -> Generator[EventBus, None, None]:
 @pytest.fixture
 def event_bus_with_subscribers(clean_event_bus) -> EventBus:
     """Event Bus с тестовыми подписчиками."""
+
     def dummy_handler(event: Event):
         pass
-    
+
     clean_event_bus.subscribe(EventType.TRADE_OPENED, dummy_handler)
     clean_event_bus.subscribe(EventType.SYSTEM_ERROR, dummy_handler)
-    
+
     return clean_event_bus
 
 
@@ -81,19 +82,15 @@ def event_bus_with_subscribers(clean_event_bus) -> EventBus:
 # Event Fixtures
 # ===========================================
 
+
 @pytest.fixture
 def sample_trade_event() -> Event:
     """Пример события торговли."""
     return Event(
         type=EventType.TRADE_OPENED,
         timestamp=datetime(2026, 3, 31, 12, 0, 0),
-        data={
-            "symbol": "EURUSD",
-            "lot": 0.1,
-            "price": 1.1000,
-            "ticket": 12345
-        },
-        source="TestTrader"
+        data={"symbol": "EURUSD", "lot": 0.1, "price": 1.1000, "ticket": 12345},
+        source="TestTrader",
     )
 
 
@@ -103,12 +100,8 @@ def sample_risk_event() -> Event:
     return Event(
         type=EventType.RISK_CHECK_FAILED,
         timestamp=datetime(2026, 3, 31, 12, 0, 0),
-        data={
-            "reason": "Drawdown limit exceeded",
-            "current_drawdown": 0.15,
-            "max_drawdown": 0.10
-        },
-        source="RiskEngine"
+        data={"reason": "Drawdown limit exceeded", "current_drawdown": 0.15, "max_drawdown": 0.10},
+        source="RiskEngine",
     )
 
 
@@ -118,11 +111,8 @@ def sample_system_event() -> Event:
     return Event(
         type=EventType.SYSTEM_STARTED,
         timestamp=datetime(2026, 3, 31, 12, 0, 0),
-        data={
-            "version": "13.0.0",
-            "mode": "backtest"
-        },
-        source="TradingSystem"
+        data={"version": "13.0.0", "mode": "backtest"},
+        source="TradingSystem",
     )
 
 
@@ -130,11 +120,18 @@ def sample_system_event() -> Event:
 # Config Fixtures
 # ===========================================
 
+
 @pytest.fixture
 def minimal_config() -> Settings:
     """Минимальная конфигурация для тестов."""
-    from src.core.config_models import ConsensusWeights, StrategiesParams, RDCycleSettings, OnlineLearningSettings, AnomalyDetectorSettings
-    
+    from src.core.config_models import (
+        AnomalyDetectorSettings,
+        ConsensusWeights,
+        OnlineLearningSettings,
+        RDCycleSettings,
+        StrategiesParams,
+    )
+
     return Settings(
         MT5_LOGIN="test_login",
         MT5_PASSWORD="test_password",
@@ -178,12 +175,7 @@ def minimal_config() -> Settings:
         INPUT_LAYER_SIZE=60,
         TRAINING_DATA_POINTS=1000,
         PREDICTION_DATA_POINTS=100,
-        CONSENSUS_WEIGHTS=ConsensusWeights(
-            ai_forecast=0.5,
-            classic_strategies=0.3,
-            sentiment_kg=0.1,
-            on_chain_data=0.1
-        ),
+        CONSENSUS_WEIGHTS=ConsensusWeights(ai_forecast=0.5, classic_strategies=0.3, sentiment_kg=0.1, on_chain_data=0.1),
         # Добавляем недостающие поля
         STRATEGY_REGIME_MAPPING={"Default": "AI_Model"},
         STRATEGY_WEIGHTS={"AI_Model": 1.0},
@@ -200,7 +192,7 @@ def minimal_config() -> Settings:
         anomaly_detector=AnomalyDetectorSettings(),
         EVENT_BLOCK_WINDOW_HOURS=2,
         ALLOW_WEEKEND_TRADING=True,
-        strategies=StrategiesParams()
+        strategies=StrategiesParams(),
     )
 
 
@@ -208,7 +200,7 @@ def minimal_config() -> Settings:
 def full_config() -> Settings:
     """Полная конфигурация для тестов."""
     from src.core.config_models import ConsensusWeights
-    
+
     return Settings(
         MT5_LOGIN="test_login",
         MT5_PASSWORD="test_password",
@@ -254,12 +246,7 @@ def full_config() -> Settings:
         INPUT_LAYER_SIZE=60,
         TRAINING_DATA_POINTS=2000,
         PREDICTION_DATA_POINTS=300,
-        CONSENSUS_WEIGHTS=ConsensusWeights(
-            ai_forecast=0.5,
-            classic_strategies=0.3,
-            sentiment_kg=0.1,
-            on_chain_data=0.1
-        )
+        CONSENSUS_WEIGHTS=ConsensusWeights(ai_forecast=0.5, classic_strategies=0.3, sentiment_kg=0.1, on_chain_data=0.1),
     )
 
 
@@ -267,11 +254,12 @@ def full_config() -> Settings:
 # Mock Fixtures
 # ===========================================
 
+
 @pytest.fixture
 def mock_mt5() -> MagicMock:
     """Мок для MetaTrader5."""
     mt5 = MagicMock()
-    
+
     # Мокирование основных методов MT5
     mt5.initialize.return_value = True
     mt5.last_error.return_value = (0, "Success")
@@ -280,7 +268,7 @@ def mock_mt5() -> MagicMock:
     mt5.symbol_select.return_value = True
     mt5.symbol_info_tick.return_value = Mock(ask=1.1000, bid=1.0998, time=datetime.utcnow())
     mt5.order_send.return_value = Mock(retcode=10009, deal=12345, order=12345)
-    
+
     return mt5
 
 
@@ -301,10 +289,7 @@ def mock_vector_db_manager() -> MagicMock:
     vector_db.is_ready.return_value = True
     vector_db.search.return_value = []
     vector_db.add.return_value = True
-    vector_db.query_similar.return_value = {
-        'ids': [['doc1', 'doc2']],
-        'distances': [[0.1, 0.2]]
-    }
+    vector_db.query_similar.return_value = {"ids": [["doc1", "doc2"]], "distances": [[0.1, 0.2]]}
     return vector_db
 
 
@@ -312,6 +297,7 @@ def mock_vector_db_manager() -> MagicMock:
 def mock_embedding_model() -> MagicMock:
     """Мок для embedding модели."""
     import numpy as np
+
     model = MagicMock()
     model.encode.return_value = np.array([0.1, 0.2, 0.3])
     return model
@@ -362,6 +348,7 @@ def mock_trading_system() -> MagicMock:
 # Async Fixtures
 # ===========================================
 
+
 @pytest.fixture
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """Создание event loop для асинхронных тестов."""
@@ -376,9 +363,9 @@ async def async_event_bus() -> Generator[EventBus, None, None]:
     event_bus._subscribers.clear()
     event_bus._async_subscribers.clear()
     event_bus._event_history.clear()
-    
+
     yield event_bus
-    
+
     event_bus._subscribers.clear()
     event_bus._async_subscribers.clear()
     event_bus._event_history.clear()
@@ -387,6 +374,7 @@ async def async_event_bus() -> Generator[EventBus, None, None]:
 # ===========================================
 # Utility Fixtures
 # ===========================================
+
 
 @pytest.fixture
 def temp_directory(tmp_path: Path) -> Path:
@@ -407,9 +395,9 @@ def sample_market_data() -> Dict[str, Any]:
             "high": [1.0998, 1.1003, 1.1008, 1.1013, 1.1018],
             "low": [1.0985, 1.0990, 1.0995, 1.1000, 1.1005],
             "close": [1.0995, 1.1000, 1.1005, 1.1010, 1.1015],
-            "tick_volume": [100, 150, 200, 250, 300]
+            "tick_volume": [100, 150, 200, 250, 300],
         },
-        "timestamp": datetime.utcnow()
+        "timestamp": datetime.utcnow(),
     }
 
 
@@ -420,23 +408,17 @@ def sample_portfolio() -> Dict[str, Any]:
         "balance": 10000.0,
         "equity": 10150.0,
         "positions": [
-            {
-                "symbol": "EURUSD",
-                "type": "BUY",
-                "lots": 0.1,
-                "price_open": 1.0950,
-                "price_current": 1.1000,
-                "pnl": 50.0
-            }
+            {"symbol": "EURUSD", "type": "BUY", "lots": 0.1, "price_open": 1.0950, "price_current": 1.1000, "pnl": 50.0}
         ],
         "daily_pnl": 150.0,
-        "drawdown": 0.02
+        "drawdown": 0.02,
     }
 
 
 # ===========================================
 # Event Factory Fixtures
 # ===========================================
+
 
 @pytest.fixture
 def event_factory() -> EventFactory:
@@ -455,34 +437,28 @@ def trade_opened_event(event_factory) -> Event:
         stop_loss=1.0950,
         take_profit=1.1100,
         strategy_name="TestStrategy",
-        ticket=12345
+        ticket=12345,
     )
 
 
 @pytest.fixture
 def trade_closed_event(event_factory) -> Event:
     """Событие закрытия сделки."""
-    return event_factory.create_trade_closed(
-        ticket=12345,
-        symbol="EURUSD",
-        pnl=50.0,
-        close_reason="TP"
-    )
+    return event_factory.create_trade_closed(ticket=12345, symbol="EURUSD", pnl=50.0, close_reason="TP")
 
 
 @pytest.fixture
 def system_error_event(event_factory) -> Event:
     """Событие системной ошибки."""
     return event_factory.create_system_error(
-        component="TestComponent",
-        message="Test error message",
-        error_details="Detailed error information"
+        component="TestComponent", message="Test error message", error_details="Detailed error information"
     )
 
 
 # ===========================================
 # Risk Engine Fixtures
 # ===========================================
+
 
 @pytest.fixture
 def mock_kg_querier() -> MagicMock:
@@ -567,12 +543,12 @@ def mock_settings() -> Settings:
     telegram_config.enabled = False
     telegram_config.chat_id = "test_chat_id"
     telegram_config.get.side_effect = lambda key, default=None: {
-        'bot_token_env': 'TELEGRAM_BOT_TOKEN',
-        'chat_id_env': 'TELEGRAM_CHAT_ID',
-        'enabled': False
+        "bot_token_env": "TELEGRAM_BOT_TOKEN",
+        "chat_id_env": "TELEGRAM_CHAT_ID",
+        "enabled": False,
     }.get(key, default)
     settings.alerting.channels.telegram = telegram_config
-    
+
     settings.alerting.channels.email = MagicMock()
     settings.alerting.channels.email.enabled = False
     settings.alerting.channels.email.address = "test@example.com"
@@ -598,18 +574,14 @@ def mock_settings() -> Settings:
 def consensus_engine(mock_config, mock_db_manager, mock_vector_db_manager, mock_embedding_model):
     """Фикстура для создания ConsensusEngine."""
     from src.ml.consensus_engine import ConsensusEngine
-    
-    engine = ConsensusEngine(
-        config=mock_config,
-        db_manager=mock_db_manager,
-        vector_db_manager=mock_vector_db_manager
-    )
+
+    engine = ConsensusEngine(config=mock_config, db_manager=mock_db_manager, vector_db_manager=mock_vector_db_manager)
     engine.embedding_model = mock_embedding_model
-    
+
     # Мокаем sentiment pipeline
     engine.sentiment_pipeline = MagicMock()
-    engine.sentiment_pipeline.return_value = [{'label': 'positive', 'score': 0.9}]
-    
+    engine.sentiment_pipeline.return_value = [{"label": "positive", "score": 0.9}]
+
     return engine
 
 
@@ -617,20 +589,70 @@ def consensus_engine(mock_config, mock_db_manager, mock_vector_db_manager, mock_
 def risk_engine(minimal_config, mock_trading_system, mock_kg_querier):
     """
     Фикстура для создания RiskEngine.
-    
+
     Usage:
         def test_something(risk_engine):
             risk_engine.check_trade(...)
     """
-    with patch('src.risk.risk_engine.VolatilityForecaster'):
-        with patch('src.risk.risk_engine.StressTester'):
-            with patch('src.risk.risk_engine.AnomalyDetector'):
+    with patch("src.risk.risk_engine.VolatilityForecaster"):
+        with patch("src.risk.risk_engine.StressTester"):
+            with patch("src.risk.risk_engine.AnomalyDetector"):
                 from src.risk.risk_engine import RiskEngine
-                
+
                 return RiskEngine(
                     config=minimal_config,
                     trading_system_ref=mock_trading_system,
                     querier=mock_kg_querier,
                     mt5_lock=MagicMock(),
-                    is_simulation=True
+                    is_simulation=True,
                 )
+
+
+@pytest.fixture
+def mock_bridge():
+    """
+    Фикстура для создания мок объекта Bridge.
+
+    Используется для тестов TradingSystem и других компонентов,
+    требующих bridge для связи с GUI.
+
+    Usage:
+        def test_something(mock_bridge):
+            ts = TradingSystem(config, bridge=mock_bridge)
+    """
+    bridge = MagicMock()
+
+    # Настраиваем основные сигналы bridge
+    bridge.status_updated = MagicMock()
+    bridge.balance_updated = MagicMock()
+    bridge.log_message_added = MagicMock()
+    bridge.positions_updated = MagicMock()
+    bridge.history_updated = MagicMock()
+    bridge.training_history_updated = MagicMock()
+    bridge.candle_chart_updated = MagicMock()
+    bridge.pnl_updated = MagicMock()
+    bridge.market_scan_updated = MagicMock()
+    bridge.trading_signals_updated = MagicMock()
+    bridge.uptime_updated = MagicMock()
+    bridge.rd_progress_updated = MagicMock()
+    bridge.xai_data_ready = MagicMock()
+    bridge.all_positions_closed = MagicMock()
+    bridge.backtest_finished = MagicMock()
+    bridge.market_regime_updated = MagicMock()
+    bridge.update_status_changed = MagicMock()
+    bridge.initialization_successful = MagicMock()
+    bridge.initialization_failed = MagicMock()
+    bridge.directives_updated = MagicMock()
+    bridge.times_updated = MagicMock()
+    bridge.model_list_updated = MagicMock()
+    bridge.orchestrator_allocation_updated = MagicMock()
+    bridge.knowledge_graph_updated = MagicMock()
+    bridge.observer_pnl_updated = MagicMock()
+    bridge.vector_db_search_results = MagicMock()
+    bridge.thread_status_updated = MagicMock()
+    bridge.long_task_status_updated = MagicMock()
+    bridge.heavy_initialization_finished = MagicMock()
+    bridge.drift_data_updated = MagicMock()
+    bridge.pnl_kpis_updated = MagicMock()
+
+    return bridge

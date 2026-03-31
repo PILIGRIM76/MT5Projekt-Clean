@@ -9,14 +9,15 @@ Unit тесты для Worker (QThreadPool).
 - Отправку результатов
 """
 
-import pytest
+import os
+import sys
 import time
 from unittest.mock import MagicMock, patch
-from PySide6.QtCore import QThreadPool, QThread
-import sys
-import os
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import pytest
+from PySide6.QtCore import QThread, QThreadPool
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.utils.worker import Worker, WorkerSignals
 
@@ -29,20 +30,20 @@ class TestWorkerSignals:
         signals = WorkerSignals()
 
         assert signals is not None
-        assert hasattr(signals, 'finished')
-        assert hasattr(signals, 'error')
-        assert hasattr(signals, 'result')
-        assert hasattr(signals, 'progress')
-        assert hasattr(signals, 'log_message')
+        assert hasattr(signals, "finished")
+        assert hasattr(signals, "error")
+        assert hasattr(signals, "result")
+        assert hasattr(signals, "progress")
+        assert hasattr(signals, "log_message")
 
     def test_worker_signals_signals_are_slots(self):
         """Проверка что атрибуты являются Signal."""
         signals = WorkerSignals()
 
         # Проверяем что это объекты Signal
-        assert hasattr(signals, 'finished')
-        assert hasattr(signals, 'error')
-        assert hasattr(signals, 'result')
+        assert hasattr(signals, "finished")
+        assert hasattr(signals, "error")
+        assert hasattr(signals, "result")
 
 
 class TestWorkerInit:
@@ -50,6 +51,7 @@ class TestWorkerInit:
 
     def test_worker_creation_with_function(self):
         """Создание Worker с функцией."""
+
         def test_func():
             return "result"
 
@@ -63,6 +65,7 @@ class TestWorkerInit:
 
     def test_worker_creation_with_args(self):
         """Создание Worker с аргументами."""
+
         def test_func(a, b):
             return a + b
 
@@ -74,6 +77,7 @@ class TestWorkerInit:
 
     def test_worker_creation_with_kwargs(self):
         """Создание Worker с именованными аргументами."""
+
         def test_func(a, b=10):
             return a + b
 
@@ -81,7 +85,7 @@ class TestWorkerInit:
 
         assert worker.fn == test_func
         assert worker.args == (5,)
-        assert worker.kwargs == {'b': 20}
+        assert worker.kwargs == {"b": 20}
 
 
 class TestWorkerExecution:
@@ -95,7 +99,7 @@ class TestWorkerExecution:
             return "test_result"
 
         worker = Worker(test_func)
-        
+
         def store_result(result):
             results.append(result)
 
@@ -118,7 +122,7 @@ class TestWorkerExecution:
             return a + b
 
         worker = Worker(add_func, 5, 3)
-        
+
         def store_result(result):
             results.append(result)
 
@@ -139,7 +143,7 @@ class TestWorkerExecution:
             return f"{greeting}, {name}!"
 
         worker = Worker(greet_func, "World", greeting="Hi")
-        
+
         def store_result(result):
             results.append(result)
 
@@ -164,7 +168,7 @@ class TestWorkerErrorHandling:
             raise ValueError("Test error")
 
         worker = Worker(failing_func)
-        
+
         def store_error(error):
             errors.append(error)
 
@@ -188,7 +192,7 @@ class TestWorkerErrorHandling:
             return 1 / 0
 
         worker = Worker(divide_func)
-        
+
         def store_error(error):
             errors.append(error)
 
@@ -215,7 +219,7 @@ class TestWorkerSignalsEmission:
             return "done"
 
         worker = Worker(simple_func)
-        
+
         def mark_finished():
             finished_called.append(True)
 
@@ -237,7 +241,7 @@ class TestWorkerSignalsEmission:
             return 42
 
         worker = Worker(returning_func)
-        
+
         def store_result(result):
             results.append(result)
 
@@ -262,21 +266,23 @@ class TestWorkerProgress:
 
     def test_worker_has_progress_signal(self):
         """Worker имеет progress сигнал."""
+
         def test_func():
             pass
 
         worker = Worker(test_func)
 
-        assert hasattr(worker.signals, 'progress')
+        assert hasattr(worker.signals, "progress")
 
     def test_worker_log_message_signal(self):
         """Worker имеет log_message сигнал."""
+
         def test_func():
             pass
 
         worker = Worker(test_func)
 
-        assert hasattr(worker.signals, 'log_message')
+        assert hasattr(worker.signals, "log_message")
 
 
 class TestWorkerThreadPool:
@@ -329,5 +335,5 @@ class TestWorkerThreadPool:
         assert sorted(results) == [0, 2, 4, 6, 8]
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

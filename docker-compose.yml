@@ -16,7 +16,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: genesis-trading
-    
+
     # Environment Variables
     environment:
       # MT5 Credentials (from .env)
@@ -24,23 +24,23 @@ services:
       - MT5_PASSWORD=${MT5_PASSWORD}
       - MT5_SERVER=${MT5_SERVER}
       - MT5_PATH=${MT5_PATH:-/mt5/terminal64.exe}
-      
+
       # API Keys (from .env)
       - FINNHUB_API_KEY=${FINNHUB_API_KEY}
       - ALPHA_VANTAGE_API_KEY=${ALPHA_VANTAGE_API_KEY}
       - NEWS_API_KEY=${NEWS_API_KEY}
       - FCS_API_KEY=${FCS_API_KEY}
-      
+
       # Database
       - DATABASE_URL=sqlite:///app/database/trading_system.db
-      
+
       # Encryption
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      
+
       # System
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=INFO
-    
+
     # Volumes
     volumes:
       # Database
@@ -51,26 +51,26 @@ services:
       - ./configs:/app/configs:ro
       # Vector DB
       - vector_db:/app/vector_db
-    
+
     # Ports
     ports:
       - "8000:8000"  # Web Dashboard
       - "8080:8080"  # Metrics
-    
+
     # Dependencies
     depends_on:
       redis:
         condition: service_healthy
       db:
         condition: service_healthy
-    
+
     # Networks
     networks:
       - trading-network
-    
+
     # Restart Policy
     restart: unless-stopped
-    
+
     # Resource Limits
     deploy:
       resources:
@@ -80,7 +80,7 @@ services:
         reservations:
           cpus: '2.0'
           memory: 2G
-    
+
     # Health Check
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/v1/status', timeout=5)"]
@@ -95,24 +95,24 @@ services:
   db:
     image: postgres:14-alpine
     container_name: genesis-db
-    
+
     environment:
       - POSTGRES_DB=trading
       - POSTGRES_USER=trading_user
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secure_password_change_me}
-    
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    
+
     ports:
       - "5432:5432"
-    
+
     networks:
       - trading-network
-    
+
     restart: unless-stopped
-    
+
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U trading_user -d trading"]
       interval: 10s
@@ -125,20 +125,20 @@ services:
   redis:
     image: redis:7-alpine
     container_name: genesis-redis
-    
+
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
-    
+
     volumes:
       - redis_data:/data
-    
+
     ports:
       - "6379:6379"
-    
+
     networks:
       - trading-network
-    
+
     restart: unless-stopped
-    
+
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -151,26 +151,26 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: genesis-prometheus
-    
+
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
-    
+
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
       - '--web.enable-lifecycle'
-    
+
     ports:
       - "9090:9090"
-    
+
     networks:
       - trading-network
-    
+
     restart: unless-stopped
-    
+
     depends_on:
       - trading-system
 
@@ -180,26 +180,26 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: genesis-grafana
-    
+
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=http://localhost:3000
-    
+
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
-    
+
     ports:
       - "3000:3000"
-    
+
     networks:
       - trading-network
-    
+
     restart: unless-stopped
-    
+
     depends_on:
       - prometheus
 
@@ -209,20 +209,20 @@ services:
   nginx:
     image: nginx:alpine
     container_name: genesis-nginx
-    
+
     volumes:
       - ./monitoring/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./monitoring/ssl:/etc/nginx/ssl:ro
-    
+
     ports:
       - "80:80"
       - "443:443"
-    
+
     networks:
       - trading-network
-    
+
     restart: unless-stopped
-    
+
     depends_on:
       - trading-system
       - grafana

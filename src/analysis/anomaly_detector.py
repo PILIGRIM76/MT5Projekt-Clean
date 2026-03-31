@@ -1,13 +1,13 @@
 # src/analysis/anomaly_detector.py
 import logging
-import pandas as pd
-import numpy as np
 from typing import Optional, Tuple
 
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import MinMaxScaler
+from torch.utils.data import DataLoader, TensorDataset
 
 from src.core.config_models import Settings
 
@@ -21,13 +21,7 @@ class Autoencoder(nn.Module):
     def __init__(self, input_dim: int):
         super(Autoencoder, self).__init__()
         # Encoder
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim, 32),
-            nn.ReLU(),
-            nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Linear(16, 8)
-        )
+        self.encoder = nn.Sequential(nn.Linear(input_dim, 32), nn.ReLU(), nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 8))
         # Decoder
         self.decoder = nn.Sequential(
             nn.Linear(8, 16),
@@ -35,7 +29,7 @@ class Autoencoder(nn.Module):
             nn.Linear(16, 32),
             nn.ReLU(),
             nn.Linear(32, input_dim),
-            nn.Sigmoid()  # Sigmoid на выходе, т.к. данные нормализованы в [0, 1]
+            nn.Sigmoid(),  # Sigmoid на выходе, т.к. данные нормализованы в [0, 1]
         )
 
     def forward(self, x):
@@ -158,8 +152,7 @@ class AnomalyDetector:
 
             is_anomaly = error > self.threshold
             if is_anomaly:
-                logger.warning(
-                    f"!!! АНОМАЛИЯ ОБНАРУЖЕНА !!! Ошибка восстановления: {error:.6f} (Порог: {self.threshold:.6f})")
+                logger.warning(f"!!! АНОМАЛИЯ ОБНАРУЖЕНА !!! Ошибка восстановления: {error:.6f} (Порог: {self.threshold:.6f})")
 
             return is_anomaly, float(error)
 

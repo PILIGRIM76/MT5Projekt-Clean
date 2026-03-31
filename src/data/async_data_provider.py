@@ -12,22 +12,23 @@
     async with AsyncDataProvider(config) as provider:
         # Параллельное получение данных для всех символов
         data_dict = await provider.get_multiple_symbols_data(symbols)
-        
+
         # Асинхронная загрузка новостей
         news = await provider.fetch_news_batch(symbols)
 """
 
 import asyncio
+import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
 import aiohttp
 import asyncpg
-import logging
-from typing import List, Dict, Optional, Any, Tuple
-from datetime import datetime
-import pandas as pd
 import MetaTrader5 as mt5
+import pandas as pd
 
 from src.core.config_models import Settings
-from src.utils.cache_manager import quotes_cache, news_cache, cache_result
+from src.utils.cache_manager import cache_result, news_cache, quotes_cache
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 # ===========================================
 # Async Data Provider
 # ===========================================
+
 
 class AsyncDataProvider:
     """
@@ -70,19 +72,12 @@ class AsyncDataProvider:
 
         # HTTP сессия - ИСПРАВЛЕНИЕ: отключаем прокси
         connector = aiohttp.TCPConnector(limit=50, ttl_dns_cache=300)
-        self.session = aiohttp.ClientSession(
-            connector=connector,
-            trust_env=False  # Игнорировать переменные окружения прокси
-        )
+        self.session = aiohttp.ClientSession(connector=connector, trust_env=False)  # Игнорировать переменные окружения прокси
 
         # DB pool (если используется PostgreSQL)
         try:
             self.db_pool = await asyncpg.create_pool(
-                self.config.DATABASE_URL.replace(
-                    'sqlite:///', 'postgresql://'),
-                min_size=5,
-                max_size=20,
-                command_timeout=60
+                self.config.DATABASE_URL.replace("sqlite:///", "postgresql://"), min_size=5, max_size=20, command_timeout=60
             )
             logger.info("DB pool создан")
         except Exception:
@@ -116,12 +111,7 @@ class AsyncDataProvider:
     # Historical Data
     # ===========================================
 
-    async def fetch_historical_data(
-        self,
-        symbol: str,
-        timeframe: str = "H1",
-        bars: int = 1000
-    ) -> Optional[pd.DataFrame]:
+    async def fetch_historical_data(self, symbol: str, timeframe: str = "H1", bars: int = 1000) -> Optional[pd.DataFrame]:
         """
         Асинхронное получение исторических данных из MT5.
 
@@ -143,21 +133,18 @@ class AsyncDataProvider:
 
             # Синхронный вызов MT5 в executor
             loop = asyncio.get_event_loop()
-            rates = await loop.run_in_executor(
-                None,
-                lambda: self._get_rates_from_mt5(symbol, timeframe, bars)
-            )
+            rates = await loop.run_in_executor(None, lambda: self._get_rates_from_mt5(symbol, timeframe, bars))
 
             if rates is None or len(rates) == 0:
                 return None
 
             # Преобразование в DataFrame
             df = pd.DataFrame(rates)
-            df['time'] = pd.to_datetime(df['time'], unit='s')
-            df.set_index('time', inplace=True)
+            df["time"] = pd.to_datetime(df["time"], unit="s")
+            df.set_index("time", inplace=True)
 
             # Добавляем символ для корректной работы стратегий
-            df['symbol'] = symbol
+            df["symbol"] = symbol
 
             # Сохранение в кэш
             quotes_cache.put(cache_key, df, ttl=30)  # 30 секунд
@@ -183,12 +170,12 @@ class AsyncDataProvider:
         """
         # Маппинг таймфреймов
         timeframe_map = {
-            'M1': mt5.TIMEFRAME_M1,
-            'M5': mt5.TIMEFRAME_M5,
-            'M15': mt5.TIMEFRAME_M15,
-            'H1': mt5.TIMEFRAME_H1,
-            'H4': mt5.TIMEFRAME_H4,
-            'D1': mt5.TIMEFRAME_D1
+            "M1": mt5.TIMEFRAME_M1,
+            "M5": mt5.TIMEFRAME_M5,
+            "M15": mt5.TIMEFRAME_M15,
+            "H1": mt5.TIMEFRAME_H1,
+            "H4": mt5.TIMEFRAME_H4,
+            "D1": mt5.TIMEFRAME_D1,
         }
 
         tf = timeframe_map.get(timeframe, mt5.TIMEFRAME_H1)
@@ -205,11 +192,7 @@ class AsyncDataProvider:
     # ===========================================
 
     async def get_multiple_symbols_data(
-        self,
-        symbols: List[str],
-        timeframe: str = "H1",
-        bars: int = 1000,
-        max_concurrent: int = 10
+        self, symbols: List[str], timeframe: str = "H1", bars: int = 1000, max_concurrent: int = 10
     ) -> Dict[str, pd.DataFrame]:
         """
         Параллельное получение данных для нескольких символов.
@@ -252,8 +235,7 @@ class AsyncDataProvider:
             else:
                 logger.warning(f"Нет данных для {symbol}")
 
-        logger.info(
-            f"Загружено данных для {len(data_dict)}/{len(symbols)} символов")
+        logger.info(f"Загружено данных для {len(data_dict)}/{len(symbols)} символов")
         return data_dict
 
     # ===========================================
@@ -279,10 +261,7 @@ class AsyncDataProvider:
 
             # Синхронный вызов в executor
             loop = asyncio.get_event_loop()
-            quotes = await loop.run_in_executor(
-                None,
-                lambda: self._get_quotes_from_mt5(symbols)
-            )
+            quotes = await loop.run_in_executor(None, lambda: self._get_quotes_from_mt5(symbols))
 
             # Сохранение в кэш
             quotes_cache.put(cache_key, quotes, ttl=5)  # 5 секунд
@@ -309,11 +288,11 @@ class AsyncDataProvider:
             tick = mt5.symbol_info_tick(symbol)
             if tick is not None:
                 quotes[symbol] = {
-                    'bid': float(tick.bid),
-                    'ask': float(tick.ask),
-                    'last': float(tick.last),
-                    'volume': int(tick.volume),
-                    'time': datetime.fromtimestamp(tick.time)
+                    "bid": float(tick.bid),
+                    "ask": float(tick.ask),
+                    "last": float(tick.last),
+                    "volume": int(tick.volume),
+                    "time": datetime.fromtimestamp(tick.time),
                 }
 
         return quotes
@@ -322,11 +301,7 @@ class AsyncDataProvider:
     # News (Async HTTP)
     # ===========================================
 
-    async def fetch_news_batch(
-        self,
-        symbols: List[str],
-        sources: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+    async def fetch_news_batch(self, symbols: List[str], sources: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Асинхронная загрузка новостей для нескольких символов.
 
@@ -386,13 +361,8 @@ class AsyncDataProvider:
 
         # Формирование запроса
         symbols_query = " OR ".join(symbols[:5])  # Максимум 5 символов
-        params = {
-            'q': f"forex OR ({symbols_query})",
-            'language': 'en',
-            'sortBy': 'publishedAt',
-            'pageSize': 20
-        }
-        headers = {'X-Api-Key': self.config.NEWS_API_KEY}
+        params = {"q": f"forex OR ({symbols_query})", "language": "en", "sortBy": "publishedAt", "pageSize": 20}
+        headers = {"X-Api-Key": self.config.NEWS_API_KEY}
 
         try:
             async with self.session.get(url, params=params, headers=headers, timeout=10) as resp:
@@ -410,10 +380,7 @@ class AsyncDataProvider:
         """Загрузка из FCS API."""
         url = "https://api.fcseurope.com/2.0/news/"
 
-        params = {
-            'token': self.config.FCS_API_KEY,
-            'limit': 20
-        }
+        params = {"token": self.config.FCS_API_KEY, "limit": 20}
 
         try:
             async with self.session.get(url, params=params, timeout=10) as resp:
@@ -445,27 +412,31 @@ class AsyncDataProvider:
     def _parse_newsapi_response(self, data: Dict) -> List[Dict[str, Any]]:
         """Парсинг ответа NewsAPI."""
         news = []
-        for article in data.get('articles', []):
-            news.append({
-                'source': article.get('source', {}).get('name', 'NewsAPI'),
-                'title': article.get('title', ''),
-                'text': article.get('description', '') + ' ' + article.get('content', ''),
-                'timestamp': datetime.fromisoformat(article.get('publishedAt', '').replace('Z', '+00:00')),
-                'url': article.get('url')
-            })
+        for article in data.get("articles", []):
+            news.append(
+                {
+                    "source": article.get("source", {}).get("name", "NewsAPI"),
+                    "title": article.get("title", ""),
+                    "text": article.get("description", "") + " " + article.get("content", ""),
+                    "timestamp": datetime.fromisoformat(article.get("publishedAt", "").replace("Z", "+00:00")),
+                    "url": article.get("url"),
+                }
+            )
         return news
 
     def _parse_fcs_response(self, data: Dict) -> List[Dict[str, Any]]:
         """Парсинг ответа FCS API."""
         news = []
-        for item in data.get('response', []):
-            news.append({
-                'source': 'FCS',
-                'title': item.get('title', ''),
-                'text': item.get('content', ''),
-                'timestamp': datetime.fromtimestamp(item.get('timestamp', 0)),
-                'url': item.get('url')
-            })
+        for item in data.get("response", []):
+            news.append(
+                {
+                    "source": "FCS",
+                    "title": item.get("title", ""),
+                    "text": item.get("content", ""),
+                    "timestamp": datetime.fromtimestamp(item.get("timestamp", 0)),
+                    "url": item.get("url"),
+                }
+            )
         return news
 
     def _parse_rss(self, rss_content: str) -> List[Dict[str, Any]]:
@@ -475,24 +446,30 @@ class AsyncDataProvider:
         news = []
         try:
             root = ET.fromstring(rss_content)
-            channel = root.find('channel')
+            channel = root.find("channel")
 
             if channel is None:
                 return news
 
-            for item in channel.findall('item')[:10]:  # Максимум 10 элементов
-                title = item.find('title')
-                description = item.find('description')
-                pub_date = item.find('pubDate')
-                link = item.find('link')
+            for item in channel.findall("item")[:10]:  # Максимум 10 элементов
+                title = item.find("title")
+                description = item.find("description")
+                pub_date = item.find("pubDate")
+                link = item.find("link")
 
-                news.append({
-                    'source': 'RSS',
-                    'title': title.text if title is not None else '',
-                    'text': description.text if description is not None else '',
-                    'timestamp': datetime.strptime(pub_date.text, '%a, %d %b %Y %H:%M:%S %z') if pub_date is not None else datetime.now(),
-                    'url': link.text if link is not None else ''
-                })
+                news.append(
+                    {
+                        "source": "RSS",
+                        "title": title.text if title is not None else "",
+                        "text": description.text if description is not None else "",
+                        "timestamp": (
+                            datetime.strptime(pub_date.text, "%a, %d %b %Y %H:%M:%S %z")
+                            if pub_date is not None
+                            else datetime.now()
+                        ),
+                        "url": link.text if link is not None else "",
+                    }
+                )
         except Exception as e:
             logger.error(f"RSS parsing error: {e}")
 
@@ -503,10 +480,7 @@ class AsyncDataProvider:
     # ===========================================
 
     async def fetch_economic_calendar(
-        self,
-        from_date: str,
-        to_date: str,
-        countries: Optional[List[str]] = None
+        self, from_date: str, to_date: str, countries: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         Получение экономического календаря.
@@ -524,20 +498,16 @@ class AsyncDataProvider:
 
         url = "https://api.forexfactory.com/calendar"
 
-        params = {
-            'from': from_date,
-            'to': to_date,
-            'token': self.config.FCS_API_KEY
-        }
+        params = {"from": from_date, "to": to_date, "token": self.config.FCS_API_KEY}
 
         if countries:
-            params['countries'] = ','.join(countries)
+            params["countries"] = ",".join(countries)
 
         try:
             async with self.session.get(url, params=params, timeout=15) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return data.get('response', [])
+                    return data.get("response", [])
                 else:
                     return []
         except Exception as e:
@@ -548,6 +518,7 @@ class AsyncDataProvider:
 # ===========================================
 # Convenience Functions
 # ===========================================
+
 
 async def get_async_provider(config: Settings) -> AsyncDataProvider:
     """

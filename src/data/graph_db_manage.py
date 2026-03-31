@@ -5,8 +5,9 @@
 # Файл: src/data/graph_db_manager.py
 
 import logging
+from typing import Any, Dict, List
+
 from neo4j import GraphDatabase, exceptions
-from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,9 @@ class GraphDBManager:
                 logger.error(f"Синтаксическая ошибка в Cypher-запросе: {e}")
                 return []
 
-    def add_relation(self, source_entity: str, relation: str, target_entity: str, source_label: str = "Entity",
-                     target_label: str = "Entity"):
+    def add_relation(
+        self, source_entity: str, relation: str, target_entity: str, source_label: str = "Entity", target_label: str = "Entity"
+    ):
         """
         Создает два узла (если они не существуют) и связь между ними.
         Пример: add_relation("ФРС", "ПОВЫШАЕТ_СТАВКУ", "USD")
@@ -68,15 +70,13 @@ class GraphDBManager:
             f"MERGE (a)-[r:{relation}]->(b) "
             "RETURN a.name, type(r), b.name"
         )
-        params = {
-            "source_name": source_entity,
-            "target_name": target_entity
-        }
+        params = {"source_name": source_entity, "target_name": target_entity}
         result = self.execute_query(query, params)
         if result:
             logger.info(f"Создана или обновлена связь: {result[0]}")
         else:
             logger.error(f"Не удалось создать связь: {source_entity} -> {relation} -> {target_entity}")
+
 
 # Пример того, как этот класс будет инициализироваться в TradingSystem
 # config = load_config()

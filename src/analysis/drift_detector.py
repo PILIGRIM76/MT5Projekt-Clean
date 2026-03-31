@@ -2,6 +2,7 @@
 import logging
 import math
 from typing import Dict, Tuple
+
 from src.core.config_models import Settings
 
 logger = logging.getLogger(__name__)
@@ -87,10 +88,7 @@ class ConceptDriftManager:
         key = self._get_key(symbol, timeframe)
 
         if key not in self.detectors:
-            self.detectors[key] = PurePythonADWIN(
-                delta=self.config.adwin_delta,
-                min_window=self.config.min_window_size
-            )
+            self.detectors[key] = PurePythonADWIN(delta=self.config.adwin_delta, min_window=self.config.min_window_size)
             self.drift_statuses[key] = False
 
         # Вычисляем APE (Absolute Percentage Error)

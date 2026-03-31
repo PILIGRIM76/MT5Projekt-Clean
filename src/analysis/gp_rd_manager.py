@@ -1,15 +1,16 @@
 # src/analysis/gp_rd_manager.py
 import logging
-import pandas as pd
 from typing import Optional
 
+import pandas as pd
+
+from src.analysis.backtester import StrategyBacktester
 from src.core.config_models import Settings
 from src.data.data_provider import DataProvider
-from src.ml.genetic_programming_core import GeneticProgrammingCore
-from src.analysis.backtester import StrategyBacktester
-from src.strategies.StrategyInterface import BaseStrategy
-from src.data_models import TradeSignal, SignalType
+from src.data_models import SignalType, TradeSignal
 from src.db.database_manager import DatabaseManager
+from src.ml.genetic_programming_core import GeneticProgrammingCore
+from src.strategies.StrategyInterface import BaseStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +34,7 @@ class GPRDManager:
 
         # 1. Загрузка и разделение данных
         full_data = self.data_provider.get_historical_data(
-            symbol, timeframe,
-            pd.Timestamp.now() - pd.DateOffset(years=1),
-            pd.Timestamp.now()
+            symbol, timeframe, pd.Timestamp.now() - pd.DateOffset(years=1), pd.Timestamp.now()
         )
         if full_data is None or len(full_data) < 1000:
             logger.error(f"[GP R&D] Недостаточно исторических данных для {symbol}.")
@@ -45,8 +44,7 @@ class GPRDManager:
         split_point = int(len(full_data) * 0.7)
         in_sample_data = full_data.iloc[:split_point]
         out_of_sample_data = full_data.iloc[split_point:]
-        logger.info(
-            f"[GP R&D] Данные разделены: {len(in_sample_data)} in-sample, {len(out_of_sample_data)} out-of-sample.")
+        logger.info(f"[GP R&D] Данные разделены: {len(in_sample_data)} in-sample, {len(out_of_sample_data)} out-of-sample.")
 
         # 2. Запуск эволюции на in-sample данных
         gp_core = GeneticProgrammingCore(in_sample_data, self.config, trading_system_ref=None)
@@ -62,24 +60,28 @@ class GPRDManager:
         class VirtualTreeStrategy(BaseStrategy):
             def __init__(self, individual: dict, config: Settings):
                 super().__init__(config)
-                self.buy_tree = individual.get('buy_tree')
-                self.sell_tree = individual.get('sell_tree')
+                self.buy_tree = individual.get("buy_tree")
+                self.sell_tree = individual.get("sell_tree")
 
-            def check_entry_conditions(self, df: pd.DataFrame, current_index: int, timeframe: int, symbol: str = None) -> Optional[
-                TradeSignal]:
+            def check_entry_conditions(
+                self, df: pd.DataFrame, current_index: int, timeframe: int, symbol: str = None
+            ) -> Optional[TradeSignal]:
                 try:
-                    symbol = df['symbol'].iloc[current_index] if 'symbol' in df.columns else (symbol if symbol else 'UNKNOWN')
+                    symbol = df["symbol"].iloc[current_index] if "symbol" in df.columns else (symbol if symbol else "UNKNOWN")
                     buy_signal = self.buy_tree.evaluate(df).iloc[current_index] if self.buy_tree else False
                     sell_signal = self.sell_tree.evaluate(df).iloc[current_index] if self.sell_tree else False
-                    if buy_signal and not sell_signal: return TradeSignal(type=SignalType.BUY, confidence=1.0, symbol=symbol)
-                    if sell_signal and not buy_signal: return TradeSignal(type=SignalType.SELL, confidence=1.0, symbol=symbol)
+                    if buy_signal and not sell_signal:
+                        return TradeSignal(type=SignalType.BUY, confidence=1.0, symbol=symbol)
+                    if sell_signal and not buy_signal:
+                        return TradeSignal(type=SignalType.SELL, confidence=1.0, symbol=symbol)
                 except IndexError:
                     return None
                 return None
 
         validation_strategy = VirtualTreeStrategy(best_individual, self.config)
-        backtester = StrategyBacktester(strategy=validation_strategy, data=out_of_sample_data, timeframe=timeframe,
-                                config=self.config)
+        backtester = StrategyBacktester(
+            strategy=validation_strategy, data=out_of_sample_data, timeframe=timeframe, config=self.config
+        )
         report = backtester.run()
 
         logger.info(f"[GP R&D] Результаты валидации: {report}")
@@ -88,7 +90,7 @@ class GPRDManager:
         pf_threshold = self.config.rd_cycle_config.profit_factor_threshold
         min_trades = self.config.rd_cycle_config.performance_check_trades_min
 
-        if report.get('profit_factor', 0) > pf_threshold and report.get('total_trades', 0) > min_trades:
+        if report.get("profit_factor", 0) > pf_threshold and report.get("total_trades", 0) > min_trades:
             logger.critical(f"[GP R&D] УСПЕХ! Новая стратегия прошла валидацию (PF={report['profit_factor']:.2f}).")
 
             # Сохраняем саму стратегию (дерево)

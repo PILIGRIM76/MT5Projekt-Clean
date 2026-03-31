@@ -1,12 +1,14 @@
 # src/utils/analysis_utils.py
 
-import MetaTrader5 as mt5
-import pandas as pd
-import numpy as np
 import logging
 from typing import Optional
 
+import MetaTrader5 as mt5
+import numpy as np
+import pandas as pd
+
 logger = logging.getLogger(__name__)
+
 
 def analyze_volatility(data, period: int = 14) -> Optional[float]:
     """
@@ -19,9 +21,9 @@ def analyze_volatility(data, period: int = 14) -> Optional[float]:
         if len(data) < period:
             return None
 
-        high = data['high']
-        low = data['low']
-        close = data['close']
+        high = data["high"]
+        low = data["low"]
+        close = data["close"]
 
         tr1 = high - low
         tr2 = abs(high - close.shift(1))
@@ -37,6 +39,7 @@ def analyze_volatility(data, period: int = 14) -> Optional[float]:
     except Exception as e:
         logger.error(f"Ошибка анализа волатильности: {e}", exc_info=True)
         return None
+
 
 # Другие ваши утилиты могут быть здесь, но они не должны
 # импортировать 'config' или управлять MT5 соединением.

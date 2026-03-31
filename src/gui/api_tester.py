@@ -1,6 +1,8 @@
 # src/gui/api_tester.py
-import httpx
 from typing import Tuple
+
+import httpx
+
 
 class ApiTester:
     """Содержит СИНХРОННЫЕ методы для проверки валидности различных API ключей."""

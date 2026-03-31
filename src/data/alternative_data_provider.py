@@ -1,8 +1,9 @@
 # src/data/alternative_data_provider.py
 import logging
-import pandas as pd
-import numpy as np
 from typing import Optional
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class AlternativeDataProvider:
         logger.info("Запрос альтернативных данных (спутники, перевозки)...")
         try:
             # Имитация получения данных за последние 90 дней
-            dates = pd.to_datetime(pd.date_range(end=pd.Timestamp.utcnow(), periods=90, freq='D'))
+            dates = pd.to_datetime(pd.date_range(end=pd.Timestamp.utcnow(), periods=90, freq="D"))
 
             # 1. Имитация индекса глобальных грузоперевозок (случайное блуждание)
             shipping_noise = np.random.normal(0, 1.5, size=90)
@@ -39,20 +40,16 @@ class AlternativeDataProvider:
             oil_noise = np.random.normal(0, 0.02, size=90)
             oil_values = np.clip(self._oil_storage_fullness + oil_seasonality + oil_noise, 0.1, 0.95)
 
-            df = pd.DataFrame(
-                {
-                    'shipping_index': shipping_values,
-                    'satellite_oil_storage': oil_values
-                },
-                index=dates
-            )
+            df = pd.DataFrame({"shipping_index": shipping_values, "satellite_oil_storage": oil_values}, index=dates)
 
             # Обновляем последние значения для следующего вызова
-            self._shipping_index = df['shipping_index'].iloc[-1]
-            self._oil_storage_fullness = df['satellite_oil_storage'].iloc[-1]
+            self._shipping_index = df["shipping_index"].iloc[-1]
+            self._oil_storage_fullness = df["satellite_oil_storage"].iloc[-1]
 
-            logger.info(f"Альтернативные данные успешно сгенерированы. Последние значения: "
-                        f"Shipping Index={self._shipping_index:.2f}, Oil Storage={self._oil_storage_fullness:.2%}")
+            logger.info(
+                f"Альтернативные данные успешно сгенерированы. Последние значения: "
+                f"Shipping Index={self._shipping_index:.2f}, Oil Storage={self._oil_storage_fullness:.2%}"
+            )
 
             return df
 

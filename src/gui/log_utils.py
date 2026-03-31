@@ -4,6 +4,7 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler  # +++ ИЗМЕНЕНИЕ: Импортируем нужный обработчик
 from pathlib import Path  # +++ ИЗМЕНЕНИЕ: Импортируем Path
+
 from PySide6.QtGui import QColor
 
 # +++ ИЗМЕНЕНИЕ: Импортируем модель конфига для проверки типов +++
@@ -17,6 +18,7 @@ class ColorFormatter(logging.Formatter):
     """
     Пользовательский Formatter для добавления цвета в консольные логи.
     """
+
     # Определяем цвета
     GREY = "\x1b[38;20m"
     YELLOW = "\x1b[33;20m"
@@ -35,7 +37,7 @@ class ColorFormatter(logging.Formatter):
 
     def format(self, record):
         log_fmt = self.FORMATS.get(record.levelno)
-        formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
+        formatter = logging.Formatter(log_fmt, datefmt="%Y-%m-%d %H:%M:%S")
         return formatter.format(record)
 
 
@@ -65,7 +67,6 @@ class QtLogHandler(logging.Handler):
             pass
 
 
-
 def setup_qt_logging(bridge_log_signal, config: Settings):
     """
     Централизованно настраивает корневой логгер для вывода в консоль, в GUI и в файл.
@@ -87,37 +88,32 @@ def setup_qt_logging(bridge_log_signal, config: Settings):
     console_handler.setFormatter(ColorFormatter())
     # Устанавливаем utf-8 для корректного отображения кириллицы в Windows
     import sys
-    if hasattr(sys.stdout, 'reconfigure'):
+
+    if hasattr(sys.stdout, "reconfigure"):
         try:
-            sys.stdout.reconfigure(encoding='utf-8')
+            sys.stdout.reconfigure(encoding="utf-8")
         except Exception:
             pass
     root_logger.addHandler(console_handler)
 
     # 2. Настраиваем обработчик для GUI
     qt_log_handler = QtLogHandler(bridge_log_signal)
-    qt_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S'))
+    qt_log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"))
     root_logger.addHandler(qt_log_handler)
 
     # +++ НАЧАЛО ИЗМЕНЕНИЙ +++
     # 3. Настраиваем обработчик для записи в файл с ротацией
     try:
         # Создаем папку для логов, если ее нет
-        logs_path = Path(config.DATABASE_FOLDER) / 'logs'
+        logs_path = Path(config.DATABASE_FOLDER) / "logs"
         logs_path.mkdir(parents=True, exist_ok=True)
-        log_file_path = logs_path / 'genesis_system.log'
+        log_file_path = logs_path / "genesis_system.log"
 
         # Создаем обработчик, который будет создавать до 5 файлов логов по 5 МБ каждый
-        file_handler = RotatingFileHandler(
-            log_file_path,
-            maxBytes=5 * 1024 * 1024,  # 5 MB
-            backupCount=5,
-            encoding='utf-8'
-        )
+        file_handler = RotatingFileHandler(log_file_path, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8")  # 5 MB
         # Устанавливаем более детальный формат для файла
         file_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - [%(name)s:%(lineno)d] - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            "%(asctime)s - %(levelname)s - [%(name)s:%(lineno)d] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
         file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)
@@ -129,10 +125,10 @@ def setup_qt_logging(bridge_log_signal, config: Settings):
     # +++ КОНЕЦ ИЗМЕНЕНИЙ +++
 
     # 4. Устанавливаем уровни для "шумных" библиотек
-    logging.getLogger('httpx').setLevel(logging.WARNING)
-    logging.getLogger('httpcore').setLevel(logging.WARNING)
-    logging.getLogger('shap').setLevel(logging.WARNING)
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("shap").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
 
     _logger_configured = True
     logging.info("Система логирования успешно инициализирована.")

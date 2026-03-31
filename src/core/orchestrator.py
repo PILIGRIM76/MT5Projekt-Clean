@@ -1,36 +1,44 @@
 # src/core/orchestrator.py
+import asyncio
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, List, Dict, Any, Optional
-import pandas as pd
-import numpy as np
 from pathlib import Path
-import asyncio
-import os
-import MetaTrader5 as mt5
-#from networkx import config
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from src.core.config_writer import write_config
-from src.core.config_loader import load_config
-from src.ml.orchestrator_env import OrchestratorEnv
+import MetaTrader5 as mt5
+import numpy as np
+import pandas as pd
 from stable_baselines3 import PPO
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.vec_env import DummyVecEnv
 
+from src.core.config_loader import load_config
+from src.core.config_writer import write_config
+from src.ml.orchestrator_env import OrchestratorEnv
+
+# from networkx import config
+
+
 if TYPE_CHECKING:
-    from src.core.trading_system import TradingSystem
     from src.analysis.strategy_optimizer import StrategyOptimizer
-    from src.db.database_manager import DatabaseManager
+    from src.core.trading_system import TradingSystem
     from src.data.data_provider import DataProvider
+    from src.db.database_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
 
 class Orchestrator:
-    def __init__(self, trading_system: 'TradingSystem', strategy_optimizer: 'StrategyOptimizer',
-                 db_manager: 'DatabaseManager', data_provider: 'DataProvider'):
+    def __init__(
+        self,
+        trading_system: "TradingSystem",
+        strategy_optimizer: "StrategyOptimizer",
+        db_manager: "DatabaseManager",
+        data_provider: "DataProvider",
+    ):
         self.trading_system = trading_system
         self.config = trading_system.config
         self.orchestrator_config = self.config.orchestrator_settings
@@ -63,15 +71,27 @@ class Orchestrator:
             except Exception as e:
                 # ... (логика обработки ошибки загрузки) ...
                 # ИСПРАВЛЕНИЕ: Добавляем device="cpu" при создании новой модели
-                self.agent = PPO("MlpPolicy", self.vec_env, verbose=0, n_steps=64, batch_size=32,
-                                 tensorboard_log="./orchestrator_logs/", device="cpu")
+                self.agent = PPO(
+                    "MlpPolicy",
+                    self.vec_env,
+                    verbose=0,
+                    n_steps=64,
+                    batch_size=32,
+                    tensorboard_log="./orchestrator_logs/",
+                    device="cpu",
+                )
         else:
             logger.warning("Обученная модель Оркестратора не найдена. Создание новой модели PPO...")
             # ИСПРАВЛЕНИЕ: Добавляем device="cpu" при создании новой модели
-            self.agent = PPO("MlpPolicy", self.vec_env, verbose=0, n_steps=64, batch_size=32,
-                             tensorboard_log="./orchestrator_logs/", device="cpu")
-
-
+            self.agent = PPO(
+                "MlpPolicy",
+                self.vec_env,
+                verbose=0,
+                n_steps=64,
+                batch_size=32,
+                tensorboard_log="./orchestrator_logs/",
+                device="cpu",
+            )
 
         buffer_size = 1000
         # ... (Настройка буфера воспроизведения остается прежней, принимая новую форму действия)  ...
@@ -79,7 +99,7 @@ class Orchestrator:
             buffer_size=buffer_size,
             observation_space=self.env.observation_space,
             action_space=self.env.action_space,
-            handle_timeout_termination=False
+            handle_timeout_termination=False,
         )
         self.last_obs, _ = self.env.reset()
         self.training_lock = threading.Lock()
@@ -96,15 +116,15 @@ class Orchestrator:
         incubation_period = timedelta(days=30)
 
         # Используем новый метод db_manager
-        incubating_strategies = self.db_manager.get_strategies_by_status('incubating')
+        incubating_strategies = self.db_manager.get_strategies_by_status("incubating")
 
         for strategy_stats in incubating_strategies:
-            name = strategy_stats['strategy_name']
-            start_date = strategy_stats.get('incubation_start_date')
+            name = strategy_stats["strategy_name"]
+            start_date = strategy_stats.get("incubation_start_date")
 
             if start_date and datetime.utcnow() - start_date >= incubation_period:
                 logger.critical(f"[Orchestrator HR] ИНКУБАЦИЯ ЗАВЕРШЕНА! Стратегия '{name}' переведена в LIVE.")
-                self.db_manager.update_strategy_status(name, 'live')
+                self.db_manager.update_strategy_status(name, "live")
                 # Принудительно перезагружаем стратегии в TradingSystem
                 self.trading_system.strategies = self.trading_system.strategy_loader.load_strategies()
             elif start_date:
@@ -112,7 +132,6 @@ class Orchestrator:
                 logger.debug(f"[Orchestrator HR] Стратегия '{name}' в инкубации. Осталось: {remaining.days} дней.")
             else:
                 logger.warning(f"[Orchestrator HR] Стратегия '{name}' в статусе 'incubating', но без даты старта.")
-
 
     def apply_drift_penalty(self, strategy_name: str, symbol: str):
         """
@@ -132,10 +151,7 @@ class Orchestrator:
             # Мы можем добавить директиву блокировки или снижения риска.
 
             self.trading_system.add_directive(
-                directive_type=f"REDUCE_RISK_{symbol}",
-                reason="Concept Drift Detected",
-                duration_hours=24,
-                value=0.5
+                directive_type=f"REDUCE_RISK_{symbol}", reason="Concept Drift Detected", duration_hours=24, value=0.5
             )
 
     def clear_drift_penalty(self, symbol: str):
@@ -164,7 +180,7 @@ class Orchestrator:
 
         # 2. Проверка высокого VaR (VaR > 1.5 * Max_VaR_Config)
         state = self.trading_system.get_rl_orchestrator_state()
-        current_var = state.get('portfolio_var', 0.0)
+        current_var = state.get("portfolio_var", 0.0)
         max_var_config = self.trading_system.config.MAX_PORTFOLIO_VAR_PERCENT
 
         # Проверяем, что VaR превышает лимит с запасом 50%
@@ -179,10 +195,10 @@ class Orchestrator:
         # -------------------------------------------------
 
         # 3. Проверка существования агента перед вызовом
-        if not hasattr(self, 'agent') or self.agent is None:
+        if not hasattr(self, "agent") or self.agent is None:
             logger.error("[Orchestrator] Агент не инициализирован, пропуск цикла.")
             return
-            
+
         # 3. Агент предсказывает матрицу распределения (N_regimes x N_strategies)
         try:
             action_matrix, _ = self.agent.predict(self.last_obs, deterministic=True)
@@ -194,8 +210,7 @@ class Orchestrator:
         new_obs, reward, terminated, truncated, info = self.env.step(action_matrix)
 
         # 5. Добавляем в буфер. Action теперь - это матрица.
-        self.replay_buffer.add(self.last_obs, new_obs, action_matrix, np.array([reward]), np.array([terminated]),
-                               [info])
+        self.replay_buffer.add(self.last_obs, new_obs, action_matrix, np.array([reward]), np.array([terminated]), [info])
 
         self.last_obs = new_obs
         self.last_decision_time = current_time
@@ -214,13 +229,15 @@ class Orchestrator:
         min_trades_for_review = self.config.rd_cycle_config.performance_check_trades_min
 
         for strategy_stats in live_strategies:
-            name = strategy_stats['strategy_name']
-            pf = strategy_stats['profit_factor']
-            trades = strategy_stats['trade_count']
+            name = strategy_stats["strategy_name"]
+            pf = strategy_stats["profit_factor"]
+            trades = strategy_stats["trade_count"]
 
             if pf < 1.0 and trades > min_trades_for_review:
-                logger.critical(f"[Orchestrator HR] УВОЛЬНЕНИЕ! Стратегия '{name}' показывает стабильно плохие "
-                                f"результаты (PF: {pf:.2f} на {trades} сделках). Деактивация...")
+                logger.critical(
+                    f"[Orchestrator HR] УВОЛЬНЕНИЕ! Стратегия '{name}' показывает стабильно плохие "
+                    f"результаты (PF: {pf:.2f} на {trades} сделках). Деактивация..."
+                )
                 self.db_manager.deactivate_strategy(name)
 
         weak_spots = self.db_manager.find_weak_spots(
@@ -228,16 +245,16 @@ class Orchestrator:
         )
         if weak_spots:
             spot = weak_spots[0]
-            symbol = spot['symbol']
-            regime = spot['market_regime']
+            symbol = spot["symbol"]
+            regime = spot["market_regime"]
 
-            logger.critical(f"[Orchestrator HR] НАЕМ! Обнаружено слабое место: нет эффективной стратегии "
-                            f"для '{symbol}' в режиме '{regime}'. Формирование заказа для R&D...")
+            logger.critical(
+                f"[Orchestrator HR] НАЕМ! Обнаружено слабое место: нет эффективной стратегии "
+                f"для '{symbol}' в режиме '{regime}'. Формирование заказа для R&D..."
+            )
 
             rd_thread = threading.Thread(
-                target=self.trading_system.gp_rd_manager.run_cycle,
-                args=(symbol, mt5.TIMEFRAME_H1, regime),
-                daemon=True
+                target=self.trading_system.gp_rd_manager.run_cycle, args=(symbol, mt5.TIMEFRAME_H1, regime), daemon=True
             )
             rd_thread.start()
         else:
@@ -250,7 +267,7 @@ class Orchestrator:
 
         try:
             state = self.trading_system.get_rl_orchestrator_state()
-            sharpe_ratio = state.get('sharpe_ratio', 0.0)
+            sharpe_ratio = state.get("sharpe_ratio", 0.0)
             final_reward = sharpe_ratio
 
             logger.info(f"[Orchestrator 3.2] Расчетная награда за период: {final_reward:.2f}")

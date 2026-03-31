@@ -1,48 +1,50 @@
-import os
-import logging
 import asyncio
+import logging
+import os
 import random  # <-- Добавлен для рандомизации User-Agent
-from datetime import datetime, timezone, timedelta
-from typing import List, Tuple, Optional, Dict, Any
-import httpx
-from httpx import AsyncClient, AsyncHTTPTransport
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
 import feedparser
+import httpx
+import MetaTrader5 as mt5
 import pandas as pd
 import requests
-from telethon.sync import TelegramClient
+from httpx import AsyncClient, AsyncHTTPTransport
 from ntscraper import Nitter
-import MetaTrader5 as mt5
+from telethon.sync import TelegramClient
+
 from src.data.web_scraper import scrape_investing_calendar
 
 try:
     from newsapi.newsapi_client import NewsApiClient
 except ImportError:
     NewsApiClient = None
-from src.data_models import NewsItem
 from src.core.config_models import Settings
+from src.data_models import NewsItem
 
 logger = logging.getLogger(__name__)  # Исправлено имя логгера
 
 # Пул User-Agent для обхода блокировок
 USER_AGENTS = [
     # Chrome (Windows)
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
     # Firefox (Windows)
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0',
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
     # Edge (Windows)
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
     # Safari (macOS)
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
     # Chrome (macOS)
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     # Chrome (Linux)
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     # Firefox (Linux)
-    'Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
 ]
 
 
@@ -54,13 +56,13 @@ def get_random_user_agent() -> str:
 def get_headers() -> Dict[str, str]:
     """Возвращает заголовки со случайным User-Agent."""
     return {
-        'User-Agent': get_random_user_agent(),
-        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'max-age=0',
+        "User-Agent": get_random_user_agent(),
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Cache-Control": "max-age=0",
     }
 
 
@@ -78,7 +80,8 @@ class MultiSourceDataAggregator:
         else:
             self.news_api_client = None
             logger.warning(
-                "Ключ для NewsAPI не найден или библиотека не установлена. Сбор новостей из NewsAPI будет пропущен.")
+                "Ключ для NewsAPI не найден или библиотека не установлена. Сбор новостей из NewsAPI будет пропущен."
+            )
 
         self.fcs_api_key = self.config.FCS_API_KEY
         # ИСПРАВЛЕНИЕ: Создаём транспорт без прокси
@@ -90,7 +93,7 @@ class MultiSourceDataAggregator:
         self.news_api_queries = self.config.news_api_queries
         self.finnhub_api_key = self.config.FINNHUB_API_KEY
         self.calendar_config = self.config.economic_calendar
-        
+
         # Инициализация кэша новостей
         self.news_cache = None
         self.last_news_fetch_time = None
@@ -106,8 +109,8 @@ class MultiSourceDataAggregator:
             response.raise_for_status()
             data = response.json()
 
-            if 'data' in data and len(data['data']) > 0:
-                value = data['data'][0].get('value')
+            if "data" in data and len(data["data"]) > 0:
+                value = data["data"][0].get("value")
                 if value is not None:
                     logger.info(f"Индекс Fear & Greed получен: {value}")
                     return int(value)
@@ -115,7 +118,7 @@ class MultiSourceDataAggregator:
             logger.warning("Индекс Fear & Greed: Ответ API пуст или не содержит данных.")
             return None
 
-        except httpx.ConnectError as e: 
+        except httpx.ConnectError as e:
             logger.error(f"Ошибка подключения при получении Fear & Greed: {e}")
             return 50
         except httpx.HTTPStatusError as e:
@@ -137,7 +140,7 @@ class MultiSourceDataAggregator:
             data = response.json()
 
             if data and len(data) >= 10:
-                oi_values = [float(d['sumOpenInterestValue']) for d in data]
+                oi_values = [float(d["sumOpenInterestValue"]) for d in data]
                 current_oi = oi_values[-1]
                 avg_oi = sum(oi_values) / len(oi_values)
                 oi_trend = "rising" if current_oi > avg_oi * 1.01 else "falling" if current_oi < avg_oi * 0.99 else "flat"
@@ -217,36 +220,37 @@ class MultiSourceDataAggregator:
         # --- ВРЕМЕННАЯ ЗАГЛУШКА ДЛЯ ТЕСТА НАПОЛНЕНИЯ VectorDB ---
         # Этот блок гарантирует, что VectorDB получит хотя бы 2 документа.
         # Оставляем его, так как он нужен для инициализации KG.
-        items.append(NewsItem(
-            source="TEST_NEWSAPI_FED",
-            text="The Federal Reserve is expected to raise interest rates by 50 basis points next month due to persistent inflation.",
-            timestamp=datetime.now(timezone.utc) - timedelta(hours=1)
-        ))
-        items.append(NewsItem(
-            source="TEST_NEWSAPI_ECB",
-            text="ECB President Lagarde stated that the Eurozone economy is showing signs of strong recovery, boosting the EUR/USD pair.",
-            timestamp=datetime.now(timezone.utc) - timedelta(hours=2)
-        ))
+        items.append(
+            NewsItem(
+                source="TEST_NEWSAPI_FED",
+                text="The Federal Reserve is expected to raise interest rates by 50 basis points next month due to persistent inflation.",
+                timestamp=datetime.now(timezone.utc) - timedelta(hours=1),
+            )
+        )
+        items.append(
+            NewsItem(
+                source="TEST_NEWSAPI_ECB",
+                text="ECB President Lagarde stated that the Eurozone economy is showing signs of strong recovery, boosting the EUR/USD pair.",
+                timestamp=datetime.now(timezone.utc) - timedelta(hours=2),
+            )
+        )
         # --- КОНЕЦ ВРЕМЕННОЙ ЗАГЛУШКИ ---
 
         # --- ИСПРАВЛЕННЫЙ БЛОК ЗАПРОСА С ПРОВЕРКОЙ ЛИМИТА ---
         try:
             # Попытка выполнить запрос (если лимит исчерпан, здесь будет исключение)
             for query in self.news_api_queries:
-                articles = self.news_api_client.get_everything(
-                    q=query,
-                    language='en',
-                    sort_by='publishedAt',
-                    page_size=20
-                )
-                for article in articles.get('articles', []):
-                    published_at = article.get('publishedAt')
+                articles = self.news_api_client.get_everything(q=query, language="en", sort_by="publishedAt", page_size=20)
+                for article in articles.get("articles", []):
+                    published_at = article.get("publishedAt")
                     if published_at:
-                        items.append(NewsItem(
-                            source=f"newsapi_{article['source']['name']}",
-                            text=f"{article['title']}. {article.get('description', '')}",
-                            timestamp=datetime.fromisoformat(published_at.replace('Z', '+00:00'))
-                        ))
+                        items.append(
+                            NewsItem(
+                                source=f"newsapi_{article['source']['name']}",
+                                text=f"{article['title']}. {article.get('description', '')}",
+                                timestamp=datetime.fromisoformat(published_at.replace("Z", "+00:00")),
+                            )
+                        )
 
             logger.info(f"Получено {len(items) - 2} реальных статей из NewsAPI (плюс 2 заглушки).")
 
@@ -270,44 +274,49 @@ class MultiSourceDataAggregator:
         logger.info(f"Запрос новостей из {len(self.rss_feeds)} RSS-лент...")
 
         # --- ВРЕМЕННАЯ ЗАГЛУШКА ДЛЯ ТЕСТА ---
-        items.append(NewsItem(
-            source="TEST_SOURCE",
-            text="TEST: The FED is considering a rate hike due to unexpected inflation.",
-            timestamp=datetime.now(timezone.utc)
-        ))
+        items.append(
+            NewsItem(
+                source="TEST_SOURCE",
+                text="TEST: The FED is considering a rate hike due to unexpected inflation.",
+                timestamp=datetime.now(timezone.utc),
+            )
+        )
         # --- КОНЕЦ ВРЕМЕННОЙ ЗАГЛУШКИ ---
 
         for url in self.rss_feeds:
             try:
                 # ИСПРАВЛЕНИЕ: Добавляем таймаут и случайные заголовки для RSS-запросов
                 import requests
+
                 headers = get_headers()  # <-- Случайные заголовки для каждого запроса
                 logger.debug(f"RSS запрос к {url} с User-Agent: {headers['User-Agent'][:50]}...")
-                
+
                 response = requests.get(url, timeout=10, headers=headers)  # 10 секунд таймаут
                 response.raise_for_status()
-                
+
                 # Парсим полученный XML
                 feed = feedparser.parse(response.content)
 
                 # --- ИСПРАВЛЕНИЕ: Используем .get() для безопасного доступа к title ---
-                feed_title = feed.feed.get('title', 'Unknown RSS Feed')
+                feed_title = feed.feed.get("title", "Unknown RSS Feed")
 
                 for entry in feed.entries[:15]:
                     # Используем .get() для безопасного доступа к полям entry
-                    entry_title = entry.get('title', 'No Title')
-                    entry_summary = entry.get('summary', entry_title)  # Используем title как fallback для summary
+                    entry_title = entry.get("title", "No Title")
+                    entry_summary = entry.get("summary", entry_title)  # Используем title как fallback для summary
 
                     # Безопасное получение времени
                     published_time = datetime.now(timezone.utc)
-                    if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                    if hasattr(entry, "published_parsed") and entry.published_parsed:
                         published_time = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
 
-                    items.append(NewsItem(
-                        source=f"rss_{feed_title}",  # <-- Используем безопасный feed_title
-                        text=f"{entry_title}. {entry_summary}",
-                        timestamp=published_time
-                    ))
+                    items.append(
+                        NewsItem(
+                            source=f"rss_{feed_title}",  # <-- Используем безопасный feed_title
+                            text=f"{entry_title}. {entry_summary}",
+                            timestamp=published_time,
+                        )
+                    )
             except requests.Timeout:
                 logger.error(f"Таймаут при загрузке RSS-ленты {url}")
             except requests.HTTPError as e:
@@ -337,15 +346,15 @@ class MultiSourceDataAggregator:
         now_utc = datetime.now(timezone.utc)
 
         # Используем настройки из конфига
-        min_impact = self.calendar_config.get('min_impact_level', 2)
-        lookahead_hours = self.calendar_config.get('lookahead_hours', 24)
+        min_impact = self.calendar_config.get("min_impact_level", 2)
+        lookahead_hours = self.calendar_config.get("lookahead_hours", 24)
 
         # Фильтруем только важные события
-        df_filtered = df[df['importance'] >= min_impact]
+        df_filtered = df[df["importance"] >= min_impact]
 
         for _, row in df_filtered.iterrows():
             # Создаем полную дату/время события (предполагаем, что время UTC)
-            event_dt_utc = datetime.combine(now_utc.date(), row['time'], tzinfo=timezone.utc)
+            event_dt_utc = datetime.combine(now_utc.date(), row["time"], tzinfo=timezone.utc)
 
             # Если событие уже прошло сегодня, предполагаем, что оно будет завтра
             if event_dt_utc < now_utc - timedelta(hours=1):
@@ -358,12 +367,7 @@ class MultiSourceDataAggregator:
             # Формируем текст новости
             text = f"ЭКОНОМИЧЕСКИЙ КАЛЕНДАРЬ: {row['currency']} - {row['event']} (Важность: {row['importance']}/3)"
 
-            items.append(NewsItem(
-                source="EconomicCalendar",
-                text=text,
-                timestamp=event_dt_utc,
-                asset=row['currency']
-            ))
+            items.append(NewsItem(source="EconomicCalendar", text=text, timestamp=event_dt_utc, asset=row["currency"]))
 
         logger.info(f"Обработано {len(items)} важных событий из экономического календаря.")
         return items
@@ -375,19 +379,20 @@ class MultiSourceDataAggregator:
         timeframes_to_check = list(self.config.optimizer.timeframes_to_check.values())
 
         # Задача для получения рыночных данных
-        data_task = asyncio.create_task(
-            self.data_provider.get_all_symbols_data_async(available_symbols, timeframes_to_check))
+        data_task = asyncio.create_task(self.data_provider.get_all_symbols_data_async(available_symbols, timeframes_to_check))
         tasks = [data_task]
 
         # Задача для получения новостей (если кэш устарел или пуст)
         news_task = None
         should_fetch_news = (
-            self.news_cache is None or 
-            len(self.news_cache) == 0 or
-            (self.last_news_fetch_time and 
-             (datetime.now() - self.last_news_fetch_time).total_seconds() > self.config.NEWS_CACHE_DURATION_MINUTES * 60)
+            self.news_cache is None
+            or len(self.news_cache) == 0
+            or (
+                self.last_news_fetch_time
+                and (datetime.now() - self.last_news_fetch_time).total_seconds() > self.config.NEWS_CACHE_DURATION_MINUTES * 60
+            )
         )
-        
+
         if should_fetch_news:
             logger.info(f"Загрузка новостей (кэш: {len(self.news_cache) if self.news_cache else 0} записей)")
             news_task = asyncio.create_task(self._load_all_news_async())
@@ -418,25 +423,27 @@ class MultiSourceDataAggregator:
             return [], None, None
 
         gui_data_list = []
-        source_list = full_ranked_list if full_ranked_list else [{'symbol': s} for s in available_symbols]
+        source_list = full_ranked_list if full_ranked_list else [{"symbol": s} for s in available_symbols]
         for item in source_list:
-            sym = item.get('symbol')
+            sym = item.get("symbol")
             df = data_dict.get(f"{sym}_{mt5.TIMEFRAME_H1}")
             if df is not None and not df.empty:
                 last_row = df.iloc[-1]
-                gui_data_list.append({
-                    'symbol': sym,
-                    'rank': item.get('rank', 0),
-                    'total_score': item.get('total_score', 0.0),
-                    'volatility_score': item.get('volatility_score', 0.0),
-                    'normalized_atr_percent': item.get('normalized_atr_percent', 0.0),
-                    'trend_score': item.get('trend_score', 0.0),
-                    'liquidity_score': item.get('liquidity_score', 0.0),
-                    'spread_pips': item.get('spread_pips', 0.0),
-                    'last_close': last_row['close'],
-                    'last_atr': last_row['ATR_14'],
-                    'last_adx': last_row['ADX_14']
-                })
+                gui_data_list.append(
+                    {
+                        "symbol": sym,
+                        "rank": item.get("rank", 0),
+                        "total_score": item.get("total_score", 0.0),
+                        "volatility_score": item.get("volatility_score", 0.0),
+                        "normalized_atr_percent": item.get("normalized_atr_percent", 0.0),
+                        "trend_score": item.get("trend_score", 0.0),
+                        "liquidity_score": item.get("liquidity_score", 0.0),
+                        "spread_pips": item.get("spread_pips", 0.0),
+                        "last_close": last_row["close"],
+                        "last_atr": last_row["ATR_14"],
+                        "last_adx": last_row["ADX_14"],
+                    }
+                )
 
         # Убираем вызовы GUI методов - они должны вызываться из trading_system
         # self.market_scan_updated.emit(gui_data_list)
@@ -444,7 +451,7 @@ class MultiSourceDataAggregator:
 
         if gui_data_list:
             top_item = gui_data_list[0]
-            symbol_for_chart = top_item['symbol']
+            symbol_for_chart = top_item["symbol"]
             eurusd_h1_key = f"{symbol_for_chart}_{mt5.TIMEFRAME_H1}"
             if eurusd_h1_key in data_dict:
                 df_to_display = data_dict[eurusd_h1_key]

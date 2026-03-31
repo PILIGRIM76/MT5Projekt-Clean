@@ -130,7 +130,7 @@ if errorlevel 1 (
     echo Пример: https://github.com/PILIGRIM76/MT5Projekt-Clean.git
     echo.
     set /p REPO_URL="URL: "
-    
+
     if "!REPO_URL!"=="" (
         echo [ERROR] URL не введён
     ) else (

@@ -55,19 +55,19 @@ if not exist ".gitignore" (
         dist/
         *.egg-info/
         .eggs/
-        
+
         # Виртуальное окружение
         venv/
         env/
         .venv/
-        
+
         # IDE
         .idea/
         .vscode/
         *.iml
         *.swp
         *.swo
-        
+
         # Логи и базы данных
         *.log
         logs/
@@ -75,27 +75,27 @@ if not exist ".gitignore" (
         *.db-journal
         database/*.db
         ai_models/
-        
+
         # Конфигурации пользователя
         configs/settings.json
         configs/*.local.json
         .env
-        
+
         # Временные файлы
         *.tmp
         *.bak
         Thumbs.db
         desktop.ini
-        
+
         # Сборка
         GenesisTrading_Build/stubs/
         GenesisTrading_Build/build/
-        
+
         # macOS
         .DS_Store
         .AppleDouble
         .LSOverride
-        
+
         # Windows
         $RECYCLE.BIN/
         System Volume Information/

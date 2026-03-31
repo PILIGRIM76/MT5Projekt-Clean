@@ -13,11 +13,11 @@ def write_config(new_settings: dict):
     и записывает всю структуру обратно.
     """
     project_root = Path(__file__).parent.parent.parent
-    settings_path = project_root / 'configs' / 'settings.json'
+    settings_path = project_root / "configs" / "settings.json"
 
     try:
         if settings_path.exists():
-            with open(settings_path, 'r', encoding='utf-8') as f:
+            with open(settings_path, "r", encoding="utf-8") as f:
                 content = "".join(line for line in f if not line.strip().startswith("//"))
                 current_config = json.loads(content)
         else:
@@ -25,7 +25,7 @@ def write_config(new_settings: dict):
 
         current_config.update(new_settings)
 
-        with open(settings_path, 'w', encoding='utf-8') as f:
+        with open(settings_path, "w", encoding="utf-8") as f:
             json.dump(current_config, f, indent=2, ensure_ascii=False)
 
         logger.warning(f"Файл конфигурации '{settings_path}' был программно обновлен.")

@@ -8,16 +8,17 @@ Unit тесты для логирования.
 - Обработку ошибок
 """
 
-import pytest
 import logging
-import sys
 import os
+import sys
 from io import StringIO
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import pytest
 
-from src.utils.logger import setup_logger, get_log_directory
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from src.utils.logger import get_log_directory, setup_logger
 
 
 class TestGetLogDirectory:
@@ -28,7 +29,7 @@ class TestGetLogDirectory:
         log_dir = get_log_directory()
 
         assert log_dir is not None
-        assert str(log_dir).endswith('logs')
+        assert str(log_dir).endswith("logs")
 
     def test_get_log_directory_creates_folder(self, tmp_path):
         """Проверка что папка создается."""
@@ -72,77 +73,46 @@ class TestSetupLogger:
         """Проверка создания file handler."""
         log_file = tmp_path / "test.log"
 
-        with patch('src.utils.logger.get_log_directory', return_value=tmp_path):
-            logger = setup_logger(
-                "test_file",
-                log_to_console=False,
-                log_to_file=True,
-                rotation='size',
-                max_bytes=1024
-            )
+        with patch("src.utils.logger.get_log_directory", return_value=tmp_path):
+            logger = setup_logger("test_file", log_to_console=False, log_to_file=True, rotation="size", max_bytes=1024)
 
             # Должен быть file handler
             assert len(logger.handlers) > 0
 
     def test_setup_logger_rotation_daily(self, tmp_path):
         """Проверка daily ротации."""
-        with patch('src.utils.logger.get_log_directory', return_value=tmp_path):
-            logger = setup_logger(
-                "test_daily",
-                log_to_console=False,
-                log_to_file=True,
-                rotation='daily'
-            )
+        with patch("src.utils.logger.get_log_directory", return_value=tmp_path):
+            logger = setup_logger("test_daily", log_to_console=False, log_to_file=True, rotation="daily")
 
             assert len(logger.handlers) > 0
 
     def test_setup_logger_rotation_hourly(self, tmp_path):
         """Проверка hourly ротации."""
-        with patch('src.utils.logger.get_log_directory', return_value=tmp_path):
-            logger = setup_logger(
-                "test_hourly",
-                log_to_console=False,
-                log_to_file=True,
-                rotation='hourly'
-            )
+        with patch("src.utils.logger.get_log_directory", return_value=tmp_path):
+            logger = setup_logger("test_hourly", log_to_console=False, log_to_file=True, rotation="hourly")
 
             assert len(logger.handlers) > 0
 
     def test_setup_logger_no_rotation(self, tmp_path):
         """Проверка без ротации."""
-        with patch('src.utils.logger.get_log_directory', return_value=tmp_path):
-            logger = setup_logger(
-                "test_no_rotation",
-                log_to_console=False,
-                log_to_file=True,
-                rotation='none'
-            )
+        with patch("src.utils.logger.get_log_directory", return_value=tmp_path):
+            logger = setup_logger("test_no_rotation", log_to_console=False, log_to_file=True, rotation="none")
 
             # Без ротации должен быть простой FileHandler
             assert len(logger.handlers) > 0
 
     def test_setup_logger_backup_count(self, tmp_path):
         """Проверка количества резервных файлов."""
-        with patch('src.utils.logger.get_log_directory', return_value=tmp_path):
-            logger = setup_logger(
-                "test_backup",
-                log_to_console=False,
-                log_to_file=True,
-                rotation='daily',
-                backup_count=14
-            )
+        with patch("src.utils.logger.get_log_directory", return_value=tmp_path):
+            logger = setup_logger("test_backup", log_to_console=False, log_to_file=True, rotation="daily", backup_count=14)
 
             assert len(logger.handlers) > 0
 
     def test_setup_logger_max_bytes(self, tmp_path):
         """Проверка максимального размера файла."""
-        with patch('src.utils.logger.get_log_directory', return_value=tmp_path):
+        with patch("src.utils.logger.get_log_directory", return_value=tmp_path):
             logger = setup_logger(
-                "test_max_bytes",
-                log_to_console=False,
-                log_to_file=True,
-                rotation='size',
-                max_bytes=5 * 1024 * 1024  # 5 MB
+                "test_max_bytes", log_to_console=False, log_to_file=True, rotation="size", max_bytes=5 * 1024 * 1024  # 5 MB
             )
 
             assert len(logger.handlers) > 0
@@ -151,13 +121,8 @@ class TestSetupLogger:
         """Проверка пользовательского формата."""
         custom_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-        with patch('src.utils.logger.get_log_directory', return_value=tmp_path):
-            logger = setup_logger(
-                "test_format",
-                log_to_console=False,
-                log_to_file=True,
-                format_string=custom_format
-            )
+        with patch("src.utils.logger.get_log_directory", return_value=tmp_path):
+            logger = setup_logger("test_format", log_to_console=False, log_to_file=True, format_string=custom_format)
 
             assert len(logger.handlers) > 0
 
@@ -290,5 +255,5 @@ class TestLoggerNames:
         assert logger1 is logger2
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

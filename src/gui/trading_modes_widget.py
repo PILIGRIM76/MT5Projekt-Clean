@@ -5,14 +5,24 @@
 
 import logging
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QScrollArea, QFrame, QDialog,
-    QCheckBox, QDialogButtonBox, QMessageBox,
-    QGridLayout, QSpacerItem, QSizePolicy
-)
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSpacerItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +39,7 @@ TRADING_MODES = {
         "risk_reward_ratio": 1.5,
         "enable_all_risk_checks": True,
         "description": "Минимальный риск, максимальная защита капитала",
-        "color": "#27ae60"
+        "color": "#27ae60",
     },
     "standard": {
         "name": "Стандартный",
@@ -41,7 +51,7 @@ TRADING_MODES = {
         "risk_reward_ratio": 2.5,
         "enable_all_risk_checks": True,
         "description": "Баланс между риском и доходностью",
-        "color": "#f39c12"
+        "color": "#f39c12",
     },
     "aggressive": {
         "name": "Агрессивный",
@@ -53,7 +63,7 @@ TRADING_MODES = {
         "risk_reward_ratio": 4.0,
         "enable_all_risk_checks": False,
         "description": "Высокий риск для максимальной прибыли",
-        "color": "#e74c3c"
+        "color": "#e74c3c",
     },
     "yolo": {
         "name": "YOLO",
@@ -67,45 +77,42 @@ TRADING_MODES = {
         "requires_confirmation": True,
         "warning_message": "Вы готовы потерять ВЕСЬ депозит?",
         "description": "YOU ONLY LIVE ONCE - максимальный риск!",
-        "color": "#2c3e50"
-    }
+        "color": "#2c3e50",
+    },
 }
 
 
 class YoloConfirmationDialog(QDialog):
     """Диалог подтверждения для YOLO режима."""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("⚠️ Подтверждение YOLO режима")
         self.setMinimumWidth(500)
         self.setModal(True)
-        
+
         self.setup_ui()
-        
+
     def setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
-        
+
         # Заголовок
         title = QLabel("⚠️ ВЫ ВЫБИРАЕТЕ YOLO РЕЖИМ!")
         title.setFont(QFont("Arial", 16, QFont.Bold))
         title.setStyleSheet("color: #e74c3c;")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
-        
+
         # Предупреждение
-        warning = QLabel(
-            "Вы готовы потерять весь депозит?\n"
-            "Это деньги, которые не жалко?"
-        )
+        warning = QLabel("Вы готовы потерять весь депозит?\n" "Это деньги, которые не жалко?")
         warning.setFont(QFont("Arial", 12))
         warning.setStyleSheet("color: #c0392b; padding: 10px;")
         warning.setAlignment(Qt.AlignCenter)
         warning.setWordWrap(True)
         layout.addWidget(warning)
-        
+
         # Список рисков
         risks_frame = QFrame()
         risks_frame.setStyleSheet("""
@@ -116,32 +123,32 @@ class YoloConfirmationDialog(QDialog):
             }
         """)
         risks_layout = QVBoxLayout(risks_frame)
-        
+
         risks = [
             "🔴 Высокая вероятность потери всего депозита",
             "🔴 Отсутствие защитных механизмов",
             "🔴 Максимальное кредитное плечо",
-            "🔴 Возможность маржин-колла за минуты"
+            "🔴 Возможность маржин-колла за минуты",
         ]
-        
+
         for risk in risks:
             risk_label = QLabel(risk)
             risk_label.setStyleSheet("color: #c0392b; font-size: 11px;")
             risks_layout.addWidget(risk_label)
-        
+
         layout.addWidget(risks_frame)
-        
+
         # Чекбоксы
         self.checkbox1 = QCheckBox("Я понимаю все риски")
         self.checkbox1.setStyleSheet("font-size: 12px; padding: 5px;")
         layout.addWidget(self.checkbox1)
-        
+
         self.checkbox2 = QCheckBox("Готов потерять 100% депозита")
         self.checkbox2.setStyleSheet("font-size: 12px; padding: 5px;")
         layout.addWidget(self.checkbox2)
-        
+
         layout.addStretch()
-        
+
         # Кнопки
         button_box = QDialogButtonBox()
         self.cancel_btn = QPushButton("❌ Отмена")
@@ -157,7 +164,7 @@ class YoloConfirmationDialog(QDialog):
                 background-color: #7f8c8d;
             }
         """)
-        
+
         self.confirm_btn = QPushButton("✅ Подтвердить")
         self.confirm_btn.setStyleSheet("""
             QPushButton {
@@ -175,18 +182,18 @@ class YoloConfirmationDialog(QDialog):
             }
         """)
         self.confirm_btn.setEnabled(False)
-        
+
         button_box.addButton(self.cancel_btn, QDialogButtonBox.RejectRole)
         button_box.addButton(self.confirm_btn, QDialogButtonBox.AcceptRole)
-        
+
         layout.addWidget(button_box)
-        
+
         # Сигналы
         self.checkbox1.stateChanged.connect(self.validate_checkboxes)
         self.checkbox2.stateChanged.connect(self.validate_checkboxes)
         self.cancel_btn.clicked.connect(self.reject)
         self.confirm_btn.clicked.connect(self.accept)
-        
+
     def validate_checkboxes(self):
         """Проверка состояния чекбоксов."""
         enabled = self.checkbox1.isChecked() and self.checkbox2.isChecked()
@@ -195,88 +202,88 @@ class YoloConfirmationDialog(QDialog):
 
 class ModeCard(QFrame):
     """Карточка режима торговли."""
-    
+
     def __init__(self, mode_id: str, mode_data: dict, parent=None):
         super().__init__(parent)
         self.mode_id = mode_id
         self.mode_data = mode_data
         self.selected = False
-        
+
         self.setup_ui()
-        
+
     def setup_ui(self):
         self.setFrameStyle(QFrame.StyledPanel)
         self.setCursor(Qt.PointingHandCursor)
         # Включаем обработку мышиных событий
         self.setAttribute(Qt.WA_Hover)
-        
+
         # Основной layout
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
         layout.setContentsMargins(15, 15, 15, 15)
-        
+
         # Заголовок с иконкой
         header_layout = QHBoxLayout()
-        
+
         icon_label = QLabel(self.mode_data["icon"])
         icon_label.setFont(QFont("Segoe UI Emoji", 24))
         header_layout.addWidget(icon_label)
-        
+
         name_label = QLabel(self.mode_data["name"])
         name_label.setFont(QFont("Arial", 14, QFont.Bold))
         name_label.setStyleSheet(f"color: {self.mode_data['color']};")
         header_layout.addWidget(name_label)
-        
+
         header_layout.addStretch()
         layout.addLayout(header_layout)
-        
+
         # Описание
         desc_label = QLabel(self.mode_data["description"])
         desc_label.setFont(QFont("Arial", 10))
         desc_label.setStyleSheet("color: #7f8c8d;")
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
-        
+
         # Параметры
         params_layout = QGridLayout()
         params_layout.setSpacing(5)
-        
+
         params = [
             ("Risk:", f"{self.mode_data['risk_percentage']}%"),
-            ("Max позиций:", str(self.mode_data['max_positions'])),
+            ("Max позиций:", str(self.mode_data["max_positions"])),
             ("Max DD:", f"{self.mode_data['max_daily_drawdown']}%"),
             ("Stop Loss:", f"{self.mode_data['stop_loss_atr_multiplier']}x ATR"),
-            ("Take Profit:", f"{self.mode_data['risk_reward_ratio']}x RR")
+            ("Take Profit:", f"{self.mode_data['risk_reward_ratio']}x RR"),
         ]
-        
+
         for i, (label, value) in enumerate(params):
             label_widget = QLabel(label)
             label_widget.setFont(QFont("Arial", 9))
             label_widget.setStyleSheet("color: #95a5a6;")
-            
+
             value_widget = QLabel(value)
             value_widget.setFont(QFont("Arial", 10, QFont.Bold))
             value_widget.setStyleSheet(f"color: {self.mode_data['color']};")
-            
+
             params_layout.addWidget(label_widget, i // 2, i % 2 * 2)
             params_layout.addWidget(value_widget, i // 2, i % 2 * 2 + 1)
-        
+
         layout.addLayout(params_layout)
-        
+
         # Индикатор выбора
         self.indicator = QLabel("●")
         self.indicator.setFont(QFont("Arial", 16))
         self.indicator.setAlignment(Qt.AlignRight)
         self.indicator.setStyleSheet("color: transparent;")
         layout.addWidget(self.indicator)
-        
+
         self.update_style()
-        
+
     def set_selected(self, selected: bool):
         """Установка состояния выбора."""
         self.selected = selected
         self.update_style()
-        
+
     def update_style(self):
         """Обновление стиля карточки."""
         if self.selected:
@@ -314,7 +321,7 @@ class ModeCard(QFrame):
                         parent.modes_container.setEnabled(True)
                         parent.enabled_changed.emit(True)
                         logger.info("🎯 Режимы торговли автоматически ВКЛЮЧЕНЫ")
-                    
+
                     parent.on_mode_selected(self.mode_id)
                     break
                 parent = parent.parent()
@@ -348,7 +355,7 @@ class TradingModesWidget(QWidget):
         modes_layout = QVBoxLayout(self.modes_container)
         modes_layout.setContentsMargins(0, 0, 0, 0)
         modes_layout.setSpacing(10)
-        
+
         # Устанавливаем политику размеров для контейнера
         self.modes_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -359,9 +366,7 @@ class TradingModesWidget(QWidget):
         modes_layout.addWidget(header)
 
         # Описание
-        description = QLabel(
-            "Выберите режим торговли для автоматической настройки риск-менеджмента"
-        )
+        description = QLabel("Выберите режим торговли для автоматической настройки риск-менеджмента")
         description.setStyleSheet("color: #7f8c8d; padding: 0 10px 10px;")
         description.setWordWrap(True)
         modes_layout.addWidget(description)
@@ -397,7 +402,7 @@ class TradingModesWidget(QWidget):
         # Сетка для карточек режимов (2 в ряд)
         grid_layout = QGridLayout()
         grid_layout.setSpacing(15)
-        
+
         # Карточки режимов
         self.mode_cards = {}
         row, col = 0, 0
@@ -407,12 +412,12 @@ class TradingModesWidget(QWidget):
             card.setCursor(Qt.PointingHandCursor)
             self.mode_cards[mode_id] = card
             grid_layout.addWidget(card, row, col)
-            
+
             col += 1
             if col >= 2:  # 2 карточки в ряд
                 col = 0
                 row += 1
-        
+
         container_layout.addLayout(grid_layout)
 
         # Кастомный режим
@@ -432,10 +437,7 @@ class TradingModesWidget(QWidget):
         custom_header.setFont(QFont("Arial", 14, QFont.Bold))
         custom_layout.addWidget(custom_header)
 
-        custom_desc = QLabel(
-            "Ручная настройка параметров риск-менеджмента.\n"
-            "Прокрутите вниз для настройки параметров."
-        )
+        custom_desc = QLabel("Ручная настройка параметров риск-менеджмента.\n" "Прокрутите вниз для настройки параметров.")
         custom_desc.setStyleSheet("color: #7f8c8d;")
         custom_desc.setWordWrap(True)
         custom_layout.addWidget(custom_desc)
@@ -485,9 +487,9 @@ class TradingModesWidget(QWidget):
         """Обработка изменения состояния переключателя."""
         # Проверяем состояние (может быть int или Qt.CheckState)
         if isinstance(state, int):
-            self.enabled = (state == 2)  # Qt.Checked = 2
+            self.enabled = state == 2  # Qt.Checked = 2
         else:
-            self.enabled = (state == Qt.Checked)
+            self.enabled = state == Qt.Checked
 
         # Блокировка/разблокировка контейнера с карточками
         self.modes_container.setEnabled(self.enabled)
@@ -504,7 +506,7 @@ class TradingModesWidget(QWidget):
             logger.info("⚙️ Режимы торговли ОТКЛЮЧЕНЫ - система использует базовые настройки")
             # Отправляем сигнал об отключении
             self.mode_changed.emit("disabled", {})
-        
+
     def on_mode_selected(self, mode_id: str):
         """Обработка выбора режима."""
         # Проверка YOLO режима
@@ -512,23 +514,21 @@ class TradingModesWidget(QWidget):
             dialog = YoloConfirmationDialog(self)
             if dialog.exec() != QDialog.Accepted:
                 return
-        
+
         # Сброс выделения со всех карточек
         for card in self.mode_cards.values():
             card.set_selected(False)
-        
+
         # Выделение выбранной карточки
         if mode_id in self.mode_cards:
             self.mode_cards[mode_id].set_selected(True)
-        
+
         # Обновление текущего режима
         self.current_mode = mode_id
         mode_data = TRADING_MODES[mode_id]
-        
+
         # Обновление индикатора
-        self.current_mode_label.setText(
-            f"Текущий режим: {mode_data['icon']} {mode_data['name']}"
-        )
+        self.current_mode_label.setText(f"Текущий режим: {mode_data['icon']} {mode_data['name']}")
         self.current_mode_label.setStyleSheet(f"""
             background-color: {mode_data['color']}20;
             color: {mode_data['color']};
@@ -536,7 +536,7 @@ class TradingModesWidget(QWidget):
             border-radius: 5px;
             font-weight: bold;
         """)
-        
+
         # Подготовка настроек
         settings = {
             "risk_percentage": mode_data["risk_percentage"],
@@ -546,10 +546,10 @@ class TradingModesWidget(QWidget):
             "risk_reward_ratio": mode_data["risk_reward_ratio"],
             "enable_all_risk_checks": mode_data["enable_all_risk_checks"],
         }
-        
+
         # Отправка сигнала
         self.mode_changed.emit(mode_id, settings)
-        
+
     def on_custom_selected(self):
         """Обработка выбора кастомного режима."""
         # Сброс выделения со всех карточек
@@ -569,14 +569,14 @@ class TradingModesWidget(QWidget):
 
         # Отправляем сигнал для открытия настроек
         self.open_settings_requested.emit()
-        
+
         # Отправляем сигнал с пустыми настройками (будут настроены вручную)
         self.mode_changed.emit("custom", {})
-        
+
     def get_current_mode(self) -> str:
         """Получение текущего режима."""
         return self.current_mode
-    
+
     def set_mode(self, mode_id: str):
         """Установка режима программно."""
         if mode_id in self.mode_cards:

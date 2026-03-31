@@ -7,21 +7,22 @@
 - GraphBackend: Мост между JS и Python для графиков
 """
 
-from PySide6.QtCore import QObject, Signal, Slot, QRectF, QPointF
+from typing import Any, Dict, Optional
+
+import pandas as pd
+import pyqtgraph as pg
+from PySide6.QtCore import QObject, QPointF, QRectF, Signal, Slot
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QGraphicsObject
-import pyqtgraph as pg
-import pandas as pd
-from typing import Optional, Dict, Any
 
 
 class CustomCandlestickItem(pg.GraphicsObject):
     """
     Графический элемент для отображения японских свечей.
-    
+
     Адаптивная ширина свечи, цветовая кодировка (зеленый/красный).
     """
-    
+
     def __init__(self):
         super().__init__()
         self.data: Optional[list] = None
@@ -29,7 +30,7 @@ class CustomCandlestickItem(pg.GraphicsObject):
     def setData(self, data: list) -> None:
         """
         Установка данных для отрисовки.
-        
+
         Args:
             data: Список кортежей (time, open, high, low, close)
         """
@@ -56,11 +57,11 @@ class CustomCandlestickItem(pg.GraphicsObject):
         for t, o, h, l, c in self.data:
             # Определяем цвет свечи
             if c >= o:  # Зеленая свеча (рост)
-                pen = pg.mkPen('g', width=1)
-                brush = pg.mkBrush('g')
+                pen = pg.mkPen("g", width=1)
+                brush = pg.mkBrush("g")
             else:  # Красная свеча (падение)
-                pen = pg.mkPen('r', width=1)
-                brush = pg.mkBrush('r')
+                pen = pg.mkPen("r", width=1)
+                brush = pg.mkBrush("r")
 
             painter.setPen(pen)
             painter.setBrush(brush)
@@ -100,38 +101,33 @@ class CustomCandlestickItem(pg.GraphicsObject):
         step = (self.data[1][0] - self.data[0][0]) if len(self.data) > 1 else 1
         w = max(min(step * 0.25, 8.0), 2.0)
 
-        return QRectF(
-            min_time - w,
-            min_price,
-            max_time - min_time + 2 * w,
-            max_price - min_price
-        )
+        return QRectF(min_time - w, min_price, max_time - min_time + 2 * w, max_price - min_price)
 
 
 class GraphBackend(QObject):
     """
     Мост между JavaScript (WebEngine) и Python для интерактивных графиков.
-    
+
     Обрабатывает запросы от JS и перенаправляет их в родительский компонент.
     """
-    
+
     graphDataUpdated = Signal(dict)
-    
+
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
-    
+
     @Slot(str, str)
     def requestFilteredGraph(self, filter_type: str, filter_value: str) -> None:
         """
         Принимает запрос на фильтрацию из JS и перенаправляет его в ядро.
-        
+
         Args:
             filter_type: Тип фильтра (например, 'symbol', 'timeframe')
             filter_value: Значение фильтра
         """
         if self.parent():
             # Предполагается что parent имеет метод on_filter_request
-            if hasattr(self.parent(), 'on_filter_request'):
+            if hasattr(self.parent(), "on_filter_request"):
                 self.parent().on_filter_request(filter_type, filter_value)
 
     @Slot()
@@ -139,13 +135,13 @@ class GraphBackend(QObject):
         """Вызывается из JS, когда страница полностью загружена."""
         if self.parent():
             # Предполагается что parent имеет метод on_js_ready
-            if hasattr(self.parent(), 'on_js_ready'):
+            if hasattr(self.parent(), "on_js_ready"):
                 self.parent().on_js_ready()
-    
+
     def update_graph_data(self, data: Dict[str, Any]) -> None:
         """
         Обновление данных графика.
-        
+
         Args:
             data: Данные для отрисовки
         """

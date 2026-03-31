@@ -7,18 +7,20 @@ Unit тесты для модуля events.py.
 - EventType enum
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
+
 from src.core.events import (
-    EventType,
     Event,
-    TradeEvent,
-    RiskEvent,
+    EventFactory,
+    EventType,
     MarketRegimeEvent,
     ModelEvent,
-    SystemEvent,
     OrchestratorEvent,
-    EventFactory
+    RiskEvent,
+    SystemEvent,
+    TradeEvent,
 )
 
 
@@ -64,12 +66,8 @@ class TestEvent:
 
     def test_create_basic_event(self):
         """Создание базового события."""
-        event = Event(
-            type=EventType.SYSTEM_STARTED,
-            data={"key": "value"},
-            source="TestComponent"
-        )
-        
+        event = Event(type=EventType.SYSTEM_STARTED, data={"key": "value"}, source="TestComponent")
+
         assert event.type == EventType.SYSTEM_STARTED
         assert event.data == {"key": "value"}
         assert event.source == "TestComponent"
@@ -80,7 +78,7 @@ class TestEvent:
         before = datetime.utcnow()
         event = Event(type=EventType.SYSTEM_STARTED)
         after = datetime.utcnow()
-        
+
         assert before <= event.timestamp <= after
 
     def test_event_default_data(self):
@@ -96,13 +94,8 @@ class TestEvent:
     def test_event_with_all_fields(self):
         """Создание события со всеми полями."""
         timestamp = datetime(2026, 3, 31, 12, 0, 0)
-        event = Event(
-            type=EventType.TRADE_OPENED,
-            timestamp=timestamp,
-            data={"symbol": "EURUSD"},
-            source="TradingSystem"
-        )
-        
+        event = Event(type=EventType.TRADE_OPENED, timestamp=timestamp, data={"symbol": "EURUSD"}, source="TradingSystem")
+
         assert event.type == EventType.TRADE_OPENED
         assert event.timestamp == timestamp
         assert event.data == {"symbol": "EURUSD"}
@@ -115,14 +108,9 @@ class TestTradeEvent:
     def test_create_trade_event(self):
         """Создание события торговли."""
         event = TradeEvent(
-            type=EventType.TRADE_OPENED,
-            symbol="EURUSD",
-            lot=0.1,
-            order_type="BUY",
-            price=1.1000,
-            strategy_name="TestStrategy"
+            type=EventType.TRADE_OPENED, symbol="EURUSD", lot=0.1, order_type="BUY", price=1.1000, strategy_name="TestStrategy"
         )
-        
+
         assert event.symbol == "EURUSD"
         assert event.lot == 0.1
         assert event.order_type == "BUY"
@@ -132,7 +120,7 @@ class TestTradeEvent:
     def test_trade_event_defaults(self):
         """Проверка значений по умолчанию."""
         event = TradeEvent(type=EventType.TRADE_OPENED)
-        
+
         assert event.symbol == ""
         assert event.lot == 0.0
         assert event.order_type == ""
@@ -144,25 +132,15 @@ class TestTradeEvent:
 
     def test_trade_event_with_sl_tp(self):
         """Создание события с Stop Loss и Take Profit."""
-        event = TradeEvent(
-            type=EventType.TRADE_OPENED,
-            symbol="EURUSD",
-            stop_loss=1.0950,
-            take_profit=1.1100
-        )
-        
+        event = TradeEvent(type=EventType.TRADE_OPENED, symbol="EURUSD", stop_loss=1.0950, take_profit=1.1100)
+
         assert event.stop_loss == 1.0950
         assert event.take_profit == 1.1100
 
     def test_trade_event_with_pnl(self):
         """Создание события с PnL."""
-        event = TradeEvent(
-            type=EventType.TRADE_CLOSED,
-            symbol="EURUSD",
-            pnl=50.0,
-            reason="TP"
-        )
-        
+        event = TradeEvent(type=EventType.TRADE_CLOSED, symbol="EURUSD", pnl=50.0, reason="TP")
+
         assert event.pnl == 50.0
         assert event.reason == "TP"
 
@@ -177,9 +155,9 @@ class TestRiskEvent:
             risk_type="drawdown",
             current_value=0.15,
             threshold=0.10,
-            action_taken="reject_trade"
+            action_taken="reject_trade",
         )
-        
+
         assert event.risk_type == "drawdown"
         assert event.current_value == 0.15
         assert event.threshold == 0.10
@@ -187,11 +165,8 @@ class TestRiskEvent:
 
     def test_risk_event_with_affected_symbols(self):
         """Создание события с затронутыми символами."""
-        event = RiskEvent(
-            type=EventType.CORRELATION_WARNING,
-            affected_symbols=["EURUSD", "GBPUSD", "USDCHF"]
-        )
-        
+        event = RiskEvent(type=EventType.CORRELATION_WARNING, affected_symbols=["EURUSD", "GBPUSD", "USDCHF"])
+
         assert event.affected_symbols == ["EURUSD", "GBPUSD", "USDCHF"]
 
 
@@ -205,9 +180,9 @@ class TestMarketRegimeEvent:
             old_regime="ranging",
             new_regime="trending_up",
             confidence=0.85,
-            adx_value=35.0
+            adx_value=35.0,
         )
-        
+
         assert event.old_regime == "ranging"
         assert event.new_regime == "trending_up"
         assert event.confidence == 0.85
@@ -226,9 +201,9 @@ class TestModelEvent:
             timeframe=60,
             accuracy=0.75,
             loss=0.025,
-            training_samples=10000
+            training_samples=10000,
         )
-        
+
         assert event.model_type == "LSTM"
         assert event.symbol == "EURUSD"
         assert event.timeframe == 60
@@ -247,9 +222,9 @@ class TestSystemEvent:
             component="DatabaseManager",
             status="error",
             message="Connection failed",
-            error_details="Timeout after 30s"
+            error_details="Timeout after 30s",
         )
-        
+
         assert event.component == "DatabaseManager"
         assert event.status == "error"
         assert event.message == "Connection failed"
@@ -266,9 +241,9 @@ class TestOrchestratorEvent:
             cycle_id="cycle_123",
             regime="trending",
             allocation_changes={"StrategyA": 0.1, "StrategyB": -0.05},
-            performance_metrics={"sharpe": 1.5, "drawdown": 0.08}
+            performance_metrics={"sharpe": 1.5, "drawdown": 0.08},
         )
-        
+
         assert event.cycle_id == "cycle_123"
         assert event.regime == "trending"
         assert event.allocation_changes == {"StrategyA": 0.1, "StrategyB": -0.05}
@@ -289,9 +264,9 @@ class TestEventFactory:
             stop_loss=1.0950,
             take_profit=1.1100,
             strategy_name="TrendStrategy",
-            ticket=12345
+            ticket=12345,
         )
-        
+
         assert isinstance(event, TradeEvent)
         assert event.type == EventType.TRADE_OPENED
         assert event.symbol == "EURUSD"
@@ -307,13 +282,8 @@ class TestEventFactory:
     def test_create_trade_closed(self):
         """Создание события закрытия сделки."""
         factory = EventFactory()
-        event = factory.create_trade_closed(
-            ticket=12345,
-            symbol="EURUSD",
-            pnl=50.0,
-            close_reason="TP"
-        )
-        
+        event = factory.create_trade_closed(ticket=12345, symbol="EURUSD", pnl=50.0, close_reason="TP")
+
         assert isinstance(event, TradeEvent)
         assert event.type == EventType.TRADE_CLOSED
         assert event.ticket == 12345
@@ -326,11 +296,9 @@ class TestEventFactory:
         """Создание события отклонения сделки."""
         factory = EventFactory()
         event = factory.create_trade_rejected(
-            symbol="EURUSD",
-            strategy_name="BreakoutStrategy",
-            rejection_reason="Insufficient margin"
+            symbol="EURUSD", strategy_name="BreakoutStrategy", rejection_reason="Insufficient margin"
         )
-        
+
         assert isinstance(event, TradeEvent)
         assert event.type == EventType.TRADE_REJECTED
         assert event.symbol == "EURUSD"
@@ -342,11 +310,9 @@ class TestEventFactory:
         """Создание события системной ошибки."""
         factory = EventFactory()
         event = factory.create_system_error(
-            component="DataProvider",
-            message="API rate limit exceeded",
-            error_details="429 Too Many Requests"
+            component="DataProvider", message="API rate limit exceeded", error_details="429 Too Many Requests"
         )
-        
+
         assert isinstance(event, SystemEvent)
         assert event.type == EventType.SYSTEM_ERROR
         assert event.component == "DataProvider"
@@ -357,19 +323,29 @@ class TestEventFactory:
     def test_factory_creates_independent_events(self):
         """Проверка что фабрика создаёт независимые события."""
         factory = EventFactory()
-        
+
         event1 = factory.create_trade_opened(
-            symbol="EURUSD", lot=0.1, order_type="BUY",
-            price=1.1000, stop_loss=None, take_profit=None,
-            strategy_name="Test", ticket=1
+            symbol="EURUSD",
+            lot=0.1,
+            order_type="BUY",
+            price=1.1000,
+            stop_loss=None,
+            take_profit=None,
+            strategy_name="Test",
+            ticket=1,
         )
-        
+
         event2 = factory.create_trade_opened(
-            symbol="GBPUSD", lot=0.2, order_type="SELL",
-            price=1.2500, stop_loss=None, take_profit=None,
-            strategy_name="Test", ticket=2
+            symbol="GBPUSD",
+            lot=0.2,
+            order_type="SELL",
+            price=1.2500,
+            stop_loss=None,
+            take_profit=None,
+            strategy_name="Test",
+            ticket=2,
         )
-        
+
         assert event1.symbol != event2.symbol
         assert event1.lot != event2.lot
         assert event1.ticket != event2.ticket
@@ -383,10 +359,10 @@ class TestEventInheritance:
         """TradeEvent является подклассом Event."""
         event = TradeEvent(type=EventType.TRADE_OPENED)
         assert isinstance(event, Event)
-        assert hasattr(event, 'type')
-        assert hasattr(event, 'timestamp')
-        assert hasattr(event, 'data')
-        assert hasattr(event, 'source')
+        assert hasattr(event, "type")
+        assert hasattr(event, "timestamp")
+        assert hasattr(event, "data")
+        assert hasattr(event, "source")
 
     def test_risk_event_is_event(self):
         """RiskEvent является подклассом Event."""

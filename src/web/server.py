@@ -8,28 +8,31 @@
 - WebSocket для реального времени
 """
 
-import logging
 import asyncio
-import threading
-from typing import TYPE_CHECKING, Optional, List, Dict, Any
-from contextlib import asynccontextmanager
 import json
+import logging
+import threading
+from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Path as FastApiPath, Request
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, HTTPException
+from fastapi import Path as FastApiPath
+from fastapi import Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pathlib import Path
+from fastapi.staticfiles import StaticFiles
 
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 
-from .data_models import SystemStatus, Position, HistoricalTrade, ControlResponse
-from src.data_models import TradeRequest, ClosePositionRequest
+from src.data_models import ClosePositionRequest, TradeRequest
+
+from .data_models import ControlResponse, HistoricalTrade, Position, SystemStatus
 
 if TYPE_CHECKING:
     from src.core.trading_system import TradingSystem
@@ -43,11 +46,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 async def rate_limit_exception_handler(request: Request, exc: Exception):
     """Обработчик превышения rate limit."""
-    return HTTPException(
-        status_code=429,
-        detail=f"Слишком много запросов. Попробуйте позже.",
-        headers={"Retry-After": "60"}
-    )
+    return HTTPException(status_code=429, detail=f"Слишком много запросов. Попробуйте позже.", headers={"Retry-After": "60"})
 
 
 # --- Глобальное состояние ---
@@ -95,7 +94,7 @@ class WebLogHandler(logging.Handler):
     def __init__(self):
         super().__init__()
         self.setLevel(logging.INFO)
-        self.setFormatter(logging.Formatter('%(asctime)s - %(message)s', datefmt='%H:%M:%S'))
+        self.setFormatter(logging.Formatter("%(asctime)s - %(message)s", datefmt="%H:%M:%S"))
 
     def emit(self, record):
         # Проверяем, что сервер запущен и очередь готова
@@ -115,9 +114,7 @@ class WebLogHandler(logging.Handler):
                 message = {"type": "log_message", "payload": log_entry}
 
                 # Потокобезопасная отправка в очередь цикла событий сервера
-                app_state.loop.call_soon_threadsafe(
-                    app_state.update_queue.put_nowait, message
-                )
+                app_state.loop.call_soon_threadsafe(app_state.update_queue.put_nowait, message)
         except (RuntimeError, AttributeError):
             # Игнорируем ошибки при закрытии приложения
             pass
@@ -211,21 +208,14 @@ class WebServer:
 
     def broadcast_drift_update(self, timestamp: float, symbol: str, error: float, is_drift: bool):
         """Широковещательная рассылка данных о дрейфе концепции."""
-        payload = {
-            "timestamp": timestamp,
-            "symbol": symbol,
-            "error": error,
-            "is_drift": is_drift
-        }
+        payload = {"timestamp": timestamp, "symbol": symbol, "error": error, "is_drift": is_drift}
         self._put_to_queue_threadsafe({"type": "drift_update", "payload": payload})
 
     def _put_to_queue_threadsafe(self, message: dict):
         # Используем call_soon_threadsafe для передачи данных из других потоков
         if app_state and app_state.loop and app_state.update_queue:
             try:
-                app_state.loop.call_soon_threadsafe(
-                    app_state.update_queue.put_nowait, message
-                )
+                app_state.loop.call_soon_threadsafe(app_state.update_queue.put_nowait, message)
             except Exception as e:
                 logger.error(f"[Web] Ошибка добавления в очередь: {e}")
 
@@ -246,9 +236,9 @@ class WebServer:
 
     def setup_routes(self):
         """Настройка API routes с Rate Limiting."""
-        
+
         # --- Public API (высокие лимиты) ---
-        
+
         @app.get("/api/v1/status", response_model=SystemStatus)
         @limiter.limit("60/minute")  # 60 запросов в минуту
         async def get_status(request: Request):
@@ -257,7 +247,7 @@ class WebServer:
                 ts = app_state.trading_system
                 if ts.start_time:
                     delta = datetime.now() - ts.start_time
-                    app_state.latest_status.uptime = str(delta).split('.')[0]
+                    app_state.latest_status.uptime = str(delta).split(".")[0]
                 return app_state.latest_status
 
             if app_state and app_state.trading_system:
@@ -268,7 +258,7 @@ class WebServer:
                     uptime="0:00:00",
                     balance=0.0,
                     equity=0.0,
-                    current_drawdown=0.0
+                    current_drawdown=0.0,
                 )
             return SystemStatus(is_running=False, mode="Ожидание", uptime="0:00:00", balance=0, equity=0)
 
@@ -286,16 +276,12 @@ class WebServer:
                 return []
             history_deals = app_state.trading_system.db_manager.get_trade_history()
             return [
-                HistoricalTrade(
-                    ticket=d.ticket,
-                    symbol=d.symbol,
-                    profit=d.profit,
-                    time_close=d.time_close
-                ) for d in history_deals
+                HistoricalTrade(ticket=d.ticket, symbol=d.symbol, profit=d.profit, time_close=d.time_close)
+                for d in history_deals
             ]
 
         # --- Control API (низкие лимиты - критичные операции) ---
-        
+
         @app.post("/api/v1/control/start", response_model=ControlResponse)
         @limiter.limit("5/minute")  # Макс 5 запусков в минуту
         async def start_system(request: Request):
@@ -338,34 +324,37 @@ class WebServer:
             return ControlResponse(success=True, message=f"Режим наблюдателя {status}.")
 
         # --- WebSocket (без rate limiting, но с защитой от disconnect) ---
-        
+
         @app.websocket("/api/ws/updates")
         async def websocket_endpoint(websocket: WebSocket):
             await app_state.ws_manager.connect(websocket)
             try:
                 # 1. Отправляем последний известный статус
                 if app_state.latest_status:
-                    await websocket.send_json(
-                        {"type": "status_update", "payload": app_state.latest_status.model_dump()})
+                    await websocket.send_json({"type": "status_update", "payload": app_state.latest_status.model_dump()})
                 # 2. Отправляем последние позиции
                 if app_state.latest_positions:
-                    await websocket.send_json({
-                        "type": "positions_update",
-                        "payload": [pos.model_dump() for pos in app_state.latest_positions]
-                    })
+                    await websocket.send_json(
+                        {"type": "positions_update", "payload": [pos.model_dump() for pos in app_state.latest_positions]}
+                    )
                 # 3. Отправляем данные оркестратора
                 if app_state.trading_system.risk_engine.default_capital_allocation:
-                    await websocket.send_json({
-                        "type": "orchestrator_update",
-                        "payload": app_state.trading_system.risk_engine.default_capital_allocation
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "orchestrator_update",
+                            "payload": app_state.trading_system.risk_engine.default_capital_allocation,
+                        }
+                    )
                 # 4. Отправляем историю для графика P&L
                 history_deals = app_state.trading_system.db_manager.get_trade_history()
                 if history_deals:
                     history_payload = [
-                        json.loads(HistoricalTrade(
-                            ticket=d.ticket, symbol=d.symbol, profit=d.profit, time_close=d.time_close
-                        ).model_dump_json()) for d in history_deals
+                        json.loads(
+                            HistoricalTrade(
+                                ticket=d.ticket, symbol=d.symbol, profit=d.profit, time_close=d.time_close
+                            ).model_dump_json()
+                        )
+                        for d in history_deals
                     ]
                     await websocket.send_json({"type": "history_update", "payload": history_payload})
                 else:
@@ -405,17 +394,15 @@ class WebServer:
                 return {
                     "error": "Dashboard files not found",
                     "message": "Please check that 'assets/dashboard/index.html' exists.",
-                    "checked_paths": [str(path_relative), str(path_cwd)]
+                    "checked_paths": [str(path_relative), str(path_cwd)],
                 }
-
-
 
             @app.get("/")
             async def root_error():
                 return {
                     "error": "Dashboard files not found",
                     "message": "Please check that 'assets/dashboard/index.html' exists.",
-                    "checked_paths": [str(path_relative), str(path_cwd)]
+                    "checked_paths": [str(path_relative), str(path_cwd)],
                 }
 
     def start(self):
@@ -425,8 +412,7 @@ class WebServer:
         log_config = uvicorn.config.LOGGING_CONFIG
         log_config["formatters"]["access"]["fmt"] = "%(asctime)s - %(levelname)s - [Web] %(message)s"
 
-        config = uvicorn.Config(app, host=self.config.host, port=self.config.port, log_level="warning",
-                                log_config=log_config)
+        config = uvicorn.Config(app, host=self.config.host, port=self.config.port, log_level="warning", log_config=log_config)
         self.server = uvicorn.Server(config)
 
         self.server_thread = threading.Thread(target=self.server.run, daemon=True, name="WebServerThread")

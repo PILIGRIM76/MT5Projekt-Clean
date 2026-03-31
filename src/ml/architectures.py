@@ -1,13 +1,15 @@
 # src/ml/architectures.py
+import logging
+import math
+
 import torch
 import torch.nn as nn
-import math
-import logging
 
 logger = logging.getLogger(__name__)
 
 
 # --- АРХИТЕКТУРА LSTM (УПРОЩЕННАЯ) ---
+
 
 class SimpleLSTM(nn.Module):
     """
@@ -22,7 +24,7 @@ class SimpleLSTM(nn.Module):
             input_size=input_dim,
             hidden_size=hidden_dim,
             num_layers=num_layers,
-            batch_first=True  # Важно для соответствия формату данных
+            batch_first=True,  # Важно для соответствия формату данных
         )
 
         self.dropout = nn.Dropout(0.1)
@@ -58,7 +60,6 @@ class SimpleLSTM(nn.Module):
         return out
 
 
-
 # --- АРХИТЕКТУРА TRANSFORMER ---
 class PositionalEncoding(nn.Module):
     """Внедряет информацию о позиции токенов в последовательности."""
@@ -72,10 +73,10 @@ class PositionalEncoding(nn.Module):
         pe = torch.zeros(max_len, 1, d_model)
         pe[:, 0, 0::2] = torch.sin(position * div_term)
         pe[:, 0, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.pe[:x.size(0)]
+        x = x + self.pe[: x.size(0)]
         return self.dropout(x)
 
 
@@ -84,10 +85,11 @@ class TimeSeriesTransformer(nn.Module):
     Архитектура Transformer, адаптированная для задач регрессии временных рядов.
     """
 
-    def __init__(self, input_dim: int, d_model: int = 64, nhead: int = 4,
-                 d_hid: int = 128, nlayers: int = 2, dropout: float = 0.2):
+    def __init__(
+        self, input_dim: int, d_model: int = 64, nhead: int = 4, d_hid: int = 128, nlayers: int = 2, dropout: float = 0.2
+    ):
         super().__init__()
-        self.model_type = 'Transformer'
+        self.model_type = "Transformer"
         self.pos_encoder = PositionalEncoding(d_model, dropout)
         encoder_layers = nn.TransformerEncoderLayer(d_model, nhead, d_hid, dropout, batch_first=True)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, nlayers)

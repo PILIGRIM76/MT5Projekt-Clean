@@ -1,8 +1,10 @@
 # src/core/online_learner.py
 import logging
+
 import numpy as np
 import torch
 import torch.nn as nn
+
 from src.core.config_models import Settings
 
 logger = logging.getLogger(__name__)
@@ -52,13 +54,11 @@ class OnlineLearner:
                 win_ratio = min(trade_profit / self.max_expected_profit, 1.0)
                 adjustment = (last_prediction_unscaled - entry_price) * self.adjustment_factor * (1 + win_ratio)
                 new_target = last_prediction_unscaled + adjustment
-                logger.info(
-                    f"Сделка прибыльная. Цель скорректирована с {last_prediction_unscaled:.5f} на {new_target:.5f}")
+                logger.info(f"Сделка прибыльная. Цель скорректирована с {last_prediction_unscaled:.5f} на {new_target:.5f}")
             else:
                 loss_ratio = min(abs(trade_profit) / self.max_expected_profit, 1.0)
                 new_target = last_prediction_unscaled * (1 - loss_ratio) + entry_price * loss_ratio
-                logger.info(
-                    f"Сделка убыточная. Цель скорректирована с {last_prediction_unscaled:.5f} на {new_target:.5f}")
+                logger.info(f"Сделка убыточная. Цель скорректирована с {last_prediction_unscaled:.5f} на {new_target:.5f}")
 
             # --- Логика дообучения для PyTorch ---
             y_target_scaled = y_scaler.transform(np.array([[new_target]]))

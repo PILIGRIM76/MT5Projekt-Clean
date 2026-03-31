@@ -1,9 +1,10 @@
 # src/ml/orchestrator_env.py
 import logging
-import numpy as np
-import gymnasium as gym
-from gymnasium import spaces
 from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+
+import gymnasium as gym
+import numpy as np
+from gymnasium import spaces
 
 if TYPE_CHECKING:
     from src.core.trading_system import TradingSystem
@@ -12,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class OrchestratorEnv(gym.Env):
-    metadata = {'render_modes': None}
+    metadata = {"render_modes": None}
 
-    def __init__(self, trading_system_ref: 'TradingSystem'):
+    def __init__(self, trading_system_ref: "TradingSystem"):
 
         # --- 1. Определение всех атрибутов, включая spaces ---
         self.trading_system = trading_system_ref
@@ -29,26 +30,15 @@ class OrchestratorEnv(gym.Env):
 
         # --- RL.1: ДИНАМИЧЕСКОЕ ПРОСТРАНСТВО ДЕЙСТВИЙ (Enable/Disable + Weight) ---
         # Action space shape: (num_regimes, num_strategies * 2)
-        self.action_space = spaces.Box(
-            low=0,
-            high=1,
-            shape=(self.num_regimes, self.num_strategies * 2),
-            dtype=np.float32
-        )
+        self.action_space = spaces.Box(low=0, high=1, shape=(self.num_regimes, self.num_strategies * 2), dtype=np.float32)
 
         # --- RL.1: РАСШИРЕННОЕ ПРОСТРАНСТВО НАБЛЮДЕНИЙ (8 + Num Regimes) ---
-        self.observation_space = spaces.Box(
-            low=-1,
-            high=1,
-            shape=(8 + self.num_regimes,),
-            dtype=np.float32
-        )
+        self.observation_space = spaces.Box(low=-1, high=1, shape=(8 + self.num_regimes,), dtype=np.float32)
 
         self.start_balance = 10000
         self.last_sharpe = 0.0
 
-        logger.info(
-            f"OrchestratorEnv v3.0 инициализирована. Стратегий: {self.num_strategies}, Режимов: {self.num_regimes}")
+        logger.info(f"OrchestratorEnv v3.0 инициализирована. Стратегий: {self.num_strategies}, Режимов: {self.num_regimes}")
 
         # --- 2. Вызов родительского конструктора (ПЕРЕМЕЩЕНО В КОНЕЦ) ---
         super(OrchestratorEnv, self).__init__()
@@ -75,16 +65,16 @@ class OrchestratorEnv(gym.Env):
         obs_sys = np.zeros(8, dtype=np.float32)
 
         # Существующие метрики (Индексы 0-4)
-        obs_sys[0] = np.clip(state.get('portfolio_var', 0) / self.trading_system.config.MAX_PORTFOLIO_VAR_PERCENT, 0, 1)
-        obs_sys[1] = np.clip(state.get('weekly_pnl', 0) / (self.start_balance * 0.1), -1, 1)
-        obs_sys[2] = np.clip(state.get('sharpe_ratio', 0) / 3.0, -1, 1)
-        obs_sys[3] = np.clip(state.get('win_rate', 0), 0, 1)
-        obs_sys[4] = np.clip(state.get('market_volatility', 0), 0, 1)
+        obs_sys[0] = np.clip(state.get("portfolio_var", 0) / self.trading_system.config.MAX_PORTFOLIO_VAR_PERCENT, 0, 1)
+        obs_sys[1] = np.clip(state.get("weekly_pnl", 0) / (self.start_balance * 0.1), -1, 1)
+        obs_sys[2] = np.clip(state.get("sharpe_ratio", 0) / 3.0, -1, 1)
+        obs_sys[3] = np.clip(state.get("win_rate", 0), 0, 1)
+        obs_sys[4] = np.clip(state.get("market_volatility", 0), 0, 1)
 
         # --- RL.1: НОВЫЕ КОГНИТИВНЫЕ ЭЛЕМЕНТЫ (Индексы 5-7) ---
-        obs_sys[5] = np.clip(state.get('kg_sentiment', 0), -1, 1)
-        obs_sys[6] = np.clip(state.get('drift_status', 0), 0, 1)
-        obs_sys[7] = np.clip(state.get('news_sentiment', 0), -1, 1)
+        obs_sys[5] = np.clip(state.get("kg_sentiment", 0), -1, 1)
+        obs_sys[6] = np.clip(state.get("drift_status", 0), 0, 1)
+        obs_sys[7] = np.clip(state.get("news_sentiment", 0), -1, 1)
 
         return np.concatenate((obs_sys, regime_one_hot))
 
@@ -102,8 +92,8 @@ class OrchestratorEnv(gym.Env):
         # action.shape теперь (5, 12) (5 режимов, 6 стратегий * 2)
 
         # Разделяем на Enable/Disable и Weight
-        enable_actions = action[:, :self.num_strategies]  # Shape: (5, 6)
-        weight_actions = action[:, self.num_strategies:]  # Shape: (5, 6)
+        enable_actions = action[:, : self.num_strategies]  # Shape: (5, 6)
+        weight_actions = action[:, self.num_strategies :]  # Shape: (5, 6)
 
         regime_allocations = {}
         for i in range(self.num_regimes):
@@ -134,8 +124,8 @@ class OrchestratorEnv(gym.Env):
         # 5. Расчет награды (Reward)
         new_obs = self._get_obs()
         state = self.trading_system.get_rl_orchestrator_state()
-        current_sharpe = state.get('sharpe_ratio', 0.0)
-        current_var = state.get('portfolio_var', 0.0)
+        current_sharpe = state.get("sharpe_ratio", 0.0)
+        current_var = state.get("portfolio_var", 0.0)
         max_var_config = self.trading_system.config.MAX_PORTFOLIO_VAR_PERCENT
         kg_sentiment = new_obs[5]  # KG Sentiment находится в obs[5]
 
@@ -149,7 +139,7 @@ class OrchestratorEnv(gym.Env):
         # -------------------------------------
 
         # --- TZ 2.2: Награда за KG-Согласие ---
-        total_applied_allocation = np.sum(action[:, self.num_strategies:]) / self.num_regimes  # Используем только веса
+        total_applied_allocation = np.sum(action[:, self.num_strategies :]) / self.num_regimes  # Используем только веса
         reward_kg = 0.1 * total_applied_allocation * np.maximum(0, kg_sentiment)
         reward += reward_kg
         # -------------------------------------
@@ -163,7 +153,7 @@ class OrchestratorEnv(gym.Env):
         if current_var > max_var_config:
             reward -= 0.5 * (current_var / max_var_config)
 
-        reward += np.clip(state.get('weekly_pnl', 0) / self.start_balance, -0.01, 0.01) * 100
+        reward += np.clip(state.get("weekly_pnl", 0) / self.start_balance, -0.01, 0.01) * 100
 
         drift_status = new_obs[6]
         if drift_status > 0.5:
@@ -180,5 +170,5 @@ class OrchestratorEnv(gym.Env):
 
         return new_obs, reward, terminated, truncated, {}
 
-    def render(self, mode='human'):
+    def render(self, mode="human"):
         pass

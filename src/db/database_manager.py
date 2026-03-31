@@ -1,24 +1,40 @@
 # src/db/database_manager.py
+import io
+import json
 import logging
 import os
-import pandas as pd
 import pickle
+import queue
 from datetime import datetime, timedelta
 from pathlib import Path
-import json
-from typing import Optional, List, Any, Tuple, Dict
-import io
-import queue
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
-from sqlalchemy import create_engine, Column, Integer, String, Float, LargeBinary, DateTime, Text, inspect, text, \
-    UniqueConstraint, func, Boolean, event
-from sqlalchemy.orm import sessionmaker, declarative_base, aliased
-from sqlalchemy.exc import SQLAlchemyError, OperationalError, IntegrityError
 from MetaTrader5 import ORDER_TYPE_BUY
-from src.ml.architectures import TimeSeriesTransformer, SimpleLSTM
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+    event,
+    func,
+    inspect,
+    text,
+)
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+from sqlalchemy.orm import aliased, declarative_base, sessionmaker
+
 from src.core.config_models import Settings
+from src.ml.architectures import SimpleLSTM, TimeSeriesTransformer
 
 KerasModel = None
 lgb = None
@@ -33,7 +49,7 @@ Base = declarative_base()
 
 
 class NewsArticle(Base):
-    __tablename__ = 'news_articles'
+    __tablename__ = "news_articles"
     id = Column(Integer, primary_key=True)
     vector_id = Column(String, unique=True, nullable=False, index=True)
     content = Column(Text, nullable=False)
@@ -44,10 +60,8 @@ class NewsArticle(Base):
         return f"<NewsArticle(id={self.id}, vector_id='{self.vector_id}', source='{self.source}')>"
 
 
-
-
 class StrategicModel(Base):
-    __tablename__ = 'strategic_models'
+    __tablename__ = "strategic_models"
     id = Column(Integer, primary_key=True)
     model_data = Column(LargeBinary, nullable=False)
     training_date = Column(DateTime, default=datetime.utcnow)
@@ -57,11 +71,11 @@ class StrategicModel(Base):
 
 
 class TrainedModel(Base):
-    __tablename__ = 'trained_models'
+    __tablename__ = "trained_models"
     id = Column(Integer, primary_key=True)
     symbol = Column(String, nullable=False, index=True)
     timeframe = Column(Integer, nullable=False)
-    model_type = Column(String, nullable=False, default='LSTM', index=True)
+    model_type = Column(String, nullable=False, default="LSTM", index=True)
     model_data = Column(LargeBinary, nullable=False)
     training_date = Column(DateTime, default=datetime.utcnow)
     version = Column(Integer, default=1)
@@ -73,7 +87,7 @@ class TrainedModel(Base):
 
 
 class Scaler(Base):
-    __tablename__ = 'scalers'
+    __tablename__ = "scalers"
     id = Column(Integer, primary_key=True)
     symbol = Column(String, nullable=False, unique=True)
     x_scaler_data = Column(LargeBinary, nullable=False)
@@ -81,11 +95,11 @@ class Scaler(Base):
 
 
 class TradeHistory(Base):
-    __tablename__ = 'trade_history'
+    __tablename__ = "trade_history"
     id = Column(Integer, primary_key=True)
     ticket = Column(Integer, unique=True, nullable=False)
     symbol = Column(String, nullable=False)
-    strategy = Column(String, nullable=True, default='External')
+    strategy = Column(String, nullable=True, default="External")
 
     trade_type = Column(String, nullable=False)
     volume = Column(Float, nullable=False)
@@ -104,7 +118,7 @@ class TradeHistory(Base):
 class TradeAudit(Base):
     """
     Таблица аудита торговых решений.
-    
+
     Сохраняет полный контекст принятия решения о сделке:
     - Кто принял решение (AI, стратегия, человек)
     - Обоснование решения (режим рынка, аллокация, сентимент)
@@ -112,22 +126,25 @@ class TradeAudit(Base):
     - Контекст аккаунта (баланс, эквити, открытые позиции)
     - Результат исполнения (успех/отказ/ошибка, время исполнения)
     """
-    __tablename__ = 'trade_audit'
-    
+
+    __tablename__ = "trade_audit"
+
     id = Column(Integer, primary_key=True)
     trade_ticket = Column(Integer, nullable=False, index=True, comment="Тикет сделки (связь с TradeHistory.ticket)")
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True, comment="Время аудита")
-    
+
     # Кто принял решение
-    decision_maker = Column(String, nullable=False, comment="Источник решения: AI_Model, RLTradeManager, ClassicStrategy, Human")
+    decision_maker = Column(
+        String, nullable=False, comment="Источник решения: AI_Model, RLTradeManager, ClassicStrategy, Human"
+    )
     strategy_name = Column(String, nullable=True, comment="Название стратегии")
-    
+
     # Обоснование решения
     market_regime = Column(String, nullable=True, comment="Текущий режим рынка")
     capital_allocation = Column(Float, nullable=True, comment="Аллокация капитала для стратегии")
     consensus_score = Column(Float, nullable=True, comment="Оценка консенсуса (уверенность)")
     kg_sentiment = Column(Float, nullable=True, comment="Сентимент из Графа Знаний")
-    
+
     # Проверки риска (JSON)
     risk_checks = Column(Text, nullable=True, comment="JSON с результатами проверок риска")
     # Формат: {
@@ -136,24 +153,24 @@ class TradeAudit(Base):
     #   "correlation_check_passed": true,
     #   "daily_drawdown_ok": true
     # }
-    
+
     # Контекст аккаунта
     account_balance = Column(Float, nullable=True, comment="Баланс аккаунта на момент решения")
     account_equity = Column(Float, nullable=True, comment="Эквити аккаунта на момент решения")
     open_positions_count = Column(Integer, nullable=True, comment="Количество открытых позиций")
     portfolio_var = Column(Float, nullable=True, comment="Portfolio VaR (99%)")
-    
+
     # Результат
     execution_status = Column(String, nullable=False, comment="Статус: EXECUTED, REJECTED, FAILED")
     rejection_reason = Column(String, nullable=True, comment="Причина отклонения (если есть)")
     execution_time_ms = Column(Float, nullable=True, comment="Время исполнения в миллисекундах")
-    
+
     def __repr__(self):
         return f"<TradeAudit(ticket={self.trade_ticket}, status={self.execution_status}, time={self.timestamp})>"
 
 
 class StrategyPerformance(Base):
-    __tablename__ = 'strategy_performance'
+    __tablename__ = "strategy_performance"
     id = Column(Integer, primary_key=True)
     strategy_name = Column(String, nullable=False, index=True)
     symbol = Column(String, nullable=False, index=True)
@@ -161,13 +178,13 @@ class StrategyPerformance(Base):
     profit_factor = Column(Float, nullable=False)
     win_rate = Column(Float, nullable=False)
     trade_count = Column(Integer, nullable=False)
-    status = Column(String, default='live', nullable=False, index=True)
+    status = Column(String, default="live", nullable=False, index=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    __table_args__ = (UniqueConstraint('strategy_name', 'symbol', 'market_regime', name='_strategy_symbol_regime_uc'),)
+    __table_args__ = (UniqueConstraint("strategy_name", "symbol", "market_regime", name="_strategy_symbol_regime_uc"),)
 
 
 class ActiveDirective(Base):
-    __tablename__ = 'active_directives'
+    __tablename__ = "active_directives"
     id = Column(Integer, primary_key=True)
     directive_type = Column(String, unique=True, nullable=False)
     value = Column(String, nullable=False)
@@ -176,7 +193,7 @@ class ActiveDirective(Base):
 
 
 class HumanFeedback(Base):
-    __tablename__ = 'human_feedback'
+    __tablename__ = "human_feedback"
     id = Column(Integer, primary_key=True)
     trade_ticket = Column(Integer, nullable=False, index=True)
     model_id = Column(Integer, nullable=True)
@@ -186,7 +203,7 @@ class HumanFeedback(Base):
 
 
 class Entity(Base):
-    __tablename__ = 'entities'
+    __tablename__ = "entities"
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False, index=True)
     entity_type = Column(String, nullable=False, index=True)
@@ -196,7 +213,7 @@ class Entity(Base):
 
 
 class Relation(Base):
-    __tablename__ = 'relations'
+    __tablename__ = "relations"
     id = Column(Integer, primary_key=True)
     source_id = Column(Integer, nullable=False, index=True)
     target_id = Column(Integer, nullable=False, index=True)
@@ -204,9 +221,7 @@ class Relation(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     context_json = Column(Text, nullable=True)
 
-    __table_args__ = (
-        UniqueConstraint('source_id', 'target_id', 'relation_type', 'timestamp', name='_relation_uc'),
-    )
+    __table_args__ = (UniqueConstraint("source_id", "target_id", "relation_type", "timestamp", name="_relation_uc"),)
 
     def __repr__(self):
         return f"<Relation(source={self.source_id}, target={self.target_id}, type='{self.relation_type}')>"
@@ -217,8 +232,9 @@ class CandleData(Base):
     Таблица для хранения свечных данных (OHLCV).
     Используется для кэширования исторических данных из MT5.
     """
-    __tablename__ = 'candle_data'
-    
+
+    __tablename__ = "candle_data"
+
     id = Column(Integer, primary_key=True)
     symbol = Column(String, nullable=False, index=True, comment="Торговый инструмент (например, EURUSD)")
     timeframe = Column(String, nullable=False, index=True, comment="Таймфрейм (например, H1, M15)")
@@ -228,11 +244,9 @@ class CandleData(Base):
     low = Column(Float, nullable=False, comment="Минимум")
     close = Column(Float, nullable=False, comment="Цена закрытия")
     tick_volume = Column(Integer, nullable=True, comment="Тиковый объём")
-    
-    __table_args__ = (
-        UniqueConstraint('symbol', 'timeframe', 'time', name='_candle_data_uc'),
-    )
-    
+
+    __table_args__ = (UniqueConstraint("symbol", "timeframe", "time", name="_candle_data_uc"),)
+
     def __repr__(self):
         return f"<CandleData(symbol='{self.symbol}', timeframe='{self.timeframe}', time={self.time})>"
 
@@ -243,13 +257,7 @@ class DatabaseManager:
         db_folder.mkdir(exist_ok=True)
         db_path = db_folder / config.DATABASE_NAME
 
-        self.engine = create_engine(f'sqlite:///{db_path}', connect_args={'timeout': 30})
-
-
-
-
-
-
+        self.engine = create_engine(f"sqlite:///{db_path}", connect_args={"timeout": 30})
 
         @event.listens_for(self.engine, "connect")
         def set_sqlite_pragma(dbapi_connection, connection_record):
@@ -268,12 +276,16 @@ class DatabaseManager:
         Base.metadata.create_all(self.engine)
         logger.info(f"DatabaseManager инициализирован. База данных: {db_path}")
 
-    def load_champion_models(self, symbol: str, timeframe: int) -> Tuple[
-        Optional[Dict[str, Any]], Optional[Any], Optional[Any]]:
+    def load_champion_models(
+        self, symbol: str, timeframe: int
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Any], Optional[Any]]:
         session = self.Session()
         try:
-            model_types_query = session.query(TrainedModel.model_type).filter_by(symbol=symbol, timeframe=timeframe,
-                                                                                 is_champion=True).distinct()
+            model_types_query = (
+                session.query(TrainedModel.model_type)
+                .filter_by(symbol=symbol, timeframe=timeframe, is_champion=True)
+                .distinct()
+            )
             model_types = [row[0] for row in model_types_query]
             champion_models = {}
 
@@ -281,9 +293,12 @@ class DatabaseManager:
             logger.info(f"Загрузка моделей для {symbol} на устройство: {device}")
 
             for m_type in model_types:
-                model_record = session.query(TrainedModel).filter_by(symbol=symbol, timeframe=timeframe,
-                                                                     model_type=m_type, is_champion=True).order_by(
-                    TrainedModel.version.desc()).first()
+                model_record = (
+                    session.query(TrainedModel)
+                    .filter_by(symbol=symbol, timeframe=timeframe, model_type=m_type, is_champion=True)
+                    .order_by(TrainedModel.version.desc())
+                    .first()
+                )
                 if not model_record:
                     continue
                 model = None
@@ -291,31 +306,30 @@ class DatabaseManager:
                     if "PyTorch" in m_type:
                         features = json.loads(model_record.features_json) if model_record.features_json else []
                         input_dim = len(features)
-                        params = json.loads(
-                            model_record.hyperparameters_json) if model_record.hyperparameters_json else {}
+                        params = json.loads(model_record.hyperparameters_json) if model_record.hyperparameters_json else {}
 
-                        if model_record.model_type == 'LSTM_PyTorch':
+                        if model_record.model_type == "LSTM_PyTorch":
                             model = SimpleLSTM(
                                 input_dim=input_dim,
-                                hidden_dim=params.get('hidden_dim', 64),
-                                num_layers=params.get('num_layers', 2),
-                                output_dim=1
+                                hidden_dim=params.get("hidden_dim", 64),
+                                num_layers=params.get("num_layers", 2),
+                                output_dim=1,
                             ).to(device)
-                        elif model_record.model_type == 'Transformer_PyTorch':
+                        elif model_record.model_type == "Transformer_PyTorch":
                             model = TimeSeriesTransformer(
                                 input_dim=input_dim,
-                                d_model=params.get('d_model', 64),
-                                nhead=params.get('nhead', 4),
-                                nlayers=params.get('nlayers', 2)
+                                d_model=params.get("d_model", 64),
+                                nhead=params.get("nhead", 4),
+                                nlayers=params.get("nlayers", 2),
                             ).to(device)
                         else:
                             logger.error(f"Неизвестный PyTorch тип модели: {model_record.model_type}")
                             continue
 
                         buffer = io.BytesIO(model_record.model_data)
-                        model.load_state_dict(torch.load(buffer, map_location='cpu'))
+                        model.load_state_dict(torch.load(buffer, map_location="cpu"))
                         model.eval()
-                    elif lgb and 'LightGBM' in m_type:
+                    elif lgb and "LightGBM" in m_type:
                         model = pickle.loads(model_record.model_data)
                 except Exception as e:
                     logger.error(f"Не удалось загрузить модель {m_type} для {symbol}: {e}")
@@ -359,9 +373,7 @@ class DatabaseManager:
                 return 0.0
 
             # 2. Запрашиваем суммарный PnL для сделок с этим направлением сентимента
-            total_pnl = session.query(func.sum(TradeHistory.profit)).filter(
-                sentiment_filter
-            ).scalar()
+            total_pnl = session.query(func.sum(TradeHistory.profit)).filter(sentiment_filter).scalar()
 
             # 3. Возвращаем PnL (или 0.0, если нет сделок)
             return float(total_pnl) if total_pnl is not None else 0.0
@@ -375,17 +387,16 @@ class DatabaseManager:
     def get_strategies_by_status(self, status: str) -> List[Dict]:
         session = self.Session()
         try:
-            results = session.query(StrategyPerformance).filter(
-                StrategyPerformance.status == status
-            ).all()
+            results = session.query(StrategyPerformance).filter(StrategyPerformance.status == status).all()
 
             return [
                 {
                     "strategy_name": r.strategy_name,
                     "incubation_start_date": r.incubation_start_date,
                     "profit_factor": r.profit_factor,
-                    "trade_count": r.trade_count
-                } for r in results
+                    "trade_count": r.trade_count,
+                }
+                for r in results
             ]
         except Exception as e:
             logger.error(f"Ошибка при получении стратегий со статусом '{status}': {e}")
@@ -396,11 +407,10 @@ class DatabaseManager:
     def update_strategy_status(self, strategy_name: str, new_status: str) -> bool:
         session = self.Session()
         try:
-            updated_rows = session.query(StrategyPerformance).filter(
-                StrategyPerformance.strategy_name == strategy_name
-            ).update(
-                {'status': new_status},
-                synchronize_session=False
+            updated_rows = (
+                session.query(StrategyPerformance)
+                .filter(StrategyPerformance.strategy_name == strategy_name)
+                .update({"status": new_status}, synchronize_session=False)
             )
             session.commit()
             return updated_rows > 0
@@ -421,9 +431,12 @@ class DatabaseManager:
         session = self.Session()
         try:
             # 1. Получаем все сделки с момента start_time
-            trades = session.query(TradeHistory).filter(
-                TradeHistory.time_close >= start_time
-            ).order_by(TradeHistory.time_close.asc()).all()
+            trades = (
+                session.query(TradeHistory)
+                .filter(TradeHistory.time_close >= start_time)
+                .order_by(TradeHistory.time_close.asc())
+                .all()
+            )
 
             if not trades:
                 return 0.0, 0.0
@@ -435,9 +448,9 @@ class DatabaseManager:
             # 3. Расчет Max Drawdown (DD)
 
             # Получаем PnL до начала периода
-            pnl_before = session.query(func.sum(TradeHistory.profit)).filter(
-                TradeHistory.time_close < start_time
-            ).scalar() or 0.0
+            pnl_before = (
+                session.query(func.sum(TradeHistory.profit)).filter(TradeHistory.time_close < start_time).scalar() or 0.0
+            )
 
             # Начальная эквити для расчета DD в этом периоде
             starting_equity = self.config.backtester_initial_balance + pnl_before
@@ -467,17 +480,15 @@ class DatabaseManager:
 
         session = self.Session()
         try:
-            champion = session.query(TrainedModel).filter_by(
-                symbol=symbol,
-                timeframe=timeframe,
-                is_champion=True
-            ).order_by(TrainedModel.version.desc()).first()
+            champion = (
+                session.query(TrainedModel)
+                .filter_by(symbol=symbol, timeframe=timeframe, is_champion=True)
+                .order_by(TrainedModel.version.desc())
+                .first()
+            )
 
             if champion:
-                return {
-                    "id": champion.id,
-                    "performance_report": champion.performance_report
-                }
+                return {"id": champion.id, "performance_report": champion.performance_report}
             return None
         except Exception as e:
             logger.error(f"Ошибка при получении информации о чемпионе для {symbol}: {e}")
@@ -492,15 +503,15 @@ class DatabaseManager:
     def save_candle_data(self, symbol: str, timeframe: str, candles: List[Dict]) -> int:
         """
         Сохраняет свечные данные в базу данных.
-        
+
         Args:
             symbol: Торговый инструмент (например, EURUSD)
             timeframe: Таймфрейм (например, H1, M15)
             candles: Список словарей с данными свечей [
-                {'time': datetime, 'open': float, 'high': float, 'low': float, 
+                {'time': datetime, 'open': float, 'high': float, 'low': float,
                  'close': float, 'tick_volume': int}, ...
             ]
-            
+
         Returns:
             Количество сохранённых записей
         """
@@ -509,38 +520,34 @@ class DatabaseManager:
             saved_count = 0
             for candle in candles:
                 # Проверяем существование записи
-                existing = session.query(CandleData).filter_by(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    time=candle['time']
-                ).first()
-                
+                existing = session.query(CandleData).filter_by(symbol=symbol, timeframe=timeframe, time=candle["time"]).first()
+
                 if existing:
                     # Обновляем существующую запись
-                    existing.open = candle['open']
-                    existing.high = candle['high']
-                    existing.low = candle['low']
-                    existing.close = candle['close']
-                    existing.tick_volume = candle.get('tick_volume', 0)
+                    existing.open = candle["open"]
+                    existing.high = candle["high"]
+                    existing.low = candle["low"]
+                    existing.close = candle["close"]
+                    existing.tick_volume = candle.get("tick_volume", 0)
                 else:
                     # Создаём новую запись
                     new_candle = CandleData(
                         symbol=symbol,
                         timeframe=timeframe,
-                        time=candle['time'],
-                        open=candle['open'],
-                        high=candle['high'],
-                        low=candle['low'],
-                        close=candle['close'],
-                        tick_volume=candle.get('tick_volume', 0)
+                        time=candle["time"],
+                        open=candle["open"],
+                        high=candle["high"],
+                        low=candle["low"],
+                        close=candle["close"],
+                        tick_volume=candle.get("tick_volume", 0),
                     )
                     session.add(new_candle)
                     saved_count += 1
-            
+
             session.commit()
             logger.debug(f"Сохранено {saved_count} свечей для {symbol} {timeframe}")
             return saved_count
-            
+
         except Exception as e:
             session.rollback()
             logger.error(f"Ошибка при сохранении свечных данных для {symbol} {timeframe}: {e}")
@@ -551,43 +558,46 @@ class DatabaseManager:
     def get_candle_data(self, symbol: str, timeframe: str, limit: int = 1000) -> Optional[pd.DataFrame]:
         """
         Загружает свечные данные из базы данных.
-        
+
         Args:
             symbol: Торговый инструмент
             timeframe: Таймфрейм
             limit: Максимальное количество записей
-            
+
         Returns:
             DataFrame с данными или None
         """
         session = self.Session()
         try:
-            candles = session.query(CandleData).filter_by(
-                symbol=symbol,
-                timeframe=timeframe
-            ).order_by(CandleData.time.desc()).limit(limit).all()
-            
+            candles = (
+                session.query(CandleData)
+                .filter_by(symbol=symbol, timeframe=timeframe)
+                .order_by(CandleData.time.desc())
+                .limit(limit)
+                .all()
+            )
+
             if not candles:
                 return None
-            
+
             # Преобразуем в DataFrame
             data = {
-                'time': [c.time for c in candles],
-                'open': [c.open for c in candles],
-                'high': [c.high for c in candles],
-                'low': [c.low for c in candles],
-                'close': [c.close for c in candles],
-                'tick_volume': [c.tick_volume for c in candles]
+                "time": [c.time for c in candles],
+                "open": [c.open for c in candles],
+                "high": [c.high for c in candles],
+                "low": [c.low for c in candles],
+                "close": [c.close for c in candles],
+                "tick_volume": [c.tick_volume for c in candles],
             }
-            
+
             df = pd.DataFrame(data)
             # Разворачиваем, чтобы старые данные были в начале
             df = df.iloc[::-1].reset_index(drop=True)
-            df.set_index('time', inplace=True)
-            
+            df.set_index("time", inplace=True)
+
             logger.info(f"Загружено {len(df)} свечей из БД для {symbol} {timeframe}")
             return df
-            
+
         except Exception as e:
             logger.error(f"Ошибка при загрузке свечных данных для {symbol} {timeframe}: {e}")
             return None
@@ -597,29 +607,29 @@ class DatabaseManager:
     def clear_old_candle_data(self, symbol: str, timeframe: str, max_age_days: int = 365) -> int:
         """
         Удаляет старые свечные данные.
-        
+
         Args:
             symbol: Торговый инструмент
             timeframe: Таймфрейм
             max_age_days: Максимальный возраст данных в днях
-            
+
         Returns:
             Количество удалённых записей
         """
         session = self.Session()
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=max_age_days)
-            
-            deleted_count = session.query(CandleData).filter(
-                CandleData.symbol == symbol,
-                CandleData.timeframe == timeframe,
-                CandleData.time < cutoff_date
-            ).delete()
-            
+
+            deleted_count = (
+                session.query(CandleData)
+                .filter(CandleData.symbol == symbol, CandleData.timeframe == timeframe, CandleData.time < cutoff_date)
+                .delete()
+            )
+
             session.commit()
             logger.info(f"Удалено {deleted_count} старых свечей для {symbol} {timeframe}")
             return deleted_count
-            
+
         except Exception as e:
             session.rollback()
             logger.error(f"Ошибка при очистке старых свечных данных: {e}")
@@ -628,18 +638,13 @@ class DatabaseManager:
             session.close()
 
     def add_news_article(self, **kwargs):
-        self.write_queue.put(('add_news_article', kwargs))
+        self.write_queue.put(("add_news_article", kwargs))
 
     def _add_news_article_internal(self, vector_id: str, content: str, source: str, timestamp: str):
         session = self.Session()
         try:
             ts = datetime.fromisoformat(timestamp)
-            new_article = NewsArticle(
-                vector_id=vector_id,
-                content=content,
-                source=source,
-                timestamp=ts
-            )
+            new_article = NewsArticle(vector_id=vector_id, content=content, source=source, timestamp=ts)
             session.add(new_article)
             session.commit()
         except IntegrityError:
@@ -673,57 +678,59 @@ class DatabaseManager:
                         # Создаём таблицу, если она не существует
                         CandleData.__table__.create(connection)
                         logger.info(f"Таблица '{candle_table_name}' успешно создана.")
-                    
+
                     # Проверка таблицы trained_models
                     table_name = TrainedModel.__tablename__
                     if inspector.has_table(table_name):
-                        columns = [col['name'] for col in inspector.get_columns(table_name)]
-                        if 'features_json' not in columns:
-                            connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN features_json TEXT'))
-                        if 'model_type' not in columns:
+                        columns = [col["name"] for col in inspector.get_columns(table_name)]
+                        if "features_json" not in columns:
+                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN features_json TEXT"))
+                        if "model_type" not in columns:
                             connection.execute(
-                                text(f"ALTER TABLE {table_name} ADD COLUMN model_type VARCHAR DEFAULT 'LSTM' NOT NULL"))
-                        if 'is_champion' not in columns:
+                                text(f"ALTER TABLE {table_name} ADD COLUMN model_type VARCHAR DEFAULT 'LSTM' NOT NULL")
+                            )
+                        if "is_champion" not in columns:
                             connection.execute(
-                                text(f"ALTER TABLE {table_name} ADD COLUMN is_champion BOOLEAN DEFAULT FALSE NOT NULL"))
-                        if 'performance_report' not in columns:
-                            connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN performance_report TEXT'))
-                        if 'hyperparameters_json' not in columns:
-                            connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN hyperparameters_json TEXT'))
-                        if 'training_batch_id' not in columns:
-                            connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN training_batch_id VARCHAR'))
+                                text(f"ALTER TABLE {table_name} ADD COLUMN is_champion BOOLEAN DEFAULT FALSE NOT NULL")
+                            )
+                        if "performance_report" not in columns:
+                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN performance_report TEXT"))
+                        if "hyperparameters_json" not in columns:
+                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN hyperparameters_json TEXT"))
+                        if "training_batch_id" not in columns:
+                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN training_batch_id VARCHAR"))
 
                     # Проверка таблицы trade_history
                     table_name = TradeHistory.__tablename__
                     if inspector.has_table(table_name):
-                        columns = [col['name'] for col in inspector.get_columns(table_name)]
-                        if 'xai_data' not in columns:
-                            connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN xai_data TEXT'))
-                        if 'market_regime' not in columns:
-                            connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN market_regime VARCHAR'))
-                        if 'news_sentiment' not in columns:
-                            connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN news_sentiment FLOAT'))
-                        if 'volatility_metric' not in columns:
-                            connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN volatility_metric FLOAT'))
+                        columns = [col["name"] for col in inspector.get_columns(table_name)]
+                        if "xai_data" not in columns:
+                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN xai_data TEXT"))
+                        if "market_regime" not in columns:
+                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN market_regime VARCHAR"))
+                        if "news_sentiment" not in columns:
+                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN news_sentiment FLOAT"))
+                        if "volatility_metric" not in columns:
+                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN volatility_metric FLOAT"))
 
                     # Проверка таблицы strategy_performance
                     table_name = StrategyPerformance.__tablename__
                     if inspector.has_table(table_name):
-                        columns = [col['name'] for col in inspector.get_columns(table_name)]
-                        if 'status' not in columns:
+                        columns = [col["name"] for col in inspector.get_columns(table_name)]
+                        if "status" not in columns:
                             connection.execute(
-                                text(f"ALTER TABLE {table_name} ADD COLUMN status VARCHAR DEFAULT 'live' NOT NULL"))
+                                text(f"ALTER TABLE {table_name} ADD COLUMN status VARCHAR DEFAULT 'live' NOT NULL")
+                            )
 
-                        if 'incubation_start_date' not in columns:
-                            connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN incubation_start_date DATETIME'))
-
+                        if "incubation_start_date" not in columns:
+                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN incubation_start_date DATETIME"))
 
             logger.info("Проверка схемы базы данных завершена успешно.")
         except Exception as e:
             logger.error(f"Не удалось обновить схему базы данных: {e}")
 
     def update_trade_with_xai(self, **kwargs):
-        self.write_queue.put(('update_trade_with_xai', kwargs))
+        self.write_queue.put(("update_trade_with_xai", kwargs))
 
     def _update_trade_with_xai_internal(self, ticket: int, xai_data: Dict) -> bool:
         if not xai_data:
@@ -762,12 +769,14 @@ class DatabaseManager:
             for record in feedback_records:
                 try:
                     market_state = json.loads(record.market_state_json)
-                    if 'prediction_input_sequence' in market_state:
-                        results.append({
-                            'feedback': record.feedback,
-                            'sequence': np.array(market_state['prediction_input_sequence']),
-                            'ticket': record.trade_ticket
-                        })
+                    if "prediction_input_sequence" in market_state:
+                        results.append(
+                            {
+                                "feedback": record.feedback,
+                                "sequence": np.array(market_state["prediction_input_sequence"]),
+                                "ticket": record.trade_ticket,
+                            }
+                        )
                 except (json.JSONDecodeError, KeyError):
                     pass
             return results
@@ -786,9 +795,7 @@ class DatabaseManager:
                 existing_feedback.created_at = datetime.utcnow()
             else:
                 new_feedback = HumanFeedback(
-                    trade_ticket=trade_ticket,
-                    feedback=feedback,
-                    market_state_json=json.dumps(market_state)
+                    trade_ticket=trade_ticket, feedback=feedback, market_state_json=json.dumps(market_state)
                 )
                 session.add(new_feedback)
             session.commit()
@@ -800,28 +807,34 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def update_strategy_performance(self, strategy_name: str, symbol: str, market_regime: str, report: dict,
-                                    incubation_start_date=None):
+    def update_strategy_performance(
+        self, strategy_name: str, symbol: str, market_regime: str, report: dict, incubation_start_date=None
+    ):
         session = self.Session()
         try:
-            record = session.query(StrategyPerformance).filter_by(strategy_name=strategy_name, symbol=symbol,
-                                                                  market_regime=market_regime).first()
+            record = (
+                session.query(StrategyPerformance)
+                .filter_by(strategy_name=strategy_name, symbol=symbol, market_regime=market_regime)
+                .first()
+            )
             if record:
-                record.profit_factor = report.get('profit_factor', 0)
-                record.win_rate = report.get('win_rate', 0)
-                record.trade_count = report.get('total_trades', 0)
+                record.profit_factor = report.get("profit_factor", 0)
+                record.win_rate = report.get("win_rate", 0)
+                record.trade_count = report.get("total_trades", 0)
                 record.status = status
                 if incubation_start_date:
                     record.incubation_start_date = incubation_start_date
             else:
-                record = StrategyPerformance(strategy_name=strategy_name, symbol=symbol, market_regime=market_regime,
-                                             profit_factor=report.get('profit_factor', 0),
-                                             win_rate=report.get('win_rate', 0),
-                                             trade_count=report.get('total_trades', 0),
-                                             status=status,
-                                             incubation_start_date=incubation_start_date)
-
-
+                record = StrategyPerformance(
+                    strategy_name=strategy_name,
+                    symbol=symbol,
+                    market_regime=market_regime,
+                    profit_factor=report.get("profit_factor", 0),
+                    win_rate=report.get("win_rate", 0),
+                    trade_count=report.get("total_trades", 0),
+                    status=status,
+                    incubation_start_date=incubation_start_date,
+                )
 
                 session.add(record)
             session.commit()
@@ -831,182 +844,193 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def get_symbols_for_auto_exclusion(self, 
-                                        min_trades: int = 10,
-                                        max_loss_threshold: float = -500.0,
-                                        profit_factor_threshold: float = 0.8,
-                                        win_rate_threshold: float = 0.40) -> List[Dict]:
+    def get_symbols_for_auto_exclusion(
+        self,
+        min_trades: int = 10,
+        max_loss_threshold: float = -500.0,
+        profit_factor_threshold: float = 0.8,
+        win_rate_threshold: float = 0.40,
+    ) -> List[Dict]:
         """
         Анализирует символы и возвращает список кандидатов на исключение.
-        
+
         Критерии исключения:
         - Минимум min_trades сделок для статистической значимости
         - Общий убыток > max_loss_threshold (по модулю)
         - Profit Factor < profit_factor_threshold
         - Win Rate < win_rate_threshold
-        
+
         Returns:
             Список словарей: [{'symbol': 'EURUSD', 'total_profit': -500.5, 'trade_count': 20, 'pf': 0.65, 'wr': 0.35}]
         """
         session = self.Session()
         try:
             # Агрегируем статистику по символам из trade_history
-            query = session.query(
-                TradeHistory.symbol,
-                func.sum(TradeHistory.profit).label('total_profit'),
-                func.count(TradeHistory.id).label('trade_count'),
-                func.avg(TradeHistory.profit).label('avg_profit')
-            ).group_by(TradeHistory.symbol).having(
-                func.count(TradeHistory.id) >= min_trades
+            query = (
+                session.query(
+                    TradeHistory.symbol,
+                    func.sum(TradeHistory.profit).label("total_profit"),
+                    func.count(TradeHistory.id).label("trade_count"),
+                    func.avg(TradeHistory.profit).label("avg_profit"),
+                )
+                .group_by(TradeHistory.symbol)
+                .having(func.count(TradeHistory.id) >= min_trades)
             )
-            
+
             results = query.all()
             exclusion_candidates = []
-            
+
             for row in results:
                 symbol = row.symbol
                 total_profit = row.total_profit or 0
                 trade_count = row.trade_count
                 avg_profit = row.avg_profit or 0
-                
+
                 # Получаем profit factor и win rate из strategy_performance
                 sp_query = session.query(
-                    func.avg(StrategyPerformance.profit_factor).label('avg_pf'),
-                    func.avg(StrategyPerformance.win_rate).label('avg_wr')
-                ).filter(
-                    StrategyPerformance.symbol == symbol,
-                    StrategyPerformance.trade_count > 0
-                )
+                    func.avg(StrategyPerformance.profit_factor).label("avg_pf"),
+                    func.avg(StrategyPerformance.win_rate).label("avg_wr"),
+                ).filter(StrategyPerformance.symbol == symbol, StrategyPerformance.trade_count > 0)
                 sp_result = sp_query.first()
-                
+
                 avg_pf = sp_result.avg_pf if sp_result and sp_result.avg_pf else 0
                 avg_wr = sp_result.avg_wr if sp_result and sp_result.avg_wr else 0
-                
+
                 # Проверяем критерии исключения
                 should_exclude = False
                 reasons = []
-                
+
                 if total_profit < max_loss_threshold:
                     should_exclude = True
                     reasons.append(f"loss={total_profit:.2f}")
-                
+
                 if avg_pf < profit_factor_threshold and trade_count >= min_trades:
                     should_exclude = True
                     reasons.append(f"pf={avg_pf:.2f}")
-                
+
                 if avg_wr < win_rate_threshold and trade_count >= min_trades:
                     should_exclude = True
                     reasons.append(f"wr={avg_wr:.2f}")
-                
+
                 if should_exclude:
-                    exclusion_candidates.append({
-                        'symbol': symbol,
-                        'total_profit': total_profit,
-                        'trade_count': trade_count,
-                        'profit_factor': avg_pf,
-                        'win_rate': avg_wr,
-                        'avg_profit': avg_profit,
-                        'reasons': reasons
-                    })
-            
+                    exclusion_candidates.append(
+                        {
+                            "symbol": symbol,
+                            "total_profit": total_profit,
+                            "trade_count": trade_count,
+                            "profit_factor": avg_pf,
+                            "win_rate": avg_wr,
+                            "avg_profit": avg_profit,
+                            "reasons": reasons,
+                        }
+                    )
+
             # Сортируем по худшей производительности
-            exclusion_candidates.sort(key=lambda x: x['total_profit'])
-            
-            logger.info(f"[AUTO-EXCLUDE] Найдено {len(exclusion_candidates)} кандидатов на исключение: "
-                       f"{[c['symbol'] for c in exclusion_candidates]}")
-            
+            exclusion_candidates.sort(key=lambda x: x["total_profit"])
+
+            logger.info(
+                f"[AUTO-EXCLUDE] Найдено {len(exclusion_candidates)} кандидатов на исключение: "
+                f"{[c['symbol'] for c in exclusion_candidates]}"
+            )
+
             return exclusion_candidates
-            
+
         except Exception as e:
             logger.error(f"Ошибка при анализе символов для исключения: {e}", exc_info=True)
             return []
         finally:
             session.close()
 
-    def get_symbols_for_auto_inclusion(self, 
-                                        excluded_symbols: List[str],
-                                        min_trades: int = 5,
-                                        profit_factor_threshold: float = 1.2,
-                                        win_rate_threshold: float = 0.55) -> List[Dict]:
+    def get_symbols_for_auto_inclusion(
+        self,
+        excluded_symbols: List[str],
+        min_trades: int = 5,
+        profit_factor_threshold: float = 1.2,
+        win_rate_threshold: float = 0.55,
+    ) -> List[Dict]:
         """
         Анализирует исключенные символы и возвращает кандидатов на повторное включение.
-        
+
         Критерии включения:
         - Символ сейчас в списке исключенных
         - Profit Factor > profit_factor_threshold (улучшение)
         - Win Rate > win_rate_threshold
-        
+
         Returns:
             Список словарей: [{'symbol': 'EURUSD', 'total_profit': 250.5, 'trade_count': 15, 'pf': 1.5, 'wr': 0.60}]
         """
         session = self.Session()
         try:
             inclusion_candidates = []
-            
+
             for symbol in excluded_symbols:
                 # Получаем свежую статистику
-                query = session.query(
-                    TradeHistory.symbol,
-                    func.sum(TradeHistory.profit).label('total_profit'),
-                    func.count(TradeHistory.id).label('trade_count')
-                ).filter(
-                    TradeHistory.symbol == symbol
-                ).group_by(TradeHistory.symbol).first()
-                
+                query = (
+                    session.query(
+                        TradeHistory.symbol,
+                        func.sum(TradeHistory.profit).label("total_profit"),
+                        func.count(TradeHistory.id).label("trade_count"),
+                    )
+                    .filter(TradeHistory.symbol == symbol)
+                    .group_by(TradeHistory.symbol)
+                    .first()
+                )
+
                 if not query:
                     continue
-                    
+
                 total_profit = query.total_profit or 0
                 trade_count = query.trade_count
-                
+
                 # Получаем profit factor и win rate
                 sp_query = session.query(
-                    func.avg(StrategyPerformance.profit_factor).label('avg_pf'),
-                    func.avg(StrategyPerformance.win_rate).label('avg_wr')
-                ).filter(
-                    StrategyPerformance.symbol == symbol,
-                    StrategyPerformance.trade_count > 0
-                )
+                    func.avg(StrategyPerformance.profit_factor).label("avg_pf"),
+                    func.avg(StrategyPerformance.win_rate).label("avg_wr"),
+                ).filter(StrategyPerformance.symbol == symbol, StrategyPerformance.trade_count > 0)
                 sp_result = sp_query.first()
-                
+
                 if not sp_result:
                     continue
-                
+
                 avg_pf = sp_result.avg_pf or 0
                 avg_wr = sp_result.avg_wr or 0
-                
+
                 # Проверяем критерии включения
                 should_include = False
                 reasons = []
-                
+
                 if avg_pf > profit_factor_threshold and trade_count >= min_trades:
                     should_include = True
                     reasons.append(f"pf={avg_pf:.2f}> {profit_factor_threshold}")
-                
+
                 if avg_wr > win_rate_threshold and trade_count >= min_trades:
                     should_include = True
                     reasons.append(f"wr={avg_wr:.2f}> {win_rate_threshold}")
-                
+
                 # Также включаем, если общая прибыль положительная
                 if total_profit > 0 and trade_count >= min_trades * 2:
                     should_include = True
                     reasons.append(f"profit={total_profit:.2f}")
-                
+
                 if should_include:
-                    inclusion_candidates.append({
-                        'symbol': symbol,
-                        'total_profit': total_profit,
-                        'trade_count': trade_count,
-                        'profit_factor': avg_pf,
-                        'win_rate': avg_wr,
-                        'reasons': reasons
-                    })
-            
-            logger.info(f"[AUTO-INCLUDE] Найдено {len(inclusion_candidates)} кандидатов на включение: "
-                       f"{[c['symbol'] for c in inclusion_candidates]}")
-            
+                    inclusion_candidates.append(
+                        {
+                            "symbol": symbol,
+                            "total_profit": total_profit,
+                            "trade_count": trade_count,
+                            "profit_factor": avg_pf,
+                            "win_rate": avg_wr,
+                            "reasons": reasons,
+                        }
+                    )
+
+            logger.info(
+                f"[AUTO-INCLUDE] Найдено {len(inclusion_candidates)} кандидатов на включение: "
+                f"{[c['symbol'] for c in inclusion_candidates]}"
+            )
+
             return inclusion_candidates
-            
+
         except Exception as e:
             logger.error(f"Ошибка при анализе символов для включения: {e}", exc_info=True)
             return []
@@ -1017,12 +1041,16 @@ class DatabaseManager:
         session = self.Session()
         try:
             # Ищем только среди 'live' и 'incubating' стратегий
-            subquery = session.query(StrategyPerformance.symbol, StrategyPerformance.market_regime,
-                                     func.max(StrategyPerformance.profit_factor).label('max_pf')).filter(
-                StrategyPerformance.status.in_(['live', 'incubating'])
-            ).group_by(
-                StrategyPerformance.symbol, StrategyPerformance.market_regime
-            ).subquery()
+            subquery = (
+                session.query(
+                    StrategyPerformance.symbol,
+                    StrategyPerformance.market_regime,
+                    func.max(StrategyPerformance.profit_factor).label("max_pf"),
+                )
+                .filter(StrategyPerformance.status.in_(["live", "incubating"]))
+                .group_by(StrategyPerformance.symbol, StrategyPerformance.market_regime)
+                .subquery()
+            )
 
             # Слабые места - где максимальный PF ниже порога
             weak_spots_query = session.query(subquery.c.symbol, subquery.c.market_regime).filter(
@@ -1040,13 +1068,20 @@ class DatabaseManager:
     def get_strategy_avg_performance(self, strategy_name: str, market_regime: str) -> Optional[Dict]:
         session = self.Session()
         try:
-            result = session.query(
-                func.sum(StrategyPerformance.profit_factor * StrategyPerformance.trade_count) / func.sum(
-                    StrategyPerformance.trade_count),
-                func.sum(StrategyPerformance.win_rate * StrategyPerformance.trade_count) / func.sum(
-                    StrategyPerformance.trade_count)).filter(StrategyPerformance.strategy_name == strategy_name,
-                                                             StrategyPerformance.market_regime == market_regime,
-                                                             StrategyPerformance.trade_count > 0).one_or_none()
+            result = (
+                session.query(
+                    func.sum(StrategyPerformance.profit_factor * StrategyPerformance.trade_count)
+                    / func.sum(StrategyPerformance.trade_count),
+                    func.sum(StrategyPerformance.win_rate * StrategyPerformance.trade_count)
+                    / func.sum(StrategyPerformance.trade_count),
+                )
+                .filter(
+                    StrategyPerformance.strategy_name == strategy_name,
+                    StrategyPerformance.market_regime == market_regime,
+                    StrategyPerformance.trade_count > 0,
+                )
+                .one_or_none()
+            )
             if result and result[0] is not None:
                 return {"profit_factor": result[0], "win_rate": result[1]}
             return None
@@ -1059,13 +1094,21 @@ class DatabaseManager:
     def find_best_strategy_for_regime(self, market_regime: str) -> Optional[Dict]:
         session = self.Session()
         try:
-            subquery = session.query(StrategyPerformance.strategy_name, (
-                    func.sum(StrategyPerformance.profit_factor * StrategyPerformance.trade_count) / func.sum(
-                StrategyPerformance.trade_count)).label('weighted_pf')).filter(
-                StrategyPerformance.market_regime == market_regime, StrategyPerformance.trade_count > 10).group_by(
-                StrategyPerformance.strategy_name).subquery()
-            best_strategy = session.query(subquery.c.strategy_name, subquery.c.weighted_pf).order_by(
-                subquery.c.weighted_pf.desc()).first()
+            subquery = (
+                session.query(
+                    StrategyPerformance.strategy_name,
+                    (
+                        func.sum(StrategyPerformance.profit_factor * StrategyPerformance.trade_count)
+                        / func.sum(StrategyPerformance.trade_count)
+                    ).label("weighted_pf"),
+                )
+                .filter(StrategyPerformance.market_regime == market_regime, StrategyPerformance.trade_count > 10)
+                .group_by(StrategyPerformance.strategy_name)
+                .subquery()
+            )
+            best_strategy = (
+                session.query(subquery.c.strategy_name, subquery.c.weighted_pf).order_by(subquery.c.weighted_pf.desc()).first()
+            )
             if best_strategy:
                 return {"strategy_name": best_strategy.strategy_name, "profit_factor": best_strategy.weighted_pf}
             return None
@@ -1078,18 +1121,26 @@ class DatabaseManager:
     def get_best_model_type_for_regime(self, symbol: str, market_regime: str) -> Optional[str]:
         session = self.Session()
         try:
-            model_type_expr = func.substr(StrategyPerformance.strategy_name, 1,
-                                          func.instr(StrategyPerformance.strategy_name, '_') - 1)
-            query = session.query(
-                model_type_expr.label('model_type'),
-                (func.sum(StrategyPerformance.profit_factor * StrategyPerformance.trade_count) / func.sum(
-                    StrategyPerformance.trade_count)).label('weighted_pf')
-            ).filter(
-                StrategyPerformance.symbol == symbol,
-                StrategyPerformance.market_regime == market_regime,
-                StrategyPerformance.trade_count > 5,
-                StrategyPerformance.strategy_name.like(r'%\_%')
-            ).group_by('model_type').order_by(text('weighted_pf DESC'))
+            model_type_expr = func.substr(
+                StrategyPerformance.strategy_name, 1, func.instr(StrategyPerformance.strategy_name, "_") - 1
+            )
+            query = (
+                session.query(
+                    model_type_expr.label("model_type"),
+                    (
+                        func.sum(StrategyPerformance.profit_factor * StrategyPerformance.trade_count)
+                        / func.sum(StrategyPerformance.trade_count)
+                    ).label("weighted_pf"),
+                )
+                .filter(
+                    StrategyPerformance.symbol == symbol,
+                    StrategyPerformance.market_regime == market_regime,
+                    StrategyPerformance.trade_count > 5,
+                    StrategyPerformance.strategy_name.like(r"%\_%"),
+                )
+                .group_by("model_type")
+                .order_by(text("weighted_pf DESC"))
+            )
 
             best_model = query.first()
             if best_model and best_model.weighted_pf > 1.0:
@@ -1105,12 +1156,22 @@ class DatabaseManager:
     def get_toxic_regimes(self, last_n_trades: int = 100) -> List[str]:
         session = self.Session()
         try:
-            subquery = session.query(TradeHistory.market_regime, TradeHistory.profit,
-                                     func.row_number().over(partition_by=TradeHistory.market_regime,
-                                                            order_by=TradeHistory.time_close.desc()).label(
-                                         'rn')).filter(TradeHistory.market_regime.isnot(None)).subquery()
-            query = session.query(subquery.c.market_regime, func.sum(subquery.c.profit).label('pnl_sum')).filter(
-                subquery.c.rn <= last_n_trades).group_by(subquery.c.market_regime)
+            subquery = (
+                session.query(
+                    TradeHistory.market_regime,
+                    TradeHistory.profit,
+                    func.row_number()
+                    .over(partition_by=TradeHistory.market_regime, order_by=TradeHistory.time_close.desc())
+                    .label("rn"),
+                )
+                .filter(TradeHistory.market_regime.isnot(None))
+                .subquery()
+            )
+            query = (
+                session.query(subquery.c.market_regime, func.sum(subquery.c.profit).label("pnl_sum"))
+                .filter(subquery.c.rn <= last_n_trades)
+                .group_by(subquery.c.market_regime)
+            )
             toxic_regimes = []
             for regime, pnl_sum in query.all():
                 if pnl_sum < 0:
@@ -1123,21 +1184,35 @@ class DatabaseManager:
             session.close()
 
     def log_trade(self, **kwargs):
-        self.write_queue.put(('log_trade', kwargs))
+        self.write_queue.put(("log_trade", kwargs))
 
-    def _log_trade_internal(self, entry_deal: Any, exit_deal: Any, timeframe_str: str, total_profit: float,
-                            xai_data: Optional[Dict] = None, market_context: Optional[Dict] = None) -> bool:
+    def _log_trade_internal(
+        self,
+        entry_deal: Any,
+        exit_deal: Any,
+        timeframe_str: str,
+        total_profit: float,
+        xai_data: Optional[Dict] = None,
+        market_context: Optional[Dict] = None,
+    ) -> bool:
         session = self.Session()
         context = market_context or {}
-        new_trade = TradeHistory(ticket=entry_deal.position_id, symbol=entry_deal.symbol,
-                                 trade_type="BUY" if entry_deal.type == ORDER_TYPE_BUY else "SELL",
-                                 volume=entry_deal.volume, price_open=entry_deal.price, price_close=exit_deal.price,
-                                 time_open=datetime.fromtimestamp(entry_deal.time),
-                                 time_close=datetime.fromtimestamp(exit_deal.time), profit=total_profit,
-                                 timeframe=timeframe_str, xai_data=json.dumps(xai_data) if xai_data else None,
-                                 market_regime=context.get('market_regime'),
-                                 news_sentiment=context.get('news_sentiment'),
-                                 volatility_metric=context.get('volatility_metric'))
+        new_trade = TradeHistory(
+            ticket=entry_deal.position_id,
+            symbol=entry_deal.symbol,
+            trade_type="BUY" if entry_deal.type == ORDER_TYPE_BUY else "SELL",
+            volume=entry_deal.volume,
+            price_open=entry_deal.price,
+            price_close=exit_deal.price,
+            time_open=datetime.fromtimestamp(entry_deal.time),
+            time_close=datetime.fromtimestamp(exit_deal.time),
+            profit=total_profit,
+            timeframe=timeframe_str,
+            xai_data=json.dumps(xai_data) if xai_data else None,
+            market_regime=context.get("market_regime"),
+            news_sentiment=context.get("news_sentiment"),
+            volatility_metric=context.get("volatility_metric"),
+        )
         try:
             session.add(new_trade)
             session.commit()
@@ -1165,7 +1240,7 @@ class DatabaseManager:
     # ===========================================
     # Audit Log методы
     # ===========================================
-    
+
     def create_trade_audit(
         self,
         trade_ticket: int,
@@ -1182,11 +1257,11 @@ class DatabaseManager:
         portfolio_var: Optional[float] = None,
         execution_status: str = "EXECUTED",
         rejection_reason: Optional[str] = None,
-        execution_time_ms: Optional[float] = None
+        execution_time_ms: Optional[float] = None,
     ) -> Optional[int]:
         """
         Создание записи аудита торговой операции.
-        
+
         Args:
             trade_ticket: Тикет сделки
             decision_maker: Источник решения (AI_Model, RLTradeManager, ClassicStrategy, Human)
@@ -1203,7 +1278,7 @@ class DatabaseManager:
             execution_status: Статус исполнения (EXECUTED, REJECTED, FAILED)
             rejection_reason: Причина отклонения
             execution_time_ms: Время исполнения в мс
-            
+
         Returns:
             ID созданной записи аудита или None при ошибке
         """
@@ -1211,7 +1286,7 @@ class DatabaseManager:
         try:
             # Сериализация risk_checks в JSON
             risk_checks_json = json.dumps(risk_checks) if risk_checks else None
-            
+
             audit_entry = TradeAudit(
                 trade_ticket=trade_ticket,
                 decision_maker=decision_maker,
@@ -1227,99 +1302,94 @@ class DatabaseManager:
                 portfolio_var=portfolio_var,
                 execution_status=execution_status,
                 rejection_reason=rejection_reason,
-                execution_time_ms=execution_time_ms
+                execution_time_ms=execution_time_ms,
             )
-            
+
             session.add(audit_entry)
             session.commit()
             session.refresh(audit_entry)
-            
+
             logger.info(f"Audit: Сделка #{trade_ticket} - {execution_status}")
             return audit_entry.id
-            
+
         except Exception as e:
             session.rollback()
             logger.error(f"Ошибка создания audit записи для сделки #{trade_ticket}: {e}", exc_info=True)
             return None
         finally:
             session.close()
-    
+
     def get_audit_logs(
-        self,
-        trade_ticket: Optional[int] = None,
-        execution_status: Optional[str] = None,
-        limit: int = 100
+        self, trade_ticket: Optional[int] = None, execution_status: Optional[str] = None, limit: int = 100
     ) -> List[TradeAudit]:
         """
         Получение записей аудита.
-        
+
         Args:
             trade_ticket: Фильтр по тику сделки (опционально)
             execution_status: Фильтр по статусу (опционально)
             limit: Максимальное количество записей
-            
+
         Returns:
             Список записей TradeAudit
         """
         session = self.Session()
         try:
             query = session.query(TradeAudit)
-            
+
             if trade_ticket:
                 query = query.filter(TradeAudit.trade_ticket == trade_ticket)
-            
+
             if execution_status:
                 query = query.filter(TradeAudit.execution_status == execution_status)
-            
+
             return query.order_by(TradeAudit.timestamp.desc()).limit(limit).all()
-            
+
         except Exception as e:
             logger.error(f"Ошибка чтения audit логов: {e}")
             return []
         finally:
             session.close()
-    
+
     def get_audit_statistics(
-        self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
+        self, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None
     ) -> Dict[str, Any]:
         """
         Получение статистики audit логов.
-        
+
         Args:
             start_date: Начальная дата (опционально)
             end_date: Конечная дата (опционно)
-            
+
         Returns:
             Словарь со статистикой
         """
         session = self.Session()
         try:
             query = session.query(TradeAudit)
-            
+
             if start_date:
                 query = query.filter(TradeAudit.timestamp >= start_date)
             if end_date:
                 query = query.filter(TradeAudit.timestamp <= end_date)
-            
+
             total = query.count()
             executed = query.filter(TradeAudit.execution_status == "EXECUTED").count()
             rejected = query.filter(TradeAudit.execution_status == "REJECTED").count()
             failed = query.filter(TradeAudit.execution_status == "FAILED").count()
-            
+
             # Средняя уверенность
-            avg_confidence_result = session.query(func.avg(TradeAudit.consensus_score)).filter(
-                TradeAudit.execution_status == "EXECUTED"
-            ).scalar()
+            avg_confidence_result = (
+                session.query(func.avg(TradeAudit.consensus_score)).filter(TradeAudit.execution_status == "EXECUTED").scalar()
+            )
             avg_confidence = float(avg_confidence_result) if avg_confidence_result else 0.0
-            
+
             # Среднее время исполнения
-            avg_execution_time_result = session.query(func.avg(TradeAudit.execution_time_ms)).filter(
-                TradeAudit.execution_time_ms.isnot(None)
-            ).scalar()
+            avg_execution_time_result = (
+                session.query(func.avg(TradeAudit.execution_time_ms)).filter(TradeAudit.execution_time_ms.isnot(None)).scalar()
+            )
             avg_execution_time = float(avg_execution_time_result) if avg_execution_time_result else 0.0
-            
+
             return {
                 "total_audits": total,
                 "executed": executed,
@@ -1328,43 +1398,42 @@ class DatabaseManager:
                 "execution_rate": executed / total if total > 0 else 0.0,
                 "rejection_rate": rejected / total if total > 0 else 0.0,
                 "avg_confidence_executed": avg_confidence,
-                "avg_execution_time_ms": avg_execution_time
+                "avg_execution_time_ms": avg_execution_time,
             }
-            
+
         except Exception as e:
             logger.error(f"Ошибка получения статистики audit: {e}")
             return {}
         finally:
             session.close()
-    
-    def get_rejection_reasons(
-        self,
-        limit: int = 50
-    ) -> List[Dict[str, Any]]:
+
+    def get_rejection_reasons(self, limit: int = 50) -> List[Dict[str, Any]]:
         """
         Получение причин отклонения сделок.
-        
+
         Args:
             limit: Максимальное количество записей
-            
+
         Returns:
             Список словарей с причинами отклонения
         """
         session = self.Session()
         try:
-            results = session.query(
-                TradeAudit.trade_ticket,
-                TradeAudit.timestamp,
-                TradeAudit.decision_maker,
-                TradeAudit.strategy_name,
-                TradeAudit.rejection_reason,
-                TradeAudit.risk_checks
-            ).filter(
-                TradeAudit.execution_status == "REJECTED"
-            ).order_by(
-                TradeAudit.timestamp.desc()
-            ).limit(limit).all()
-            
+            results = (
+                session.query(
+                    TradeAudit.trade_ticket,
+                    TradeAudit.timestamp,
+                    TradeAudit.decision_maker,
+                    TradeAudit.strategy_name,
+                    TradeAudit.rejection_reason,
+                    TradeAudit.risk_checks,
+                )
+                .filter(TradeAudit.execution_status == "REJECTED")
+                .order_by(TradeAudit.timestamp.desc())
+                .limit(limit)
+                .all()
+            )
+
             return [
                 {
                     "trade_ticket": r.trade_ticket,
@@ -1372,11 +1441,11 @@ class DatabaseManager:
                     "decision_maker": r.decision_maker,
                     "strategy_name": r.strategy_name,
                     "rejection_reason": r.rejection_reason,
-                    "risk_checks": json.loads(r.risk_checks) if r.risk_checks else None
+                    "risk_checks": json.loads(r.risk_checks) if r.risk_checks else None,
                 }
                 for r in results
             ]
-            
+
         except Exception as e:
             logger.error(f"Ошибка получения причин отклонения: {e}")
             return []
@@ -1393,9 +1462,18 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def _save_model_and_scalers_internal(self, symbol: str, timeframe: int, model, model_type: str, x_scaler, y_scaler,
-                                         features_list: List[str], training_batch_id: str,
-                                         hyperparameters: Optional[Dict] = None) -> Optional[int]:
+    def _save_model_and_scalers_internal(
+        self,
+        symbol: str,
+        timeframe: int,
+        model,
+        model_type: str,
+        x_scaler,
+        y_scaler,
+        features_list: List[str],
+        training_batch_id: str,
+        hyperparameters: Optional[Dict] = None,
+    ) -> Optional[int]:
         session = self.Session()
         try:
             model_bytes = None
@@ -1414,17 +1492,24 @@ class DatabaseManager:
             features_json_str = json.dumps(features_list)
             hyperparameters_json_str = json.dumps(hyperparameters) if hyperparameters else None
 
-            model_record = session.query(TrainedModel).filter_by(symbol=symbol, timeframe=timeframe,
-                                                                 model_type=model_type).order_by(
-                TrainedModel.version.desc()).first()
+            model_record = (
+                session.query(TrainedModel)
+                .filter_by(symbol=symbol, timeframe=timeframe, model_type=model_type)
+                .order_by(TrainedModel.version.desc())
+                .first()
+            )
             new_version = model_record.version + 1 if model_record else 1
 
             new_model_record = TrainedModel(
-                symbol=symbol, timeframe=timeframe, model_type=model_type,
-                model_data=model_bytes, version=new_version,
-                features_json=features_json_str, is_champion=False,
+                symbol=symbol,
+                timeframe=timeframe,
+                model_type=model_type,
+                model_data=model_bytes,
+                version=new_version,
+                features_json=features_json_str,
+                is_champion=False,
                 training_batch_id=training_batch_id,
-                hyperparameters_json=hyperparameters_json_str
+                hyperparameters_json=hyperparameters_json_str,
             )
             session.add(new_model_record)
 
@@ -1447,12 +1532,10 @@ class DatabaseManager:
             session.close()
 
     def save_model_and_scalers(self, **kwargs):
-        self.write_queue.put(('save_model_and_scalers', kwargs))
-
-
+        self.write_queue.put(("save_model_and_scalers", kwargs))
 
     def promote_challenger_to_champion(self, **kwargs):
-        self.write_queue.put(('promote_challenger_to_champion', kwargs))
+        self.write_queue.put(("promote_challenger_to_champion", kwargs))
 
     def _promote_challenger_to_champion_internal(self, challenger_id: int, report: dict):
         session = self.Session()
@@ -1462,22 +1545,28 @@ class DatabaseManager:
                 logger.error(f"Не удалось найти претендента с ID {challenger_id} для продвижения.")
                 return
 
-            old_champion = session.query(TrainedModel).filter_by(
-                symbol=challenger.symbol,
-                timeframe=challenger.timeframe,
-                model_type=challenger.model_type,
-                is_champion=True
-            ).first()
+            old_champion = (
+                session.query(TrainedModel)
+                .filter_by(
+                    symbol=challenger.symbol,
+                    timeframe=challenger.timeframe,
+                    model_type=challenger.model_type,
+                    is_champion=True,
+                )
+                .first()
+            )
 
             if old_champion:
                 logger.info(
-                    f"Разжалован старый чемпион: {old_champion.model_type} v{old_champion.version} (ID: {old_champion.id})")
+                    f"Разжалован старый чемпион: {old_champion.model_type} v{old_champion.version} (ID: {old_champion.id})"
+                )
                 old_champion.is_champion = False
 
             challenger.is_champion = True
-            
+
             # Преобразуем numpy float32 в обычные float для JSON сериализации
             import numpy as np
+
             def convert_numpy_types(obj):
                 """Рекурсивно преобразует numpy типы в Python типы."""
                 if isinstance(obj, np.floating):
@@ -1492,13 +1581,14 @@ class DatabaseManager:
                     return [convert_numpy_types(item) for item in obj]
                 else:
                     return obj
-            
+
             report_converted = convert_numpy_types(report)
             challenger.performance_report = json.dumps(report_converted)
-            
+
             session.commit()
             logger.critical(
-                f"!!! НОВЫЙ ЧЕМПИОН: {challenger.model_type} v{challenger.version} для {challenger.symbol} (ID: {challenger.id}) !!!")
+                f"!!! НОВЫЙ ЧЕМПИОН: {challenger.model_type} v{challenger.version} для {challenger.symbol} (ID: {challenger.id}) !!!"
+            )
         except Exception as e:
             session.rollback()
             logger.error(f"Ошибка при продвижении модели-претендента: {e}", exc_info=True)
@@ -1550,8 +1640,11 @@ class DatabaseManager:
     def get_all_models_for_gui(self) -> List[Dict]:
         session = self.Session()
         try:
-            models = session.query(TrainedModel).order_by(TrainedModel.symbol, TrainedModel.is_champion.desc(),
-                                                          TrainedModel.training_date.desc()).all()
+            models = (
+                session.query(TrainedModel)
+                .order_by(TrainedModel.symbol, TrainedModel.is_champion.desc(), TrainedModel.training_date.desc())
+                .all()
+            )
             result_list = []
             for model in models:
                 report = {}
@@ -1560,13 +1653,18 @@ class DatabaseManager:
                         report = json.loads(model.performance_report)
                     except (json.JSONDecodeError, TypeError):
                         pass
-                result_list.append({
-                    "id": model.id, "symbol": model.symbol, "type": model.model_type,
-                    "version": model.version, "status": "Чемпион" if model.is_champion else "Претендент",
-                    "sharpe": f"{report.get('sharpe_ratio', 0):.2f}",
-                    "profit_factor": f"{report.get('profit_factor', 0):.2f}",
-                    "date": model.training_date.strftime('%Y-%m-%d %H:%M')
-                })
+                result_list.append(
+                    {
+                        "id": model.id,
+                        "symbol": model.symbol,
+                        "type": model.model_type,
+                        "version": model.version,
+                        "status": "Чемпион" if model.is_champion else "Претендент",
+                        "sharpe": f"{report.get('sharpe_ratio', 0):.2f}",
+                        "profit_factor": f"{report.get('profit_factor', 0):.2f}",
+                        "date": model.training_date.strftime("%Y-%m-%d %H:%M"),
+                    }
+                )
             return result_list
         except Exception as e:
             logger.error(f"Ошибка при получении списка моделей для GUI: {e}")
@@ -1607,18 +1705,34 @@ class DatabaseManager:
             logger.error(f"Ошибка при поиске/создании сущности '{entity_name}': {e}")
             return None
 
-    def add_relation(self, source_name: str, relation_type: str, target_name: str,
-                     source_type: str = "Unknown", target_type: str = "Unknown",
-                     context: Optional[Dict] = None):
+    def add_relation(
+        self,
+        source_name: str,
+        relation_type: str,
+        target_name: str,
+        source_type: str = "Unknown",
+        target_type: str = "Unknown",
+        context: Optional[Dict] = None,
+    ):
         kwargs = {
-            'source_name': source_name, 'relation_type': relation_type, 'target_name': target_name,
-            'source_type': source_type, 'target_type': target_type, 'context': context
+            "source_name": source_name,
+            "relation_type": relation_type,
+            "target_name": target_name,
+            "source_type": source_type,
+            "target_type": target_type,
+            "context": context,
         }
-        self.write_queue.put(('add_relation', kwargs))
+        self.write_queue.put(("add_relation", kwargs))
 
-    def _add_relation_internal(self, source_name: str, relation_type: str, target_name: str,
-                               source_type: str = "Unknown", target_type: str = "Unknown",
-                               context: Optional[Dict] = None):
+    def _add_relation_internal(
+        self,
+        source_name: str,
+        relation_type: str,
+        target_name: str,
+        source_type: str = "Unknown",
+        target_type: str = "Unknown",
+        context: Optional[Dict] = None,
+    ):
         session = self.Session()
         try:
             source_id = self.get_or_create_entity(session, source_name, source_type)
@@ -1629,20 +1743,25 @@ class DatabaseManager:
                 return
 
             time_threshold = datetime.utcnow() - timedelta(hours=1)
-            existing_relation = session.query(Relation).filter(
-                Relation.source_id == source_id,
-                Relation.target_id == target_id,
-                Relation.relation_type == relation_type.upper().replace(" ", "_"),
-                Relation.timestamp >= time_threshold
-            ).first()
+            existing_relation = (
+                session.query(Relation)
+                .filter(
+                    Relation.source_id == source_id,
+                    Relation.target_id == target_id,
+                    Relation.relation_type == relation_type.upper().replace(" ", "_"),
+                    Relation.timestamp >= time_threshold,
+                )
+                .first()
+            )
 
             if existing_relation:
                 return
 
             new_relation = Relation(
-                source_id=source_id, target_id=target_id,
+                source_id=source_id,
+                target_id=target_id,
                 relation_type=relation_type.upper().replace(" ", "_"),
-                context_json=json.dumps(context) if context else None
+                context_json=json.dumps(context) if context else None,
             )
             session.add(new_relation)
             session.commit()
@@ -1668,27 +1787,27 @@ class DatabaseManager:
 
             features = json.loads(model_record.features_json) if model_record.features_json else []
             model = None
-            device = torch.device("cpu") # Загружаем на CPU для стабильности
+            device = torch.device("cpu")  # Загружаем на CPU для стабильности
 
             if "PyTorch" in model_record.model_type:
                 params = json.loads(model_record.hyperparameters_json) if model_record.hyperparameters_json else {}
                 input_dim = len(features)
 
                 # --- ИСПРАВЛЕННАЯ ЛОГИКА СОЗДАНИЯ МОДЕЛИ ---
-                if model_record.model_type == 'LSTM_PyTorch':
+                if model_record.model_type == "LSTM_PyTorch":
                     model = SimpleLSTM(
                         input_dim=input_dim,
-                        hidden_dim=params.get('hidden_dim', 64),
-                        num_layers=params.get('num_layers', 2),
-                        output_dim=1
+                        hidden_dim=params.get("hidden_dim", 64),
+                        num_layers=params.get("num_layers", 2),
+                        output_dim=1,
                     ).to(device)
-                elif model_record.model_type == 'Transformer_PyTorch':
+                elif model_record.model_type == "Transformer_PyTorch":
                     # Используем класс TimeSeriesTransformer
                     model = TimeSeriesTransformer(
                         input_dim=input_dim,
-                        d_model=params.get('d_model', 64),
-                        nhead=params.get('nhead', 4),
-                        nlayers=params.get('nlayers', 2)
+                        d_model=params.get("d_model", 64),
+                        nhead=params.get("nhead", 4),
+                        nlayers=params.get("nlayers", 2),
                     ).to(device)
                 else:
                     logger.error(f"Неизвестный PyTorch тип модели: {model_record.model_type}")
@@ -1697,7 +1816,7 @@ class DatabaseManager:
 
                 buffer = io.BytesIO(model_record.model_data)
                 # Загрузка state_dict с явным указанием map_location
-                model.load_state_dict(torch.load(buffer, map_location='cpu'))
+                model.load_state_dict(torch.load(buffer, map_location="cpu"))
                 model.eval()
 
             elif "LightGBM" in model_record.model_type:
@@ -1713,7 +1832,7 @@ class DatabaseManager:
                 "symbol": model_record.symbol,
                 "features": features,
                 "x_scaler": pickle.loads(scaler_record.x_scaler_data),
-                "y_scaler": pickle.loads(scaler_record.y_scaler_data)
+                "y_scaler": pickle.loads(scaler_record.y_scaler_data),
             }
 
         except Exception as e:
@@ -1729,13 +1848,17 @@ class DatabaseManager:
             results = (
                 session.query(
                     StrategyPerformance.strategy_name,
-                    (func.sum(StrategyPerformance.profit_factor * StrategyPerformance.trade_count) /
-                     func.sum(StrategyPerformance.trade_count)).label('weighted_profit_factor'),
-                    (func.sum(StrategyPerformance.win_rate * StrategyPerformance.trade_count) /
-                     func.sum(StrategyPerformance.trade_count)).label('weighted_win_rate'),
-                    func.sum(StrategyPerformance.trade_count).label('total_trades')
+                    (
+                        func.sum(StrategyPerformance.profit_factor * StrategyPerformance.trade_count)
+                        / func.sum(StrategyPerformance.trade_count)
+                    ).label("weighted_profit_factor"),
+                    (
+                        func.sum(StrategyPerformance.win_rate * StrategyPerformance.trade_count)
+                        / func.sum(StrategyPerformance.trade_count)
+                    ).label("weighted_win_rate"),
+                    func.sum(StrategyPerformance.trade_count).label("total_trades"),
                 )
-                .filter(StrategyPerformance.status == 'live')
+                .filter(StrategyPerformance.status == "live")
                 .group_by(StrategyPerformance.strategy_name)
                 .all()
             )
@@ -1744,8 +1867,9 @@ class DatabaseManager:
                     "strategy_name": r.strategy_name,
                     "profit_factor": r.weighted_profit_factor,
                     "win_rate": r.weighted_win_rate,
-                    "trade_count": r.total_trades
-                } for r in results
+                    "trade_count": r.total_trades,
+                }
+                for r in results
             ]
         except Exception as e:
             logger.error(f"Ошибка при получении производительности всех стратегий: {e}")
@@ -1754,7 +1878,7 @@ class DatabaseManager:
             session.close()
 
     def deactivate_strategy(self, **kwargs):
-        self.write_queue.put(('deactivate_strategy', kwargs))
+        self.write_queue.put(("deactivate_strategy", kwargs))
 
     def _deactivate_strategy_internal(self, strategy_name: str) -> bool:
         session = self.Session()
@@ -1762,11 +1886,10 @@ class DatabaseManager:
             updated_rows = (
                 session.query(StrategyPerformance)
                 .filter(StrategyPerformance.strategy_name == strategy_name)
-                .update({'status': 'inactive'}, synchronize_session=False)
+                .update({"status": "inactive"}, synchronize_session=False)
             )
             session.commit()
-            logger.warning(
-                f"Стратегия '{strategy_name}' была деактивирована (уволена). Затронуто {updated_rows} записей.")
+            logger.warning(f"Стратегия '{strategy_name}' была деактивирована (уволена). Затронуто {updated_rows} записей.")
             return updated_rows > 0
         except Exception as e:
             session.rollback()
@@ -1786,7 +1909,7 @@ class DatabaseManager:
                     Relation.target_id,
                     Relation.relation_type,
                     source_entity.name.label("source_name"),
-                    target_entity.name.label("target_name")
+                    target_entity.name.label("target_name"),
                 )
                 .join(source_entity, Relation.source_id == source_entity.id)
                 .join(target_entity, Relation.target_id == target_entity.id)
@@ -1813,7 +1936,7 @@ class DatabaseManager:
                     Relation.target_id,
                     Relation.relation_type,
                     source_alias.name.label("source_name"),
-                    target_alias.name.label("target_name")
+                    target_alias.name.label("target_name"),
                 )
                 .join(source_alias, Relation.source_id == source_alias.id)
                 .join(target_alias, Relation.target_id == target_alias.id)
@@ -1834,11 +1957,9 @@ class DatabaseManager:
                 if row.target_id not in nodes:
                     nodes[row.target_id] = {"id": row.target_id, "label": row.target_name}
 
-                edges.append({
-                    "from": row.source_id,
-                    "to": row.target_id,
-                    "label": row.relation_type.replace("_", " ").lower()
-                })
+                edges.append(
+                    {"from": row.source_id, "to": row.target_id, "label": row.relation_type.replace("_", " ").lower()}
+                )
 
             return {"nodes": list(nodes.values()), "edges": edges}
 
@@ -1850,12 +1971,17 @@ class DatabaseManager:
 
     def log_trade_outcome_to_kg(self, trade_ticket: int, profit: float, market_regime: str, kg_cb_sentiment: float):
         """Обратная связь в KG: Ставит задачу в очередь записи."""
-        self.write_queue.put(('log_trade_outcome_to_kg', {
-            'trade_ticket': trade_ticket,
-            'profit': profit,
-            'market_regime': market_regime,
-            'kg_cb_sentiment': kg_cb_sentiment
-        }))
+        self.write_queue.put(
+            (
+                "log_trade_outcome_to_kg",
+                {
+                    "trade_ticket": trade_ticket,
+                    "profit": profit,
+                    "market_regime": market_regime,
+                    "kg_cb_sentiment": kg_cb_sentiment,
+                },
+            )
+        )
 
     # 2. Внутренний метод (выполняет запись) - ПЕРЕИМЕНОВАН
     def _log_trade_outcome_to_kg_internal(self, trade_ticket: int, profit: float, market_regime: str, kg_cb_sentiment: float):
@@ -1884,23 +2010,21 @@ class DatabaseManager:
                 "sentiment_name": sentiment_entity_name,
                 "outcome_name": outcome_entity_name,
                 "profit": float(profit),
-                "ticket": trade_ticket
+                "ticket": trade_ticket,
             }
             # Используем execute_query, который должен быть реализован в реальном проекте
             # Здесь мы просто логируем, так как прямого доступа к Neo4j нет
             logger.info(
-                f"KG Feedback: Логирование связи: {sentiment_entity_name} -> {outcome_entity_name} (PnL: {profit:.2f})")
+                f"KG Feedback: Логирование связи: {sentiment_entity_name} -> {outcome_entity_name} (PnL: {profit:.2f})"
+            )
 
         except Exception as e:
             logger.error(f"Ошибка при логировании обратной связи в KG: {e}")
         finally:
             session.close()
 
-
-
     # --- ПРИВАТНЫЙ МЕТОД: Выполняет фактическую запись ---
-    def _log_trade_outcome_to_kg_internal(self, trade_ticket: int, profit: float, market_regime: str,
-                                          kg_cb_sentiment: float):
+    def _log_trade_outcome_to_kg_internal(self, trade_ticket: int, profit: float, market_regime: str, kg_cb_sentiment: float):
         """
         Обратная связь в KG: Логирует исход сделки, связанный с KG-признаками.
         """
@@ -1932,13 +2056,14 @@ class DatabaseManager:
                 target_id=outcome_id,
                 relation_type="LED_TO",
                 timestamp=datetime.utcnow(),
-                context_json=json.dumps({"profit": float(profit), "ticket": trade_ticket, "regime": market_regime})
+                context_json=json.dumps({"profit": float(profit), "ticket": trade_ticket, "regime": market_regime}),
             )
             session.add(new_relation)
             session.commit()
 
             logger.critical(
-                f"KG Feedback: Логирование связи: {sentiment_entity_name} -> {outcome_entity_name} (PnL: {profit:.2f})")
+                f"KG Feedback: Логирование связи: {sentiment_entity_name} -> {outcome_entity_name} (PnL: {profit:.2f})"
+            )
 
         except Exception as e:
             session.rollback()

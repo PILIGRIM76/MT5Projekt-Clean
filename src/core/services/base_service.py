@@ -15,13 +15,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class ServiceState(Enum):
     """Состояние сервиса"""
+
     CREATED = "created"
     STARTING = "starting"
     RUNNING = "running"
@@ -34,6 +35,7 @@ class ServiceState(Enum):
 @dataclass
 class HealthStatus:
     """Статус здоровья сервиса"""
+
     is_healthy: bool
     checks: Dict[str, bool] = field(default_factory=dict)
     details: Dict[str, Any] = field(default_factory=dict)
@@ -44,6 +46,7 @@ class HealthStatus:
 @dataclass
 class ServiceMetrics:
     """Метрики сервиса"""
+
     start_time: Optional[datetime] = None
     stop_time: Optional[datetime] = None
     uptime_seconds: float = 0.0
@@ -58,14 +61,14 @@ class ServiceMetrics:
 class BaseService(ABC):
     """
     Абстрактный базовый класс для всех сервисов.
-    
+
     Все сервисы должны реализовать:
     - _on_start(): Логика запуска
     - _on_stop(): Логика остановки
     - _health_check(): Проверка здоровья
     - name: Уникальное имя сервиса
     """
-    
+
     def __init__(self, name: str, config: Optional[Dict[str, Any]] = None):
         self.name = name
         self.config = config or {}
@@ -73,7 +76,7 @@ class BaseService(ABC):
         self.metrics = ServiceMetrics()
         self._health_checks: List[callable] = []
         self._logger = logging.getLogger(f"{__name__}.{name}")
-        
+
         self._logger.info(f"Сервис '{name}' создан")
 
     @property
@@ -92,14 +95,14 @@ class BaseService(ABC):
     def start(self) -> bool:
         """
         Запустить сервис.
-        
+
         Returns:
             bool: True если запуск успешен
         """
         if self.state == ServiceState.RUNNING:
             self._logger.warning("Сервис уже запущен")
             return True
-        
+
         if self.state == ServiceState.STARTING:
             self._logger.warning("Сервис уже в процессе запуска")
             return False
@@ -124,10 +127,10 @@ class BaseService(ABC):
     def stop(self, timeout: float = 5.0) -> bool:
         """
         Остановить сервис.
-        
+
         Args:
             timeout: Максимальное время ожидания остановки (сек)
-            
+
         Returns:
             bool: True если остановка успешна
         """
@@ -142,12 +145,10 @@ class BaseService(ABC):
             self._on_stop()
             self.state = ServiceState.STOPPED
             self.metrics.stop_time = datetime.now()
-            
+
             if self.metrics.start_time:
-                self.metrics.uptime_seconds = (
-                    self.metrics.stop_time - self.metrics.start_time
-                ).total_seconds()
-            
+                self.metrics.uptime_seconds = (self.metrics.stop_time - self.metrics.start_time).total_seconds()
+
             self._logger.info("Сервис успешно остановлен")
             return True
         except Exception as e:
@@ -170,7 +171,7 @@ class BaseService(ABC):
     def _on_start(self) -> None:
         """
         Логика запуска сервиса.
-        
+
         Должен быть реализован в подклассе.
         """
         pass
@@ -179,7 +180,7 @@ class BaseService(ABC):
     def _on_stop(self) -> None:
         """
         Логика остановки сервиса.
-        
+
         Должен быть реализован в подклассе.
         """
         pass
@@ -188,9 +189,9 @@ class BaseService(ABC):
     def _health_check(self) -> HealthStatus:
         """
         Проверка здоровья сервиса.
-        
+
         Должен быть реализован в подклассе.
-        
+
         Returns:
             HealthStatus: Статус здоровья
         """
@@ -199,25 +200,22 @@ class BaseService(ABC):
     def health_check(self) -> HealthStatus:
         """
         Публичная проверка здоровья с обновлением метрик.
-        
+
         Returns:
             HealthStatus: Статус здоровья
         """
         try:
             health = self._health_check()
             health.last_check = datetime.now()
-            
+
             if not health.is_healthy:
                 self.state = ServiceState.UNHEALTHY
                 self._logger.warning(f"Сервис нездоров: {health.message}")
-            
+
             return health
         except Exception as e:
             self._logger.error(f"Ошибка проверки здоровья: {e}", exc_info=True)
-            return HealthStatus(
-                is_healthy=False,
-                message=f"Ошибка проверки здоровья: {e}"
-            )
+            return HealthStatus(is_healthy=False, message=f"Ошибка проверки здоровья: {e}")
 
     def register_health_check(self, check_func: callable) -> None:
         """Зарегистрировать дополнительную проверку здоровья"""
@@ -227,9 +225,7 @@ class BaseService(ABC):
     def get_metrics(self) -> ServiceMetrics:
         """Получить метрики сервиса"""
         if self.state == ServiceState.RUNNING and self.metrics.start_time:
-            self.metrics.uptime_seconds = (
-                datetime.now() - self.metrics.start_time
-            ).total_seconds()
+            self.metrics.uptime_seconds = (datetime.now() - self.metrics.start_time).total_seconds()
         return self.metrics
 
     def get_status(self) -> Dict[str, Any]:
@@ -269,7 +265,7 @@ class BaseService(ABC):
 class ServiceManager:
     """
     Менеджер сервисов - управляет жизненным циклом группы сервисов.
-    
+
     Пример использования:
         manager = ServiceManager()
         manager.register(service1)
@@ -278,7 +274,7 @@ class ServiceManager:
         ...
         manager.stop_all()
     """
-    
+
     def __init__(self, name: str = "ServiceManager"):
         self.name = name
         self.services: Dict[str, BaseService] = {}
@@ -306,18 +302,18 @@ class ServiceManager:
     def start_all(self) -> Dict[str, bool]:
         """
         Запустить все сервисы.
-        
+
         Returns:
             Dict[str, bool]: Результаты запуска {name: success}
         """
         self._logger.info("Запуск всех сервисов...")
         results = {}
-        
+
         for name, service in self.services.items():
             results[name] = service.start()
             if not results[name]:
                 self._logger.error(f"Не удалось запустить сервис: {name}")
-        
+
         success_count = sum(results.values())
         self._logger.info(f"Запущено {success_count}/{len(results)} сервисов")
         return results
@@ -325,26 +321,26 @@ class ServiceManager:
     def stop_all(self, timeout: float = 5.0, reverse_order: bool = True) -> Dict[str, bool]:
         """
         Остановить все сервисы.
-        
+
         Args:
             timeout: Таймаут для каждого сервиса
             reverse_order: Останавливать в обратном порядке
-            
+
         Returns:
             Dict[str, bool]: Результаты остановки {name: success}
         """
         self._logger.info("Остановка всех сервисов...")
-        
+
         services = list(self.services.values())
         if reverse_order:
             services.reverse()
-        
+
         results = {}
         for service in services:
             results[service.name] = service.stop(timeout=timeout)
             if not results[service.name]:
                 self._logger.error(f"Не удалось остановить сервис: {service.name}")
-        
+
         success_count = sum(results.values())
         self._logger.info(f"Остановлено {success_count}/{len(results)} сервисов")
         return results
@@ -360,13 +356,13 @@ class ServiceManager:
         """Проверить здоровье всех сервисов"""
         results = {}
         all_healthy = True
-        
+
         for name, service in self.services.items():
             health = service.health_check()
             results[name] = health
             if not health.is_healthy:
                 all_healthy = False
-        
+
         status = "здоровы" if all_healthy else "есть проблемы"
         self._logger.info(f"Проверка здоровья: все сервисы {status}")
         return results

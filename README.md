@@ -1,7 +1,7 @@
 # 🚀 Genesis Trading System
 
-**Версия:** 13.0.0  
-**Платформа:** Windows 10/11 x64  
+**Версия:** 13.0.0
+**Платформа:** Windows 10/11 x64
 **Python:** 3.9+
 
 [![Build EXE](https://github.com/PILIGRIM76/MT5Projekt-Clean/actions/workflows/build.yml/badge.svg)](https://github.com/PILIGRIM76/MT5Projekt-Clean/actions/workflows/build.yml)

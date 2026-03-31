@@ -1,15 +1,16 @@
 # src/ml/rl_trade_manager.py
 import logging
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, List, Optional
+
+import gymnasium as gym
+import MetaTrader5 as mt5
 import numpy as np
 import pandas as pd
-import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from typing import Optional, List, Any
-from pathlib import Path
-import MetaTrader5 as mt5
-from datetime import datetime, timedelta
 
 from src.core.config_models import Settings
 from src.data.data_provider import DataProvider
@@ -22,7 +23,8 @@ class TradingLifecycleEnv(gym.Env):
     Среда, симулирующая полный торговый цикл: открытие, удержание и закрытие.
     Агент обучается принимать решения на каждом шаге.
     """
-    metadata = {'render_modes': ['human']}
+
+    metadata = {"render_modes": ["human"]}
 
     def __init__(self, df: pd.DataFrame, config: Settings, features: List[str]):
         super(TradingLifecycleEnv, self).__init__()
@@ -39,9 +41,7 @@ class TradingLifecycleEnv(gym.Env):
         # Пространство состояний: (N_STEPS * N_FEATURES) рыночных данных + 3 параметра портфеля
         # 3 параметра: [Норм. PnL, Норм. BarsInTrade, Позиция (1/-1)]
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf,
-            shape=(self.n_steps * self.n_features + 3,),
-            dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(self.n_steps * self.n_features + 3,), dtype=np.float32
         )
         self.initial_balance = 10000
         self.reset()
@@ -49,22 +49,25 @@ class TradingLifecycleEnv(gym.Env):
     def _get_obs(self) -> np.ndarray:
         """Собирает состояние из рыночных данных и состояния портфеля."""
         # 1. Рыночные данные (последние N свечей)
-        market_data = self.df[self.features].iloc[self.current_step - self.n_steps:self.current_step].values
+        market_data = self.df[self.features].iloc[self.current_step - self.n_steps : self.current_step].values
         market_data_flat = market_data.flatten()
 
         # 2. Состояние портфеля
-        current_price = self.df['close'].iloc[self.current_step]
+        current_price = self.df["close"].iloc[self.current_step]
         unrealized_pnl = 0
         if self.position == 1:  # Long
             unrealized_pnl = (current_price - self.entry_price) / self.entry_price
         elif self.position == -1:  # Short
             unrealized_pnl = (self.entry_price - current_price) / self.entry_price
 
-        portfolio_state = np.array([
-            self.position,
-            np.clip(unrealized_pnl * 100, -5, 5),  # Нормализуем и ограничиваем PnL
-            self.bars_in_trade / 100.0  # Нормализуем кол-во баров в сделке
-        ], dtype=np.float32)
+        portfolio_state = np.array(
+            [
+                self.position,
+                np.clip(unrealized_pnl * 100, -5, 5),  # Нормализуем и ограничиваем PnL
+                self.bars_in_trade / 100.0,  # Нормализуем кол-во баров в сделке
+            ],
+            dtype=np.float32,
+        )
 
         return np.concatenate((market_data_flat, portfolio_state))
 
@@ -84,18 +87,18 @@ class TradingLifecycleEnv(gym.Env):
     def step(self, action):
         # --- ИЗВЛЕЧЕНИЕ ATR с защитой от ошибок ---
         current_atr = 0.0
-        if 'ATR_14' in self.df.columns:
-            atr_value = self.df['ATR_14'].iloc[self.current_step]
+        if "ATR_14" in self.df.columns:
+            atr_value = self.df["ATR_14"].iloc[self.current_step]
             if pd.notna(atr_value) and atr_value > 0:
                 current_atr = atr_value
             else:
                 logger.warning(f"ATR_14 недействителен на шаге {self.current_step}: {atr_value}, используется 0.0")
         # ----------------------
-        
+
         self.current_step += 1
         done = self.current_step >= len(self.df) - 1
         reward = 0
-        current_price = self.df['close'].iloc[self.current_step]
+        current_price = self.df["close"].iloc[self.current_step]
 
         # --- Расчет PnL и PnL_Norm для использования в наградах/штрафах ---
         unrealized_pnl_pct = 0
@@ -135,7 +138,8 @@ class TradingLifecycleEnv(gym.Env):
             # ---------------------------------------
 
             self.position = self.position / 2
-            if abs(self.position) < 0.01: self.position = 0
+            if abs(self.position) < 0.01:
+                self.position = 0
 
         # 2: MOVE_SL_TO_BE
         elif action == 2 and self.position != 0:
@@ -172,7 +176,8 @@ class TradingLifecycleEnv(gym.Env):
             else:
                 reward -= 0.1  # Штраф за ненужное закрытие
 
-            if abs(self.position) < 0.01: self.position = 0
+            if abs(self.position) < 0.01:
+                self.position = 0
 
         # --- Имитация открытия позиции (если нет позиции) ---
         elif self.position == 0:
@@ -208,7 +213,7 @@ class RLTradeManager:
         if self.model_path.exists():
             try:
                 # Загружаем модель без среды, так как среда создается в train()
-                self.model = PPO.load(self.model_path, device='cpu')
+                self.model = PPO.load(self.model_path, device="cpu")
                 self.is_trained = True
                 logger.info(f"RL-модель ТРЕЙДЕРА успешно загружена на CPU из {self.model_path}")
             except Exception as e:
@@ -227,9 +232,7 @@ class RLTradeManager:
 
         # 1. Загрузка данных
         df_featured = self.data_provider.get_historical_data(
-            "EURUSD", mt5.TIMEFRAME_H1,
-            datetime.now() - timedelta(days=730),  # 2 года данных
-            datetime.now()
+            "EURUSD", mt5.TIMEFRAME_H1, datetime.now() - timedelta(days=730), datetime.now()  # 2 года данных
         )
 
         if df_featured is None or df_featured.empty or len(df_featured) < self.config.INPUT_LAYER_SIZE + 100:
@@ -243,12 +246,12 @@ class RLTradeManager:
         # 3. Инициализация/Дообучение модели
         if self.model is None:
             # --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2: Принудительное создание на CPU ---
-            self.model = PPO("MlpPolicy", vec_env, verbose=0, n_steps=2048, batch_size=64, device='cpu')
+            self.model = PPO("MlpPolicy", vec_env, verbose=0, n_steps=2048, batch_size=64, device="cpu")
         else:
             # --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 3: Установка среды на CPU-модель ---
             self.model.set_env(vec_env)
-            self.model.policy.to('cpu')  # Гарантируем, что политика на CPU
-            self.model.device = 'cpu'
+            self.model.policy.to("cpu")  # Гарантируем, что политика на CPU
+            self.model.device = "cpu"
 
         # 4. Обучение
         self.model.learn(total_timesteps=self.config.rl_manager.training_timesteps_per_trade)

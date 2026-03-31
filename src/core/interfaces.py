@@ -9,14 +9,15 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime
-import pandas as pd
+from typing import Any, Callable, Dict, List, Optional
 
+import pandas as pd
 
 # ===========================================
 # MT5 Connector Interface
 # ===========================================
+
 
 class ITerminalConnector(ABC):
     """Интерфейс для подключения к торговому терминалу."""
@@ -25,7 +26,7 @@ class ITerminalConnector(ABC):
     def initialize(self) -> bool:
         """
         Инициализация подключения.
-        
+
         Returns:
             True если успешно
         """
@@ -35,7 +36,7 @@ class ITerminalConnector(ABC):
     def shutdown(self) -> bool:
         """
         Завершение подключения.
-        
+
         Returns:
             True если успешно
         """
@@ -45,7 +46,7 @@ class ITerminalConnector(ABC):
     def is_connected(self) -> bool:
         """
         Проверка подключения.
-        
+
         Returns:
             True если подключено
         """
@@ -55,7 +56,7 @@ class ITerminalConnector(ABC):
     def get_account_info(self) -> Dict[str, Any]:
         """
         Получение информации об аккаунте.
-        
+
         Returns:
             Данные аккаунта
         """
@@ -71,26 +72,21 @@ class ITerminalConnector(ABC):
 # Data Provider Interface
 # ===========================================
 
+
 class IDataProvider(ABC):
     """Интерфейс для получения рыночных данных."""
 
     @abstractmethod
-    def get_historical_data(
-        self,
-        symbol: str,
-        timeframe: int,
-        start_date: datetime,
-        end_date: datetime
-    ) -> pd.DataFrame:
+    def get_historical_data(self, symbol: str, timeframe: int, start_date: datetime, end_date: datetime) -> pd.DataFrame:
         """
         Получение исторических данных.
-        
+
         Args:
             symbol: Торговый инструмент
             timeframe: Таймфрейм (константа MT5)
             start_date: Начало периода
             end_date: Конец периода
-            
+
         Returns:
             DataFrame с данными OHLCV
         """
@@ -100,10 +96,10 @@ class IDataProvider(ABC):
     def get_realtime_quotes(self, symbols: List[str]) -> Dict[str, dict]:
         """
         Получение котировок реального времени.
-        
+
         Args:
             symbols: Список инструментов
-            
+
         Returns:
             Словарь {symbol: quote_data}
         """
@@ -113,10 +109,10 @@ class IDataProvider(ABC):
     def get_news(self, limit: int = 50) -> List[Dict[str, Any]]:
         """
         Получение новостей.
-        
+
         Args:
             limit: Максимальное количество
-            
+
         Returns:
             Список новостей
         """
@@ -126,10 +122,10 @@ class IDataProvider(ABC):
     def refresh_rates(self, symbols: List[str]) -> bool:
         """
         Обновление котировок.
-        
+
         Args:
             symbols: Список инструментов для обновления
-            
+
         Returns:
             True если успешно
         """
@@ -140,6 +136,7 @@ class IDataProvider(ABC):
 # Database Manager Interfaces
 # ===========================================
 
+
 class IDatabaseManager(ABC):
     """Интерфейс для работы с основной БД."""
 
@@ -147,10 +144,10 @@ class IDatabaseManager(ABC):
     def save_trade(self, trade_data: Dict[str, Any]) -> int:
         """
         Сохранение сделки.
-        
+
         Args:
             trade_data: Данные сделки
-            
+
         Returns:
             ID сохраненной сделки
         """
@@ -160,11 +157,11 @@ class IDatabaseManager(ABC):
     def get_trade_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict]:
         """
         Получение истории сделок.
-        
+
         Args:
             symbol: Фильтр по инструменту
             limit: Максимальное количество
-            
+
         Returns:
             Список сделок
         """
@@ -174,10 +171,10 @@ class IDatabaseManager(ABC):
     def get_strategy_performance(self, strategy_name: str) -> Dict[str, Any]:
         """
         Получение статистики стратегии.
-        
+
         Args:
             strategy_name: Название стратегии
-            
+
         Returns:
             Статистика производительности
         """
@@ -187,7 +184,7 @@ class IDatabaseManager(ABC):
     def get_open_positions(self) -> List[Dict]:
         """
         Получение открытых позиций.
-        
+
         Returns:
             Список открытых позиций
         """
@@ -201,30 +198,25 @@ class IVectorDBManager(ABC):
     def add_documents(self, documents: List[Dict[str, Any]]) -> bool:
         """
         Добавление документов.
-        
+
         Args:
             documents: Список документов
-            
+
         Returns:
             True если успешно
         """
         pass
 
     @abstractmethod
-    def query_similar(
-        self,
-        query_text: str,
-        n_results: int = 5,
-        threshold: float = 0.5
-    ) -> List[Dict[str, Any]]:
+    def query_similar(self, query_text: str, n_results: int = 5, threshold: float = 0.5) -> List[Dict[str, Any]]:
         """
         Поиск похожих документов.
-        
+
         Args:
             query_text: Текст запроса
             n_results: Количество результатов
             threshold: Порог схожести
-            
+
         Returns:
             Список похожих документов
         """
@@ -234,10 +226,10 @@ class IVectorDBManager(ABC):
     def cleanup_old_documents(self, max_age_days: int = 90) -> int:
         """
         Очистка старых документов.
-        
+
         Args:
             max_age_days: Максимальный возраст в днях
-            
+
         Returns:
             Количество удаленных документов
         """
@@ -248,22 +240,17 @@ class IVectorDBManager(ABC):
 # Risk Engine Interface
 # ===========================================
 
+
 class IRiskEngine(ABC):
     """Интерфейс для управления рисками."""
 
     @abstractmethod
     def calculate_position_size(
-        self,
-        symbol: str,
-        df: pd.DataFrame,
-        account_info: Any,
-        trade_type: str,
-        confidence: str,
-        strategy_name: str
+        self, symbol: str, df: pd.DataFrame, account_info: Any, trade_type: str, confidence: str, strategy_name: str
     ) -> tuple:
         """
         Расчет размера позиции.
-        
+
         Args:
             symbol: Торговый инструмент
             df: Данные для анализа
@@ -271,7 +258,7 @@ class IRiskEngine(ABC):
             trade_type: Тип сделки (BUY/SELL)
             confidence: Уровень уверенности
             strategy_name: Название стратегии
-            
+
         Returns:
             (lot_size, stop_loss) или (None, None) если запрещено
         """
@@ -281,29 +268,25 @@ class IRiskEngine(ABC):
     def is_trade_safe(self, symbol: str, signal: Dict[str, Any]) -> bool:
         """
         Проверка безопасности сделки.
-        
+
         Args:
             symbol: Торговый инструмент
             signal: Данные сигнала
-            
+
         Returns:
             True если сделка безопасна
         """
         pass
 
     @abstractmethod
-    def calculate_portfolio_var(
-        self,
-        open_positions: List[Dict],
-        data_dict: Dict[str, pd.DataFrame]
-    ) -> Optional[float]:
+    def calculate_portfolio_var(self, open_positions: List[Dict], data_dict: Dict[str, pd.DataFrame]) -> Optional[float]:
         """
         Расчет VaR портфеля.
-        
+
         Args:
             open_positions: Открытые позиции
             data_dict: Рыночные данные
-            
+
         Returns:
             Portfolio VaR в процентах
         """
@@ -313,7 +296,7 @@ class IRiskEngine(ABC):
     def check_daily_drawdown(self) -> bool:
         """
         Проверка дневного лимита просадки.
-        
+
         Returns:
             True если лимит не превышен
         """
@@ -323,10 +306,10 @@ class IRiskEngine(ABC):
     def check_correlation(self, symbol: str) -> bool:
         """
         Проверка корреляции с открытыми позициями.
-        
+
         Args:
             symbol: Торговый инструмент
-            
+
         Returns:
             True если корреляция в норме
         """
@@ -337,6 +320,7 @@ class IRiskEngine(ABC):
 # Trading System Interfaces
 # ===========================================
 
+
 class ITradingSystem(ABC):
     """Интерфейс торговой системы."""
 
@@ -344,7 +328,7 @@ class ITradingSystem(ABC):
     def start(self) -> bool:
         """
         Запуск системы.
-        
+
         Returns:
             True если успешно
         """
@@ -354,7 +338,7 @@ class ITradingSystem(ABC):
     def stop(self) -> bool:
         """
         Остановка системы.
-        
+
         Returns:
             True если успешно
         """
@@ -364,10 +348,10 @@ class ITradingSystem(ABC):
     def execute_trade(self, signal: Dict[str, Any]) -> bool:
         """
         Исполнение торгового сигнала.
-        
+
         Args:
             signal: Данные сигнала
-            
+
         Returns:
             True если сделка исполнена
         """
@@ -377,10 +361,10 @@ class ITradingSystem(ABC):
     def close_position(self, ticket: int) -> bool:
         """
         Закрытие позиции.
-        
+
         Args:
             ticket: Номер тикета
-            
+
         Returns:
             True если успешно
         """
@@ -390,7 +374,7 @@ class ITradingSystem(ABC):
     def get_account_info(self) -> Dict[str, Any]:
         """
         Получение информации об аккаунте.
-        
+
         Returns:
             Данные аккаунта
         """
@@ -400,6 +384,7 @@ class ITradingSystem(ABC):
 # ===========================================
 # Strategy Interface
 # ===========================================
+
 
 class IStrategy(ABC):
     """Интерфейс торговой стратегии."""
@@ -411,20 +396,15 @@ class IStrategy(ABC):
         pass
 
     @abstractmethod
-    def generate_signal(
-        self,
-        symbol: str,
-        df: pd.DataFrame,
-        context: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+    def generate_signal(self, symbol: str, df: pd.DataFrame, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Генерация торгового сигнала.
-        
+
         Args:
             symbol: Торговый инструмент
             df: Рыночные данные
             context: Дополнительный контекст
-            
+
         Returns:
             Данные сигнала или None
         """
@@ -434,7 +414,7 @@ class IStrategy(ABC):
     def get_parameters(self) -> Dict[str, Any]:
         """
         Получение параметров стратегии.
-        
+
         Returns:
             Словарь параметров
         """
@@ -444,7 +424,7 @@ class IStrategy(ABC):
     def set_parameters(self, parameters: Dict[str, Any]) -> None:
         """
         Установка параметров стратегии.
-        
+
         Args:
             parameters: Новые параметры
         """
@@ -455,6 +435,7 @@ class IStrategy(ABC):
 # Model Factory Interface
 # ===========================================
 
+
 class IModelFactory(ABC):
     """Интерфейс фабрики ML моделей."""
 
@@ -462,11 +443,11 @@ class IModelFactory(ABC):
     def create_model(self, model_type: str, **kwargs) -> Any:
         """
         Создание модели.
-        
+
         Args:
             model_type: Тип модели
             **kwargs: Дополнительные параметры
-            
+
         Returns:
             Экземпляр модели
         """
@@ -476,10 +457,10 @@ class IModelFactory(ABC):
     def load_model(self, model_id: int) -> Any:
         """
         Загрузка модели из БД.
-        
+
         Args:
             model_id: ID модели
-            
+
         Returns:
             Загруженная модель
         """
@@ -489,12 +470,12 @@ class IModelFactory(ABC):
     def save_model(self, model: Any, symbol: str, timeframe: int) -> int:
         """
         Сохранение модели в БД.
-        
+
         Args:
             model: Модель для сохранения
             symbol: Торговый инструмент
             timeframe: Таймфрейм
-            
+
         Returns:
             ID сохраненной модели
         """
@@ -505,6 +486,7 @@ class IModelFactory(ABC):
 # Event Bus Interface
 # ===========================================
 
+
 class IEventBus(ABC):
     """Интерфейс шины событий."""
 
@@ -512,7 +494,7 @@ class IEventBus(ABC):
     def subscribe(self, event_type: str, callback: callable) -> None:
         """
         Подписка на событие.
-        
+
         Args:
             event_type: Тип события
             callback: Функция обратного вызова
@@ -523,7 +505,7 @@ class IEventBus(ABC):
     def publish(self, event_type: str, data: Dict[str, Any]) -> None:
         """
         Публикация события.
-        
+
         Args:
             event_type: Тип события
             data: Данные события
@@ -534,7 +516,7 @@ class IEventBus(ABC):
     def unsubscribe(self, event_type: str, callback: callable) -> None:
         """
         Отписка от события.
-        
+
         Args:
             event_type: Тип события
             callback: Функция обратного вызова
@@ -546,6 +528,7 @@ class IEventBus(ABC):
 # Cache Manager Interface
 # ===========================================
 
+
 class ICacheManager(ABC):
     """Интерфейс менеджера кэша."""
 
@@ -553,10 +536,10 @@ class ICacheManager(ABC):
     def get(self, key: str) -> Optional[Any]:
         """
         Получение значения из кэша.
-        
+
         Args:
             key: Ключ кэша
-            
+
         Returns:
             Значение или None
         """
@@ -566,7 +549,7 @@ class ICacheManager(ABC):
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         """
         Установка значения в кэш.
-        
+
         Args:
             key: Ключ кэша
             value: Значение
@@ -578,10 +561,10 @@ class ICacheManager(ABC):
     def delete(self, key: str) -> bool:
         """
         Удаление значения из кэша.
-        
+
         Args:
             key: Ключ кэша
-            
+
         Returns:
             True если удалено
         """

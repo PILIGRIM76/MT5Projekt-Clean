@@ -73,10 +73,10 @@ db_path = 'database/trading_system.db'
 if os.path.exists(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
+
     # Удаляем старые модели (можно добавить логику по дате)
     # cursor.execute('DELETE FROM ai_models WHERE created_at < datetime(\"now\", \"-30 days\")')
-    
+
     conn.commit()
     conn.close()
     print('[INFO] Очистка моделей завершена')

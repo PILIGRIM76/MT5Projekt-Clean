@@ -3,21 +3,22 @@ import logging
 import os
 import re
 import uuid
+from pathlib import Path
+
 # from cgitb import text  # Закомментировано, так как не используется
 # from lib2to3.fixes.fix_input import context  # Закомментировано, так как не используется
-from typing import TYPE_CHECKING, Optional, Dict
+from typing import TYPE_CHECKING, Dict, Optional
+
+import torch
 from sentence_transformers import SentenceTransformer
 
-from pathlib import Path
 # from huggingface_hub import HfFolder  # Disabled due to deprecation
 from transformers import AutoTokenizer, T5ForConditionalGeneration
-import torch
-
 
 if TYPE_CHECKING:
+    from src.core.config_models import Settings
     from src.db.database_manager import DatabaseManager
     from src.db.vector_db_manager import VectorDBManager
-    from src.core.config_models import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +29,26 @@ class CausalNLPProcessor:
         self.db_manager = db_manager
         self.vector_db_manager = vector_db_manager
         self.embedding_model: Optional[SentenceTransformer] = None
-        self.model_names = ['google/flan-t5-base']
+        self.model_names = ["google/flan-t5-base"]
         self.models = {}
         self.is_ready = False
         self.entity_types = {
-            "FED": "CentralBank", "ECB": "CentralBank", "ФРС": "CentralBank", "ЕЦБ": "CentralBank",
-            "POWELL": "Person", "LAGARDE": "Person",
-            "USD": "Currency", "EUR": "Currency", "JPY": "Currency", "GBP": "Currency",
-            "EURUSD": "Asset", "GBPUSD": "Asset", "XAUUSD": "Asset",
-            "INFLATION": "EconomicIndicator", "RATE": "EconomicIndicator", "CPI": "EconomicIndicator"
+            "FED": "CentralBank",
+            "ECB": "CentralBank",
+            "ФРС": "CentralBank",
+            "ЕЦБ": "CentralBank",
+            "POWELL": "Person",
+            "LAGARDE": "Person",
+            "USD": "Currency",
+            "EUR": "Currency",
+            "JPY": "Currency",
+            "GBP": "Currency",
+            "EURUSD": "Asset",
+            "GBPUSD": "Asset",
+            "XAUUSD": "Asset",
+            "INFLATION": "EconomicIndicator",
+            "RATE": "EconomicIndicator",
+            "CPI": "EconomicIndicator",
         }
         # Устройство для NLP-моделей (будет переопределено в TradingSystem)
         self.device = torch.device("cpu")
@@ -46,11 +58,11 @@ class CausalNLPProcessor:
         if self.is_ready:
             return
 
-        hf_home = os.environ.get('HF_HOME')
+        hf_home = os.environ.get("HF_HOME")
         if hf_home:
             logger.info(f"Используется кастомная директория для кэша Hugging Face: {hf_home}")
         else:
-            home_dir = os.path.expanduser('~')
+            home_dir = os.path.expanduser("~")
             default_cache_path = os.path.join(home_dir, ".cache", "huggingface", "hub")
             logger.info(f"Используется стандартная директория для кэша Hugging Face: {default_cache_path}")
 
@@ -68,7 +80,7 @@ class CausalNLPProcessor:
                 # Принудительно переносим на CPU
                 model.to(torch.device("cpu"))
 
-                self.models[model_name] = {'tokenizer': tokenizer, 'model': model}
+                self.models[model_name] = {"tokenizer": tokenizer, "model": model}
                 logger.info(f"Модель '{model_name}' успешно загружена.")
             except Exception as e:
                 logger.error(f"Не удалось загрузить модель '{model_name}': {e}", exc_info=True)
@@ -80,11 +92,11 @@ class CausalNLPProcessor:
                 try:
                     embedding_model_name = self.config.vector_db.embedding_model  # all-MiniLM-L6-v2 по умолчанию
                     logger.info(f"Загрузка embedding модели: '{embedding_model_name}'...")
-                    
+
                     # Загружаем модель для эмбеддингов
                     self.embedding_model = SentenceTransformer(embedding_model_name)
                     self.embedding_model.to(torch.device("cpu"))
-                    
+
                     logger.info(f"Embedding модель '{embedding_model_name}' успешно загружена.")
                 except Exception as e:
                     logger.error(f"Не удалось загрузить embedding модель '{embedding_model_name}': {e}", exc_info=True)
@@ -107,16 +119,16 @@ class CausalNLPProcessor:
     def _parse_relations(self, generated_text: str) -> Optional[Dict[str, str]]:
         try:
             text = generated_text.lower()
-            subject_match = re.search(r'subject:\s*(.*?)\s*\|', text)
-            relation_match = re.search(r'relation:\s*(.*?)\s*\|', text)
-            object_match = re.search(r'object:\s*(.*)', text)
+            subject_match = re.search(r"subject:\s*(.*?)\s*\|", text)
+            relation_match = re.search(r"relation:\s*(.*?)\s*\|", text)
+            object_match = re.search(r"object:\s*(.*)", text)
 
             if subject_match and relation_match and object_match:
                 subject = subject_match.group(1).strip()
                 relation = relation_match.group(1).strip()
                 obj = object_match.group(1).strip()
 
-                if subject and relation and obj and len(relation) > 2 and '[subject]' not in subject:
+                if subject and relation and obj and len(relation) > 2 and "[subject]" not in subject:
                     return {"subject": subject, "object": obj, "relation": relation}
         except Exception as e:
             logger.error(f"Ошибка парсинга сгенерированного текста '{generated_text}': {e}")
@@ -140,11 +152,11 @@ class CausalNLPProcessor:
                 "Output: subject: US jobs report | relation: boosts | object: the dollar\n\n"
                 "BAD EXAMPLES (what to avoid):\n"
                 "Text: 'JP Morgan and Goldman Sachs are in the news.'\n"
-            "Output: subject: [subject] | relation: [relation] | object: [object]\n\n"
-            "---\n\n"
-            f"Text: '{text}'\n"
-            "Output:"
-        )
+                "Output: subject: [subject] | relation: [relation] | object: [object]\n\n"
+                "---\n\n"
+                f"Text: '{text}'\n"
+                "Output:"
+            )
 
             # 2. Векторизация и сохранение документа (ВЫПОЛНЯЕТСЯ ОДИН РАЗ)
             if self.vector_db_manager and self.vector_db_manager.is_ready() and self.embedding_model:
@@ -159,20 +171,14 @@ class CausalNLPProcessor:
                     self.db_manager.add_news_article(
                         vector_id=vector_id,
                         content=text,
-                        source=context.get('source', 'Unknown'),
-                        timestamp=context.get('timestamp')
+                        source=context.get("source", "Unknown"),
+                        timestamp=context.get("timestamp"),
                     )
 
                     # 3. СОХРАНЕНИЕ В FAISS (СИНХРОННО)
-                    metadata = {
-                        "source": context.get('source', 'Unknown'),
-                        "timestamp_iso": context.get('timestamp', '')
-                    }
+                    metadata = {"source": context.get("source", "Unknown"), "timestamp_iso": context.get("timestamp", "")}
                     self.vector_db_manager.add_documents(
-                        ids=[vector_id],
-                        embeddings=[embedding],
-                        metadatas=[metadata],
-                        documents=[text]
+                        ids=[vector_id], embeddings=[embedding], metadatas=[metadata], documents=[text]
                     )
                     logger.info(f"[VectorDB] Добавлен документ ID: {vector_id[:8]}... из источника: {context.get('source')}")
                 except Exception as e:
@@ -182,11 +188,10 @@ class CausalNLPProcessor:
             generated_relations = []
             for model_name, components in self.models.items():
                 try:
-                    tokenizer = components['tokenizer']
-                    model = components['model']
+                    tokenizer = components["tokenizer"]
+                    model = components["model"]
 
-                    input_ids = tokenizer.encode(prompt, return_tensors="pt", max_length=512, truncation=True).to(
-                        self.device)
+                    input_ids = tokenizer.encode(prompt, return_tensors="pt", max_length=512, truncation=True).to(self.device)
 
                     # Переносим модель на CPU перед генерацией (если она не была перенесена ранее)
 
@@ -205,8 +210,7 @@ class CausalNLPProcessor:
                 return
 
             # 4. Сохранение лучшей связи в Граф Знаний
-            best_relation = max(generated_relations,
-                                key=lambda r: len(r['subject']) + len(r['relation']) + len(r['object']))
+            best_relation = max(generated_relations, key=lambda r: len(r["subject"]) + len(r["relation"]) + len(r["object"]))
 
             logger.info(f"NLP модель нашла связь: {best_relation}")
 
@@ -231,9 +235,9 @@ class CausalNLPProcessor:
                 target_name=best_relation["object"],
                 source_type=source_type,
                 target_type=target_type,
-                context=context
+                context=context,
             )
-            
+
         except Exception as e:
             logger.error(f"[VectorDB] Критическая ошибка при обработке текста: {e}", exc_info=True)
             # Не прерываем работу, просто логируем ошибку

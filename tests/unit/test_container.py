@@ -10,16 +10,14 @@ Unit тесты для модуля container.py.
 ПРИМЕЧАНИЕ: Тесты используют Mock для Settings из-за сложности конфигурации.
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 # Импорты для тестов
-from src.core.container import (
-    reset_all,
-    Container
-)
+from src.core.container import Container, reset_all
 
 
 class TestContainerClass:
@@ -28,39 +26,46 @@ class TestContainerClass:
     def test_container_creation(self):
         """Проверка создания Container."""
         container = Container()
-        
+
         assert container is not None
         assert isinstance(container, Container)
 
     def test_container_properties_exist(self):
         """Проверка что свойства контейнера существуют.
-        
+
         Примечание: Не используем hasattr напрямую, так как это может вызвать
         инициализацию компонентов и ошибки. Проверяем через __class__.__dict__.
         """
         container = Container()
-        
+
         # Проверка что все свойства существуют в классе
         # Используем __class__.__dict__ чтобы избежать вызова property getter
         properties = [name for name, obj in type(container).__dict__.items() if isinstance(obj, property)]
-        
+
         expected_properties = [
-            'config', 'db_manager', 'vector_db_manager', 'data_provider',
-            'risk_engine', 'model_factory', 'trading_system',
-            'query_manager', 'command_manager', 'event_bus'
+            "config",
+            "db_manager",
+            "vector_db_manager",
+            "data_provider",
+            "risk_engine",
+            "model_factory",
+            "trading_system",
+            "query_manager",
+            "command_manager",
+            "event_bus",
         ]
-        
+
         for prop in expected_properties:
             assert prop in properties, f"Property {prop} not found in Container"
 
     def test_container_properties_return_callables(self):
         """Проверка что свойства возвращают callable (lambda)."""
         container = Container()
-        
+
         # Все свойства должны возвращать callable (getter функции)
         # Примечание: эти тесты могут вызвать ошибки инициализации,
         # поэтому проверяем только базовую структуру
-        
+
         # config должен вернуть callable
         try:
             config_getter = container.config

@@ -1,10 +1,12 @@
 # src/strategies/StrategyInterface.py
 from abc import ABC, abstractmethod
-import pandas as pd
 from typing import Optional
+
+import pandas as pd
 
 # +++ НАЧАЛО ИЗМЕНЕНИЙ +++
 from src.core.config_models import Settings
+
 # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 from src.data_models import TradeSignal
 
@@ -36,19 +38,19 @@ class BaseStrategy(ABC):
             Символ или 'UNKNOWN' если не удалось определить
         """
         # Проверка колонки symbol
-        if 'symbol' in df.columns:
-            symbol_val = df['symbol'].iloc[current_index]
-            if pd.notna(symbol_val) and symbol_val != 'UNKNOWN':
+        if "symbol" in df.columns:
+            symbol_val = df["symbol"].iloc[current_index]
+            if pd.notna(symbol_val) and symbol_val != "UNKNOWN":
                 return str(symbol_val)
 
         # Проверка мультииндекса (если есть)
         if isinstance(df.index, pd.MultiIndex):
-            symbol_val = df.index.get_level_values('symbol')[current_index]
-            if pd.notna(symbol_val) and str(symbol_val) != 'nan':
+            symbol_val = df.index.get_level_values("symbol")[current_index]
+            if pd.notna(symbol_val) and str(symbol_val) != "nan":
                 return str(symbol_val)
 
         # Если не удалось определить из DataFrame, используем default_symbol
-        if default_symbol and default_symbol != 'UNKNOWN':
+        if default_symbol and default_symbol != "UNKNOWN":
             return default_symbol
 
-        return 'UNKNOWN'
+        return "UNKNOWN"

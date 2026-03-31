@@ -9,15 +9,16 @@ Unit тесты для ML-модулей: ConsensusEngine, ModelFactory.
 - Uncertainty penalty
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch, call
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+from unittest.mock import MagicMock, Mock, call, patch
+
 import numpy as np
 import pandas as pd
+import pytest
 
-from src.core.config_models import Settings, ConsensusWeights
-from src.data_models import TradeSignal, SignalType
+from src.core.config_models import ConsensusWeights, Settings
+from src.data_models import SignalType, TradeSignal
 
 
 class TestConsensusEngineBasics:
@@ -34,11 +35,9 @@ class TestConsensusEngineBasics:
         """Проверка инициализации ConsensusEngine."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
             engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=self.mock_vector_db_manager
+                config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=self.mock_vector_db_manager
             )
 
             assert engine.config is self.mock_config
@@ -48,11 +47,9 @@ class TestConsensusEngineBasics:
         """Проверка low uncertainty score."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
             engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=self.mock_vector_db_manager
+                config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=self.mock_vector_db_manager
             )
 
             text = "The market is stable and growing steadily."
@@ -65,11 +62,9 @@ class TestConsensusEngineBasics:
         """Проверка high uncertainty score."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
             engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=self.mock_vector_db_manager
+                config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=self.mock_vector_db_manager
             )
 
             text = "Market uncertainty and volatility create unpredictable risk and doubt."
@@ -82,11 +77,9 @@ class TestConsensusEngineBasics:
         """Проверка с несколькими ключевыми словами."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
             engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=self.mock_vector_db_manager
+                config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=self.mock_vector_db_manager
             )
 
             text = "uncertainty uncertainty volatility risk"
@@ -109,17 +102,10 @@ class TestConsensusEngineOnChainScore:
         """Проверка без On-Chain колонок."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
-            df = pd.DataFrame({
-                'open': [1.1, 1.2, 1.3],
-                'close': [1.15, 1.25, 1.35]
-            })
+            df = pd.DataFrame({"open": [1.1, 1.2, 1.3], "close": [1.15, 1.25, 1.35]})
 
             score = engine.calculate_on_chain_score(df)
 
@@ -129,17 +115,15 @@ class TestConsensusEngineOnChainScore:
         """Проверка с MVRV > 1.0 (переоценен)."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
-            df = pd.DataFrame({
-                'ONCHAIN_MVRV_ZSCORE': [0.5, 0.8, 1.5],  # Последний > 1.0
-                'ONCHAIN_FUNDING_RATE_EWMA': [0.0001, 0.0002, 0.0003]
-            })
+            df = pd.DataFrame(
+                {
+                    "ONCHAIN_MVRV_ZSCORE": [0.5, 0.8, 1.5],  # Последний > 1.0
+                    "ONCHAIN_FUNDING_RATE_EWMA": [0.0001, 0.0002, 0.0003],
+                }
+            )
 
             score = engine.calculate_on_chain_score(df)
 
@@ -151,17 +135,15 @@ class TestConsensusEngineOnChainScore:
         """Проверка с MVRV < -1.0 (недооценен)."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
-            df = pd.DataFrame({
-                'ONCHAIN_MVRV_ZSCORE': [-0.5, -0.8, -1.5],  # Последний < -1.0
-                'ONCHAIN_FUNDING_RATE_EWMA': [0.0001, 0.0002, 0.0003]
-            })
+            df = pd.DataFrame(
+                {
+                    "ONCHAIN_MVRV_ZSCORE": [-0.5, -0.8, -1.5],  # Последний < -1.0
+                    "ONCHAIN_FUNDING_RATE_EWMA": [0.0001, 0.0002, 0.0003],
+                }
+            )
 
             score = engine.calculate_on_chain_score(df)
 
@@ -173,17 +155,15 @@ class TestConsensusEngineOnChainScore:
         """Проверка с высоким Funding Rate."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
-            df = pd.DataFrame({
-                'ONCHAIN_MVRV_ZSCORE': [0.0, 0.0, 0.0],
-                'ONCHAIN_FUNDING_RATE_EWMA': [0.0001, 0.0003, 0.0006]  # Последний > 0.0005
-            })
+            df = pd.DataFrame(
+                {
+                    "ONCHAIN_MVRV_ZSCORE": [0.0, 0.0, 0.0],
+                    "ONCHAIN_FUNDING_RATE_EWMA": [0.0001, 0.0003, 0.0006],  # Последний > 0.0005
+                }
+            )
 
             score = engine.calculate_on_chain_score(df)
 
@@ -194,17 +174,15 @@ class TestConsensusEngineOnChainScore:
         """Проверка с низким Funding Rate."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
-            df = pd.DataFrame({
-                'ONCHAIN_MVRV_ZSCORE': [0.0, 0.0, 0.0],
-                'ONCHAIN_FUNDING_RATE_EWMA': [-0.0001, -0.0003, -0.0006]  # Последний < -0.0005
-            })
+            df = pd.DataFrame(
+                {
+                    "ONCHAIN_MVRV_ZSCORE": [0.0, 0.0, 0.0],
+                    "ONCHAIN_FUNDING_RATE_EWMA": [-0.0001, -0.0003, -0.0006],  # Последний < -0.0005
+                }
+            )
 
             score = engine.calculate_on_chain_score(df)
 
@@ -215,17 +193,15 @@ class TestConsensusEngineOnChainScore:
         """Проверка с обоими факторами."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
-            df = pd.DataFrame({
-                'ONCHAIN_MVRV_ZSCORE': [-1.5, -1.5, -1.5],  # BUY сигнал
-                'ONCHAIN_FUNDING_RATE_EWMA': [0.0006, 0.0006, 0.0006]  # SELL сигнал
-            })
+            df = pd.DataFrame(
+                {
+                    "ONCHAIN_MVRV_ZSCORE": [-1.5, -1.5, -1.5],  # BUY сигнал
+                    "ONCHAIN_FUNDING_RATE_EWMA": [0.0006, 0.0006, 0.0006],  # SELL сигнал
+                }
+            )
 
             score = engine.calculate_on_chain_score(df)
 
@@ -236,21 +212,19 @@ class TestConsensusEngineOnChainScore:
         """Проверка что score ограничен [-1.0, 1.0]."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
             # Создаем ситуацию где score может выйти за пределы
-            df = pd.DataFrame({
-                'ONCHAIN_MVRV_ZSCORE': [-2.0, -2.0, -2.0],  # +0.5
-                'ONCHAIN_FUNDING_RATE_EWMA': [-0.001, -0.001, -0.001]  # +0.5
-            })
-        
+            df = pd.DataFrame(
+                {
+                    "ONCHAIN_MVRV_ZSCORE": [-2.0, -2.0, -2.0],  # +0.5
+                    "ONCHAIN_FUNDING_RATE_EWMA": [-0.001, -0.001, -0.001],  # +0.5
+                }
+            )
+
             score = engine.calculate_on_chain_score(df)
-        
+
             # Score должен быть в пределах [-1.0, 1.0]
             assert score >= -1.0
             assert score <= 1.0
@@ -270,12 +244,8 @@ class TestConsensusEngineHistoricalSentiment:
         """Проверка без VectorDB."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
             result = engine.get_historical_context_sentiment("EURUSD", "trending")
 
@@ -285,11 +255,9 @@ class TestConsensusEngineHistoricalSentiment:
         """Проверка без embedding модели."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
             engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=self.mock_vector_db_manager
+                config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=self.mock_vector_db_manager
             )
             # embedding_model не установлен
 
@@ -301,16 +269,11 @@ class TestConsensusEngineHistoricalSentiment:
         """Проверка без результатов поиска."""
         from src.ml.consensus_engine import ConsensusEngine
 
-        self.mock_vector_db_manager.query_similar.return_value = {
-            'ids': [[]],
-            'distances': [[]]
-        }
+        self.mock_vector_db_manager.query_similar.return_value = {"ids": [[]], "distances": [[]]}
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
             engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=self.mock_vector_db_manager
+                config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=self.mock_vector_db_manager
             )
             engine.embedding_model = mock_embedding_model
             engine.sentiment_pipeline = MagicMock()
@@ -324,19 +287,17 @@ class TestConsensusEngineHistoricalSentiment:
         from src.ml.consensus_engine import ConsensusEngine
 
         self.mock_db_manager.get_articles_by_vector_ids.return_value = {
-            'doc1': "Positive market news",
-            'doc2': "Another positive article"
+            "doc1": "Positive market news",
+            "doc2": "Another positive article",
         }
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
             engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=self.mock_vector_db_manager
+                config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=self.mock_vector_db_manager
             )
             engine.embedding_model = mock_embedding_model
 
-            mock_result = [{'label': 'positive', 'score': 0.8}]
+            mock_result = [{"label": "positive", "score": 0.8}]
             engine.sentiment_pipeline = MagicMock(return_value=mock_result)
 
             result = engine.get_historical_context_sentiment("EURUSD", "trending")
@@ -356,28 +317,16 @@ class TestConsensusEngineMultifactorConsensus:
 
     def test_calculate_multifactor_consensus_ai_only(self):
         """Проверка консенсуса только с AI сигналом."""
+        from src.data_models import SignalType, TradeSignal
         from src.ml.consensus_engine import ConsensusEngine
-        from src.data_models import TradeSignal, SignalType
 
-        ai_signal = TradeSignal(
-            symbol="EURUSD",
-            type=SignalType.BUY,
-            confidence=0.8
-        )
+        ai_signal = TradeSignal(symbol="EURUSD", type=SignalType.BUY, confidence=0.8)
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
             signal_type, score = engine.calculate_multifactor_consensus(
-                ai_signal=ai_signal,
-                classic_signals=[],
-                kg_sentiment_score=0.0,
-                on_chain_score=0.0,
-                is_crypto=False
+                ai_signal=ai_signal, classic_signals=[], kg_sentiment_score=0.0, on_chain_score=0.0, is_crypto=False
             )
 
         # AI сигнал BUY с confidence 0.8 - результат зависит от порогов
@@ -386,28 +335,24 @@ class TestConsensusEngineMultifactorConsensus:
 
     def test_calculate_multifactor_consensus_classic_only(self):
         """Проверка консенсуса только с классическими сигналами."""
+        from src.data_models import SignalType, TradeSignal
         from src.ml.consensus_engine import ConsensusEngine
-        from src.data_models import TradeSignal, SignalType
 
         classic_signals = [
             TradeSignal(symbol="EURUSD", type=SignalType.BUY, confidence=0.7),
             TradeSignal(symbol="EURUSD", type=SignalType.BUY, confidence=0.8),
-            TradeSignal(symbol="EURUSD", type=SignalType.SELL, confidence=0.5)
+            TradeSignal(symbol="EURUSD", type=SignalType.SELL, confidence=0.5),
         ]
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
             signal_type, score = engine.calculate_multifactor_consensus(
                 ai_signal=TradeSignal(symbol="EURUSD", type=SignalType.HOLD, confidence=0.5),
                 classic_signals=classic_signals,
                 kg_sentiment_score=0.0,
                 on_chain_score=0.0,
-                is_crypto=False
+                is_crypto=False,
             )
 
             # 2 BUY vs 1 SELL = положительный скор
@@ -415,31 +360,23 @@ class TestConsensusEngineMultifactorConsensus:
 
     def test_calculate_multifactor_consensus_strong_kg_sentiment(self):
         """Проверка с сильным KG сентиментом."""
+        from src.data_models import SignalType, TradeSignal
         from src.ml.consensus_engine import ConsensusEngine
-        from src.data_models import TradeSignal, SignalType
 
         # Устанавливаем исторический PnL < 0
         self.mock_db_manager.get_historical_pnl_for_kg_sentiment.return_value = -50.0
 
-        ai_signal = TradeSignal(
-            symbol="EURUSD",
-            type=SignalType.BUY,
-            confidence=0.7
-        )
+        ai_signal = TradeSignal(symbol="EURUSD", type=SignalType.BUY, confidence=0.7)
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
             signal_type, score = engine.calculate_multifactor_consensus(
                 ai_signal=ai_signal,
                 classic_signals=[],
                 kg_sentiment_score=0.8,  # Сильный положительный сентимент
                 on_chain_score=0.0,
-                is_crypto=False
+                is_crypto=False,
             )
 
             # KG вес должен быть снижен из-за отрицательного исторического PnL
@@ -448,28 +385,20 @@ class TestConsensusEngineMultifactorConsensus:
 
     def test_calculate_multifactor_consensus_crypto_with_onchain(self):
         """Проверка крипто-консенсуса с On-Chain данными."""
+        from src.data_models import SignalType, TradeSignal
         from src.ml.consensus_engine import ConsensusEngine
-        from src.data_models import TradeSignal, SignalType
 
-        ai_signal = TradeSignal(
-            symbol="BTCUSD",
-            type=SignalType.BUY,
-            confidence=0.7
-        )
+        ai_signal = TradeSignal(symbol="BTCUSD", type=SignalType.BUY, confidence=0.7)
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
             signal_type, score = engine.calculate_multifactor_consensus(
                 ai_signal=ai_signal,
                 classic_signals=[],
                 kg_sentiment_score=0.0,
                 on_chain_score=0.5,  # Положительный On-Chain скор
-                is_crypto=True
+                is_crypto=True,
             )
 
             # On-Chain должен усилить сигнал - результат зависит от порогов
@@ -478,32 +407,20 @@ class TestConsensusEngineMultifactorConsensus:
 
     def test_calculate_multifactor_consensus_uncertainty_penalty(self):
         """Проверка uncertainty penalty."""
+        from src.data_models import SignalType, TradeSignal
         from src.ml.consensus_engine import ConsensusEngine
-        from src.data_models import TradeSignal, SignalType
 
-        ai_signal = TradeSignal(
-            symbol="EURUSD",
-            type=SignalType.BUY,
-            confidence=0.8
-        )
+        ai_signal = TradeSignal(symbol="EURUSD", type=SignalType.BUY, confidence=0.8)
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
             # Мокаем high uncertainty
             original_method = engine._get_uncertainty_score
             engine._get_uncertainty_score = lambda x: 0.8  # High uncertainty
 
             signal_type, score = engine.calculate_multifactor_consensus(
-                ai_signal=ai_signal,
-                classic_signals=[],
-                kg_sentiment_score=0.0,
-                on_chain_score=0.0,
-                is_crypto=False
+                ai_signal=ai_signal, classic_signals=[], kg_sentiment_score=0.0, on_chain_score=0.0, is_crypto=False
             )
 
             # Score должен быть снижен из-за uncertainty penalty
@@ -514,29 +431,17 @@ class TestConsensusEngineMultifactorConsensus:
 
     def test_calculate_multifactor_consensus_hold(self):
         """Проверка сигнала HOLD."""
+        from src.data_models import SignalType, TradeSignal
         from src.ml.consensus_engine import ConsensusEngine
-        from src.data_models import TradeSignal, SignalType
 
         # Слабые сигналы ниже порога
-        ai_signal = TradeSignal(
-            symbol="EURUSD",
-            type=SignalType.BUY,
-            confidence=0.3  # Ниже порога 0.6
-        )
+        ai_signal = TradeSignal(symbol="EURUSD", type=SignalType.BUY, confidence=0.3)  # Ниже порога 0.6
 
-        with patch.object(ConsensusEngine, 'load_models', return_value=None):
-            engine = ConsensusEngine(
-                config=self.mock_config,
-                db_manager=self.mock_db_manager,
-                vector_db_manager=None
-            )
+        with patch.object(ConsensusEngine, "load_models", return_value=None):
+            engine = ConsensusEngine(config=self.mock_config, db_manager=self.mock_db_manager, vector_db_manager=None)
 
             signal_type, score = engine.calculate_multifactor_consensus(
-                ai_signal=ai_signal,
-                classic_signals=[],
-                kg_sentiment_score=0.0,
-                on_chain_score=0.0,
-                is_crypto=False
+                ai_signal=ai_signal, classic_signals=[], kg_sentiment_score=0.0, on_chain_score=0.0, is_crypto=False
             )
 
             # Должен быть HOLD так как confidence ниже порога
@@ -549,9 +454,9 @@ class TestConsensusResult:
     def test_consensus_result_initialization(self):
         """Проверка инициализации ConsensusResult."""
         from src.ml.consensus_engine import ConsensusResult
-        
+
         result = ConsensusResult()
-        
+
         assert result.relations == []
         assert result.aggregated_sentiment == 0.0
         assert result.historical_context_sentiment is None

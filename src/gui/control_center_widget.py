@@ -1,11 +1,27 @@
 # src/gui/control_center_widget.py
 import logging
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QTableWidget, QTableWidgetItem, QTextEdit, QHeaderView,
-                               QTabWidget, QGroupBox, QGridLayout, QSlider, QDoubleSpinBox,
-                               QComboBox, QPushButton, QMessageBox, QRadioButton)
-from PySide6.QtCore import Qt, Slot, Signal
+
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QSlider,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +30,7 @@ class ControlCenterWidget(QWidget):
     """
     Объединенный виджет: Дашборд (Сканер + Логи) и Панель Управления (Риски).
     """
+
     settings_changed = Signal(object)
 
     def __init__(self, bridge, config=None, trading_system_adapter=None):
@@ -23,7 +40,7 @@ class ControlCenterWidget(QWidget):
         self.trading_system = trading_system_adapter
 
         # --- ИСПРАВЛЕНИЕ: Правильный доступ к стратегиям через core_system ---
-        if self.trading_system and hasattr(self.trading_system, 'core_system'):
+        if self.trading_system and hasattr(self.trading_system, "core_system"):
             self.strategies = self.trading_system.core_system.strategies
         else:
             self.strategies = {}
@@ -46,7 +63,7 @@ class ControlCenterWidget(QWidget):
             # Сканер рынка
             self.bridge.market_scan_updated.connect(self.update_market_table)
             # Торговые сигналы (если есть отдельный сигнал)
-            if hasattr(self.bridge, 'trading_signals_updated'):
+            if hasattr(self.bridge, "trading_signals_updated"):
                 self.bridge.trading_signals_updated.connect(self.update_trading_signals_table)
             logger.info("GUI: Сигналы успешно подключены.")
         else:
@@ -62,20 +79,22 @@ class ControlCenterWidget(QWidget):
             # Логирование первого элемента для отладки
             if len(processed_data) == 0:
                 logger.info(f"[PrepareData] Исходный элемент: {item}")
-            
+
             processed_item = {
-                'symbol': item.get('symbol', 'N/A'),
-                'price': item.get('price', item.get('last_close', 0)),
-                'change_24h': item.get('change_24h', item.get('normalized_atr_percent', 0)),
+                "symbol": item.get("symbol", "N/A"),
+                "price": item.get("price", item.get("last_close", 0)),
+                "change_24h": item.get("change_24h", item.get("normalized_atr_percent", 0)),
                 # RSI берём напрямую, без масштабирования
-                'rsi': item.get('rsi', item.get('trend_score', 50.0) * 50),
-                'volatility': item.get('volatility', item.get('volatility_score', 0)),
+                "rsi": item.get("rsi", item.get("trend_score", 50.0) * 50),
+                "volatility": item.get("volatility", item.get("volatility_score", 0)),
                 # Режим берём из правильного поля
-                'regime': item.get('regime', 'Unknown')
+                "regime": item.get("regime", "Unknown"),
             }
             processed_data.append(processed_item)
-        
-        logger.info(f"[PrepareData] Обработано {len(processed_data)} элементов, первый: {processed_data[0] if processed_data else 'N/A'}")
+
+        logger.info(
+            f"[PrepareData] Обработано {len(processed_data)} элементов, первый: {processed_data[0] if processed_data else 'N/A'}"
+        )
         return processed_data
 
     def on_display_mode_changed(self):
@@ -86,9 +105,9 @@ class ControlCenterWidget(QWidget):
         else:
             # Режим рыночных данных
             self.market_table.setHorizontalHeaderLabels(["Символ", "Цена", "Изм. %", "RSI", "Волатильность", "Режим"])
-        
+
         # Обновляем данные в таблице в соответствии с новым режимом
-        if hasattr(self, '_last_market_data') and self._last_market_data:
+        if hasattr(self, "_last_market_data") and self._last_market_data:
             if self.signals_radio.isChecked():
                 self.update_trading_signals_table(self._last_market_data)
             else:
@@ -129,10 +148,9 @@ class ControlCenterWidget(QWidget):
         self.market_table.setHorizontalHeaderLabels(["Символ", "Цена", "Изм. %", "RSI", "Волатильность", "Режим"])
         self.market_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.market_table.setAlternatingRowColors(True)
-        self.market_table.setStyleSheet(
-            "alternate-background-color: #44475a; background-color: #282a36; color: #f8f8f2;")
+        self.market_table.setStyleSheet("alternate-background-color: #44475a; background-color: #282a36; color: #f8f8f2;")
         layout.addWidget(self.market_table)
-        
+
         # Добавляем переключатель режимов
         signal_mode_layout = QHBoxLayout()
         self.market_radio = QRadioButton("Рыночные данные")
@@ -142,7 +160,7 @@ class ControlCenterWidget(QWidget):
         signal_mode_layout.addWidget(self.market_radio)
         signal_mode_layout.addWidget(self.signals_radio)
         layout.addLayout(signal_mode_layout)
-        
+
         # Подключаем переключение режимов
         self.market_radio.toggled.connect(self.on_display_mode_changed)
         self.signals_radio.toggled.connect(self.on_display_mode_changed)
@@ -226,7 +244,7 @@ class ControlCenterWidget(QWidget):
         self._last_market_data = data
 
         # Проверяем, в каком режиме мы находимся
-        if hasattr(self, 'signals_radio') and self.signals_radio.isChecked():
+        if hasattr(self, "signals_radio") and self.signals_radio.isChecked():
             # Если включён режим торговых сигналов, используем другой метод
             logger.info("[MarketTable] Режим торговых сигналов, вызываем update_trading_signals_table")
             self.update_trading_signals_table(data)
@@ -245,18 +263,18 @@ class ControlCenterWidget(QWidget):
 
         for row_idx, item in enumerate(processed_data):
             # 1. Подготовка данных
-            sym = str(item.get('symbol', 'N/A'))
+            sym = str(item.get("symbol", "N/A"))
 
             # Цена
             try:
-                price_val = float(item.get('price', 0))
+                price_val = float(item.get("price", 0))
                 price_str = f"{price_val:.5f}"
             except:
                 price_str = "0.00000"
 
             # Изменение % (для цвета)
             try:
-                chg_val = float(item.get('change_24h', 0))
+                chg_val = float(item.get("change_24h", 0))
                 change_str = f"{chg_val:.2f}%"
             except:
                 chg_val = 0.0
@@ -264,20 +282,20 @@ class ControlCenterWidget(QWidget):
 
             # RSI
             try:
-                rsi_val = float(item.get('rsi', 0))
+                rsi_val = float(item.get("rsi", 0))
                 rsi_str = f"{rsi_val:.1f}"
             except:
                 rsi_str = "0.0"
 
             # Волатильность
             try:
-                vola_val = float(item.get('volatility', 0))
+                vola_val = float(item.get("volatility", 0))
                 vola_str = f"{vola_val:.4f}"
             except:
                 vola_str = "0.0000"
 
             # Режим
-            regime = str(item.get('regime', 'N/A'))
+            regime = str(item.get("regime", "N/A"))
 
             # 2. Заполнение ячеек (ВСЕГО 6 КОЛОНОК)
 
@@ -311,30 +329,31 @@ class ControlCenterWidget(QWidget):
     @Slot(list)
     def update_trading_signals_table(self, data: list):
         """Обновляет таблицу торговых сигналов."""
-        if not data: return
-        
+        if not data:
+            return
+
         # Сохраняем последние данные для возможного переключения режимов
         self._last_market_data = data
-        
+
         # Проверяем, в каком режиме мы находимся
-        if hasattr(self, 'market_radio') and self.market_radio.isChecked():
+        if hasattr(self, "market_radio") and self.market_radio.isChecked():
             # Если включён режим рыночных данных, используем другой метод
             processed_data = self.prepare_control_center_data(data)
             self.update_market_table(processed_data)
             return
-        
+
         # Отключаем сортировку для производительности
         self.market_table.setSortingEnabled(False)
         self.market_table.setRowCount(len(data))
 
         for row_idx, item in enumerate(data):
             # 1. Подготовка данных для торговых сигналов
-            sym = str(item.get('symbol', 'N/A'))
-            signal_type = str(item.get('signal_type', 'N/A'))
-            strategy = str(item.get('strategy', 'N/A'))
-            timestamp = str(item.get('timestamp', 'N/A'))
-            entry_price = item.get('entry_price', 0)
-            timeframe = str(item.get('timeframe', 'N/A'))
+            sym = str(item.get("symbol", "N/A"))
+            signal_type = str(item.get("signal_type", "N/A"))
+            strategy = str(item.get("strategy", "N/A"))
+            timestamp = str(item.get("timestamp", "N/A"))
+            entry_price = item.get("entry_price", 0)
+            timeframe = str(item.get("timeframe", "N/A"))
 
             # Цена
             try:
@@ -345,7 +364,7 @@ class ControlCenterWidget(QWidget):
 
             # Изменение % - используем тип сигнала как индикатор
             change_str = signal_type
-            chg_val = 1.0 if signal_type == 'BUY' else (-1.0 if signal_type == 'SELL' else 0.0)
+            chg_val = 1.0 if signal_type == "BUY" else (-1.0 if signal_type == "SELL" else 0.0)
 
             # RSI - используем стратегию
             rsi_str = strategy[:10]  # обрезаем до 10 символов
@@ -399,7 +418,8 @@ class ControlCenterWidget(QWidget):
 
     # --- Методы Настроек ---
     def load_initial_settings(self):
-        if not self.config: return
+        if not self.config:
+            return
         max_pos = self.config.MAX_OPEN_POSITIONS
         agg_value = int(((max_pos - 1) / 17.0) * 100) if max_pos < 18 else 100
         self.aggressiveness_slider.setValue(agg_value)
@@ -410,10 +430,10 @@ class ControlCenterWidget(QWidget):
         available_strategies = ["AI_Model"]
 
         # --- ИСПРАВЛЕНИЕ: Безопасная загрузка стратегий ---
-        if self.trading_system and hasattr(self.trading_system, 'core_system'):
+        if self.trading_system and hasattr(self.trading_system, "core_system"):
             core = self.trading_system.core_system
             # Проверяем, что strategy_loader уже инициализирован
-            if hasattr(core, 'strategy_loader') and core.strategy_loader is not None:
+            if hasattr(core, "strategy_loader") and core.strategy_loader is not None:
                 try:
                     # Перезагружаем стратегии, чтобы получить актуальный список
                     strategies = core.strategy_loader.load_strategies()
@@ -440,9 +460,9 @@ class ControlCenterWidget(QWidget):
     def _save_and_apply_settings(self):
         new_settings = {}
         agg_value = self.aggressiveness_slider.value()
-        new_settings['RISK_PERCENTAGE'] = 0.5 + (agg_value / 100.0) * 4.5
-        new_settings['MAX_OPEN_POSITIONS'] = int(1 + (agg_value / 100.0) * 17)
-        new_settings['MAX_DAILY_DRAWDOWN_PERCENT'] = self.daily_drawdown_spinbox.value()
+        new_settings["RISK_PERCENTAGE"] = 0.5 + (agg_value / 100.0) * 4.5
+        new_settings["MAX_OPEN_POSITIONS"] = int(1 + (agg_value / 100.0) * 17)
+        new_settings["MAX_DAILY_DRAWDOWN_PERCENT"] = self.daily_drawdown_spinbox.value()
 
         new_regime_mapping = {}
         for i in range(self.regime_table.rowCount()):
@@ -450,7 +470,7 @@ class ControlCenterWidget(QWidget):
             combo = self.regime_table.cellWidget(i, 1)
             strategy = combo.currentText()
             new_regime_mapping[regime] = strategy
-        new_settings['STRATEGY_REGIME_MAPPING'] = new_regime_mapping
+        new_settings["STRATEGY_REGIME_MAPPING"] = new_regime_mapping
 
         self.settings_changed.emit(new_settings)
         QMessageBox.information(self, "Успех", "Настройки применены!")

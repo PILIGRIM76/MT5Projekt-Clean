@@ -1,15 +1,17 @@
 # src/data/knowledge_graph_querier.py
 
 import logging
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 from operator import or_
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import aliased
+
+from src.db.database_manager import DatabaseManager, Entity, Relation
 
 #  Импортируем модели и SQLAlchemy компоненты ---
 
-from sqlalchemy.orm import aliased
-from sqlalchemy import or_, and_
-from src.db.database_manager import DatabaseManager, Entity, Relation
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +25,9 @@ class KnowledgeGraphQuerier:
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
 
-    def find_events_affecting_entities(self, target_entities: List[str], source_types: List[str],
-                                       time_window: timedelta, source_entity_name=None) -> List[Dict]:
+    def find_events_affecting_entities(
+        self, target_entities: List[str], source_types: List[str], time_window: timedelta, source_entity_name=None
+    ) -> List[Dict]:
         """
         Находит все связи, исходящие от указанной сущности.
         Пример: что происходит, когда "ФРС" что-то делает?
@@ -48,7 +51,7 @@ class KnowledgeGraphQuerier:
                     target_entity.name.label("target_name"),
                     target_entity.entity_type.label("target_type"),
                     Relation.timestamp,
-                    Relation.context_json
+                    Relation.context_json,
                 )
                 .join(source_entity, Relation.source_id == source_entity.id)
                 .join(target_entity, Relation.target_id == target_entity.id)
@@ -83,7 +86,7 @@ class KnowledgeGraphQuerier:
                     source_entity.name.label("source_name"),
                     source_entity.entity_type.label("source_type"),
                     Relation.timestamp,
-                    Relation.context_json
+                    Relation.context_json,
                 )
                 .join(source_entity, Relation.source_id == source_entity.id)
                 .join(target_entity, Relation.target_id == target_entity.id)
@@ -99,8 +102,9 @@ class KnowledgeGraphQuerier:
         finally:
             session.close()
 
-    def find_events_affecting_entities(self, target_entities: List[str], source_types: List[str],
-                                       time_window: timedelta) -> List[Dict]:
+    def find_events_affecting_entities(
+        self, target_entities: List[str], source_types: List[str], time_window: timedelta
+    ) -> List[Dict]:
         """
         Находит недавние события от источников определенных типов, влияющие на целевые сущности.
 
@@ -124,14 +128,14 @@ class KnowledgeGraphQuerier:
                     source_entity.name.label("source_name"),
                     Relation.relation_type,
                     target_entity.name.label("target_name"),
-                    Relation.timestamp
+                    Relation.timestamp,
                 )
                 .join(source_entity, Relation.source_id == source_entity.id)
                 .join(target_entity, Relation.target_id == target_entity.id)
                 .filter(
                     Relation.timestamp >= time_threshold,
                     source_entity.entity_type.in_(source_types),
-                    target_entity.name.in_(target_entities)
+                    target_entity.name.in_(target_entities),
                 )
                 .order_by(Relation.timestamp.desc())
                 .all()
@@ -163,17 +167,14 @@ class KnowledgeGraphQuerier:
                     source_entity.name.label("source_name"),
                     source_entity.entity_type.label("source_type"),
                     target_entity.name.label("target_name"),
-                    Relation.context_json
+                    Relation.context_json,
                 )
                 .join(source_entity, Relation.source_id == source_entity.id)
                 .join(target_entity, Relation.target_id == target_entity.id)
                 .filter(
                     Relation.timestamp >= start_date,
                     Relation.timestamp <= end_date,
-                    or_(
-                        source_entity.name.in_(entities),
-                        target_entity.name.in_(entities)
-                    )
+                    or_(source_entity.name.in_(entities), target_entity.name.in_(entities)),
                 )
                 .order_by(Relation.timestamp.asc())
                 .all()

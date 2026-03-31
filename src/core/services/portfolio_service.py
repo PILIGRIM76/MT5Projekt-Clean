@@ -6,7 +6,7 @@ import os
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Tuple  # <--- ИСПРАВЛЕНИЕ: Добавлен импорт Tuple
+from typing import Any, Dict, List, Tuple  # <--- ИСПРАВЛЕНИЕ: Добавлен импорт Tuple
 
 import MetaTrader5 as mt5
 import numpy as np
@@ -25,8 +25,7 @@ class PortfolioService:
     данные о входах и применение RL-логики для управления сделками.
     """
 
-    def __init__(self, config: Settings, rl_manager: RLTradeManager, data_provider: DataProvider,
-                 mt5_lock: threading.Lock):
+    def __init__(self, config: Settings, rl_manager: RLTradeManager, data_provider: DataProvider, mt5_lock: threading.Lock):
         self.portfolio_service = None
         self.risk_engine = None
         self.config = config
@@ -52,7 +51,7 @@ class PortfolioService:
                         return float(obj)
                     if isinstance(obj, (np.ndarray)):
                         return [convert_to_serializable(x) for x in obj.tolist()]
-                    if isinstance(obj, (pd.Timestamp, datetime)): # <--- ДОБАВЛЕНО: pd.Timestamp и datetime
+                    if isinstance(obj, (pd.Timestamp, datetime)):  # <--- ДОБАВЛЕНО: pd.Timestamp и datetime
                         return obj.isoformat()
                     if isinstance(obj, list):
                         return [convert_to_serializable(x) for x in obj]
@@ -70,14 +69,14 @@ class PortfolioService:
                     # ------------------------------------------------------------------------------
 
                 # --- ИСПРАВЛЕНИЕ: Добавляем временный файл для атомарной записи ---
-                temp_file = self.entry_data_persistence_file.with_suffix('.tmp')
+                temp_file = self.entry_data_persistence_file.with_suffix(".tmp")
 
-                with open(temp_file, 'w') as f:
+                with open(temp_file, "w") as f:
                     json.dump(data_to_save, f, indent=4)
 
                     # Атомарная запись
-                temp_file = self.entry_data_persistence_file.with_suffix('.tmp')
-                with open(temp_file, 'w') as f:
+                temp_file = self.entry_data_persistence_file.with_suffix(".tmp")
+                with open(temp_file, "w") as f:
                     json.dump(data_to_save, f, indent=4)
                 os.replace(temp_file, self.entry_data_persistence_file)
 
@@ -89,14 +88,14 @@ class PortfolioService:
             if not self.entry_data_persistence_file.exists():
                 return
             try:
-                with open(self.entry_data_persistence_file, 'r') as f:
+                with open(self.entry_data_persistence_file, "r") as f:
                     loaded_data = json.load(f)
                     self.trade_entry_data = {int(k): v for k, v in loaded_data.items()}
 
                     # --- ИСПРАВЛЕНИЕ: Рекурсивное преобразование списков обратно в np.ndarray ---
                     for ticket, data in self.trade_entry_data.items():
-                        if 'entry_bar_time' in data and isinstance(data['entry_bar_time'], str):
-                            data['entry_bar_time'] = pd.to_datetime(data['entry_bar_time'])
+                        if "entry_bar_time" in data and isinstance(data["entry_bar_time"], str):
+                            data["entry_bar_time"] = pd.to_datetime(data["entry_bar_time"])
 
                         # Рекурсивная функция для преобразования списков в np.ndarray
                         def convert_to_numpy(obj):
@@ -111,14 +110,15 @@ class PortfolioService:
                             return obj
 
                         # Применяем преобразование к ключевым полям
-                        if 'prediction_input_sequence' in data and isinstance(data['prediction_input_sequence'], list):
-                            data['prediction_input_sequence'] = convert_to_numpy(data['prediction_input_sequence'])
+                        if "prediction_input_sequence" in data and isinstance(data["prediction_input_sequence"], list):
+                            data["prediction_input_sequence"] = convert_to_numpy(data["prediction_input_sequence"])
                     # ---------------------------------------------------------------------------------
 
                 logger.info(f"Данные о {len(self.trade_entry_data)} активных сделках успешно загружены.")
             except json.JSONDecodeError as e:
                 logger.error(
-                    f"Не удалось загрузить данные о входах в сделки: Файл поврежден (JSONDecodeError: {e}). Файл будет проигнорирован.")
+                    f"Не удалось загрузить данные о входах в сделки: Файл поврежден (JSONDecodeError: {e}). Файл будет проигнорирован."
+                )
                 # Если файл поврежден, мы его игнорируем, чтобы система могла запуститься
                 self.trade_entry_data = {}
             except Exception as e:
@@ -148,7 +148,7 @@ class PortfolioService:
         """
         with self.data_lock:
             if position_id in self.trade_entry_data:
-                self.trade_entry_data[position_id]['xai_data'] = xai_data
+                self.trade_entry_data[position_id]["xai_data"] = xai_data
                 logger.info(f"XAI-данные успешно добавлены в память для активной сделки #{position_id}.")
                 # Сразу сохраняем обновленные данные на диск
                 self._save_trade_entry_data()
@@ -173,9 +173,7 @@ class PortfolioService:
 
         # 1. Загрузка данных для RL-агента
         df_dict = await self.data_provider.get_all_symbols_data_async(
-            [position.symbol],
-            [entry_timeframe],
-            num_bars_override=self.config.INPUT_LAYER_SIZE + 5
+            [position.symbol], [entry_timeframe], num_bars_override=self.config.INPUT_LAYER_SIZE + 5
         )
         df = df_dict.get(f"{position.symbol}_{entry_timeframe}")
 
@@ -188,7 +186,7 @@ class PortfolioService:
         trailing_config = self.config.risk.trailing_profit
 
         if trailing_config.enabled:
-            current_price = df['close'].iloc[-1]
+            current_price = df["close"].iloc[-1]
             entry_price = position.price_open
 
             if position.type == mt5.ORDER_TYPE_BUY:
@@ -196,10 +194,10 @@ class PortfolioService:
             else:
                 current_profit_pct = (entry_price - current_price) / entry_price * 100
 
-            max_profit_pct = state_data.get('max_reached_profit_pct', 0.0)
+            max_profit_pct = state_data.get("max_reached_profit_pct", 0.0)
             if current_profit_pct > max_profit_pct:
                 max_profit_pct = current_profit_pct
-                state_data['max_reached_profit_pct'] = max_profit_pct
+                state_data["max_reached_profit_pct"] = max_profit_pct
                 self.add_trade_entry_data(position_id, state_data)
 
             if max_profit_pct >= trailing_config.activation_threshold_percent:
@@ -224,27 +222,29 @@ class PortfolioService:
                 action_map = {0: "HOLD", 1: "CLOSE_50%", 2: "MOVE_SL_TO_BE", 3: "CLOSE_100%"}
 
                 logger.info(
-                    f"[RL Manager] Позиция #{position_id} ({position.symbol}): Решение: {action_map.get(action, 'UNKNOWN')}")
+                    f"[RL Manager] Позиция #{position_id} ({position.symbol}): Решение: {action_map.get(action, 'UNKNOWN')}"
+                )
 
                 # 3.3. Исполняем действие
                 if action == 1:  # CLOSE_50%
                     await execution_service.close_position_partial(position)
                 elif action == 2:  # MOVE_SL_TO_BE
                     # --- НОВАЯ ПРОВЕРКА: Должна быть прибыль > 1 ATR ---
-                    if 'ATR_14' in df.columns:
-                        current_atr = df['ATR_14'].iloc[-1]
+                    if "ATR_14" in df.columns:
+                        current_atr = df["ATR_14"].iloc[-1]
                         min_profit_for_be = current_atr * 0.5  # Минимальная прибыль в 0.5 ATR
 
                         current_profit_in_price = position.profit / position.volume / 100000  # Прибыль в цене
 
-                        if current_profit_in_price >= min_profit_for_be and not state_data.get('sl_moved_to_be', False):
+                        if current_profit_in_price >= min_profit_for_be and not state_data.get("sl_moved_to_be", False):
                             # Вызываем модификацию с ценой открытия
                             await execution_service.modify_position_sltp_to_be(position.ticket, position.price_open)
-                            state_data['sl_moved_to_be'] = True
+                            state_data["sl_moved_to_be"] = True
                             self.add_trade_entry_data(position_id, state_data)
                         elif current_profit_in_price < min_profit_for_be:
                             logger.info(
-                                f"[{position.symbol}] SL to BE отклонен: прибыль ({current_profit_in_price:.5f}) < 0.5 ATR ({min_profit_for_be:.5f}).")
+                                f"[{position.symbol}] SL to BE отклонен: прибыль ({current_profit_in_price:.5f}) < 0.5 ATR ({min_profit_for_be:.5f})."
+                            )
 
                 elif action == 3:  # CLOSE_100%
                     await execution_service.emergency_close_position(position.ticket)
@@ -252,8 +252,7 @@ class PortfolioService:
             except Exception as e:
                 logger.error(f"Ошибка в RL-управлении позицией #{position_id}: {e}", exc_info=True)
 
-    def _calculate_state_vector(self, position: Any, df: pd.DataFrame, state_data: dict) -> Tuple[
-        np.ndarray, np.ndarray]:
+    def _calculate_state_vector(self, position: Any, df: pd.DataFrame, state_data: dict) -> Tuple[np.ndarray, np.ndarray]:
         """
         Формирует полный вектор состояния для RLTradeManager.
 
@@ -276,7 +275,7 @@ class PortfolioService:
 
         # --- 2. Вектор состояния позиции (Portfolio State Vector) ---
 
-        current_price = df['close'].iloc[-1]
+        current_price = df["close"].iloc[-1]
         trade_type_multiplier = 1 if position.type == mt5.ORDER_TYPE_BUY else -1
 
         # Нормализованная прибыль (PnL / Initial Risk)
@@ -290,30 +289,41 @@ class PortfolioService:
         norm_bars_in_trade = bars_in_trade / 100.0  # Нормализация по 100 часам
 
         # Вектор для RLTradeManager (3 элемента)
-        portfolio_state_vector = np.array([
-            trade_type_multiplier,  # 1 или -1
-            np.clip(norm_profit * 100, -5, 5),  # Нормализованный PnL (в % от риска, клиппинг)
-            np.clip(norm_bars_in_trade, 0, 5)  # Нормализованное время в сделке
-        ], dtype=np.float32)
+        portfolio_state_vector = np.array(
+            [
+                trade_type_multiplier,  # 1 или -1
+                np.clip(norm_profit * 100, -5, 5),  # Нормализованный PnL (в % от риска, клиппинг)
+                np.clip(norm_bars_in_trade, 0, 5),  # Нормализованное время в сделке
+            ],
+            dtype=np.float32,
+        )
 
         return market_state_vector, portfolio_state_vector
 
-    def _persist_entry_data(self, pos_id, symbol, strategy, sl, xai, pred_in, entry_price, entry_time, timeframe, df,
-                            predicted_price=None):
+    def _persist_entry_data(
+        self, pos_id, symbol, strategy, sl, xai, pred_in, entry_price, entry_time, timeframe, df, predicted_price=None
+    ):
         market_context = {
-            'market_regime': self.risk_engine.trading_system.market_regime_manager.get_regime(df),
-            'news_sentiment': self.risk_engine.trading_system.news_cache.aggregated_sentiment if self.risk_engine.trading_system.news_cache else None,
+            "market_regime": self.risk_engine.trading_system.market_regime_manager.get_regime(df),
+            "news_sentiment": (
+                self.risk_engine.trading_system.news_cache.aggregated_sentiment
+                if self.risk_engine.trading_system.news_cache
+                else None
+            ),
             # --- ДОБАВЛЕНО: Сохраняем текущие KG-признаки ---
-            'kg_cb_sentiment': df['KG_CB_SENTIMENT'].iloc[-1] if 'KG_CB_SENTIMENT' in df.columns else 0.0,
-            'kg_inflation_surprise': df['KG_INFLATION_SURPRISE'].iloc[
-                -1] if 'KG_INFLATION_SURPRISE' in df.columns else 0.0,
+            "kg_cb_sentiment": df["KG_CB_SENTIMENT"].iloc[-1] if "KG_CB_SENTIMENT" in df.columns else 0.0,
+            "kg_inflation_surprise": df["KG_INFLATION_SURPRISE"].iloc[-1] if "KG_INFLATION_SURPRISE" in df.columns else 0.0,
             # -------------------------------------------------
         }
         entry_data = {
-            "symbol": symbol, "strategy": strategy, "stop_loss_price": sl,
+            "symbol": symbol,
+            "strategy": strategy,
+            "stop_loss_price": sl,
             "prediction_input_sequence": pred_in.tolist() if isinstance(pred_in, np.ndarray) else pred_in,
             "entry_price_for_learning": entry_price,
             "predicted_price_at_entry": predicted_price,
-            "entry_bar_time": entry_time, "entry_timeframe": timeframe, "market_context": market_context
+            "entry_bar_time": entry_time,
+            "entry_timeframe": timeframe,
+            "market_context": market_context,
         }
         self.portfolio_service.add_trade_entry_data(pos_id, entry_data)

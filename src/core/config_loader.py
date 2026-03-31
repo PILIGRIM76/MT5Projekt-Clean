@@ -8,11 +8,12 @@
 3. Значения по умолчанию
 """
 
-import os
 import json
 import logging
-from dotenv import load_dotenv
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from src.core.config_models import Settings
@@ -24,9 +25,51 @@ logger = logging.getLogger(__name__)
 def _get_default_settings_dict() -> dict:
     """Возвращает словарь с настройками по умолчанию."""
     return {
-        "SYMBOLS_WHITELIST": ["EURUSD", "GBPUSD", "USDJPY", "USDCAD", "AUDUSD", "USDCHF", "NZDUSD", "EURJPY", "GBPJPY", "EURGBP", "AUDJPY", "XAUUSD", "XAGUSD", "EURCHF", "CADJPY", "AUDNZD", "GBPAUD", "BITCOIN"],
+        "SYMBOLS_WHITELIST": [
+            "EURUSD",
+            "GBPUSD",
+            "USDJPY",
+            "USDCAD",
+            "AUDUSD",
+            "USDCHF",
+            "NZDUSD",
+            "EURJPY",
+            "GBPJPY",
+            "EURGBP",
+            "AUDJPY",
+            "XAUUSD",
+            "XAGUSD",
+            "EURCHF",
+            "CADJPY",
+            "AUDNZD",
+            "GBPAUD",
+            "BITCOIN",
+        ],
         "web_dashboard": {"enabled": True, "host": "0.0.0.0", "port": 8000},
-        "FEATURES_TO_USE": ["close", "tick_volume", "ATR_14", "RSI_14", "BB_WIDTH", "STOCHk_14_3_3", "MACD_12_26_9", "EMA_50", "EMA_200", "ADX_14", "ATR_NORM", "DIST_EMA_50", "DIST_EMA_200", "SKEW_60", "KURT_60", "VOLA_60", "hour_sin", "hour_cos", "day_of_week_sin", "day_of_week_cos", "KG_CB_SENTIMENT", "KG_INFLATION_SURPRISE"],
+        "FEATURES_TO_USE": [
+            "close",
+            "tick_volume",
+            "ATR_14",
+            "RSI_14",
+            "BB_WIDTH",
+            "STOCHk_14_3_3",
+            "MACD_12_26_9",
+            "EMA_50",
+            "EMA_200",
+            "ADX_14",
+            "ATR_NORM",
+            "DIST_EMA_50",
+            "DIST_EMA_200",
+            "SKEW_60",
+            "KURT_60",
+            "VOLA_60",
+            "hour_sin",
+            "hour_cos",
+            "day_of_week_sin",
+            "day_of_week_cos",
+            "KG_CB_SENTIMENT",
+            "KG_INFLATION_SURPRISE",
+        ],
         "TRADE_INTERVAL_SECONDS": 60,
         "MAX_OPEN_POSITIONS": 5,
         "RISK_PER_TRADE": 1.0,
@@ -39,22 +82,16 @@ def _get_default_settings_dict() -> dict:
         "vector_db": {"enabled": True, "path": "database/vector_db", "embedding_model": "all-MiniLM-L6-v2"},
         "CONSENSUS_WEIGHTS": {"ai_forecast": 0.5, "classic_strategies": 0.3, "sentiment_kg": 0.1, "on_chain_data": 0.1},
         "strategies": {
-            "breakout": {
-                "window": 15
-            },
-            "mean_reversion": {
-                "window": 50,
-                "std_dev_multiplier": 1.9,
-                "confirmation_buffer_std_dev_fraction": 0.05
-            },
+            "breakout": {"window": 15},
+            "mean_reversion": {"window": 50, "std_dev_multiplier": 1.9, "confirmation_buffer_std_dev_fraction": 0.05},
             "ma_crossover": {
                 "timeframe_params": {
                     "default": {"short_window": 15, "long_window": 35},
                     "low": {"short_window": 10, "long_window": 25},
-                    "high": {"short_window": 50, "long_window": 200}
+                    "high": {"short_window": 50, "long_window": 200},
                 }
-            }
-        }
+            },
+        },
     }
 
 
@@ -63,10 +100,10 @@ def load_config() -> Settings:
     Загружает конфигурацию из .env и settings.json,
     валидирует и возвращает строго типизированный объект Settings.
     При первом запуске создает settings.json с настройками по умолчанию.
-    
+
     Returns:
         Settings: Валидированная конфигурация
-        
+
     Raises:
         ValueError: Если отсутствуют обязательные переменные окружения
         ValidationError: Если конфигурация не прошла валидацию Pydantic
@@ -75,10 +112,10 @@ def load_config() -> Settings:
     project_root = Path(__file__).parent.parent.parent
 
     # 1. Загрузка из settings.json (только нечувствительные данные)
-    settings_path = project_root / 'configs' / 'settings.json'
+    settings_path = project_root / "configs" / "settings.json"
     if settings_path.exists():
         try:
-            with open(settings_path, 'r', encoding='utf-8') as f:
+            with open(settings_path, "r", encoding="utf-8") as f:
                 # Удаляем комментарии перед парсингом
                 content = "".join(line for line in f if not line.strip().startswith("//"))
                 config_dict.update(json.loads(content))
@@ -93,7 +130,7 @@ def load_config() -> Settings:
             default_settings = _get_default_settings_dict()
             # Создаем директорию если не существует
             settings_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(settings_path, 'w', encoding='utf-8') as f:
+            with open(settings_path, "w", encoding="utf-8") as f:
                 json.dump(default_settings, f, indent=4, ensure_ascii=False)
             logger.info(f"Создан файл настроек: {settings_path}")
             logger.warning("ВНИМАНИЕ: Отредактируйте settings.json и укажите ваш MT5 путь, логин и пароль!")
@@ -103,7 +140,7 @@ def load_config() -> Settings:
             raise
 
     # 2. Загрузка и переопределение из .env
-    env_path = project_root / 'configs' / '.env'
+    env_path = project_root / "configs" / ".env"
     if env_path.exists():
         load_dotenv(dotenv_path=env_path, override=True)
         logger.info(f"Переменные окружения загружены из {env_path}")
@@ -116,18 +153,18 @@ def load_config() -> Settings:
 
     # 3. Инициализация безопасного загрузчика
     secure_loader = SecureConfigLoader()
-    
+
     # 4. Проверка наличия обязательных учётных данных MT5
     try:
         mt5_creds = secure_loader.load_mt5_credentials()
         logger.info("Учётные данные MT5 загружены и расшифрованы")
-        
+
         # Обновляем конфигурацию расшифрованными данными
-        config_dict['MT5_LOGIN'] = str(mt5_creds['login'])
-        config_dict['MT5_PASSWORD'] = mt5_creds['password']
-        config_dict['MT5_SERVER'] = mt5_creds['server']
-        config_dict['MT5_PATH'] = mt5_creds['path']
-        
+        config_dict["MT5_LOGIN"] = str(mt5_creds["login"])
+        config_dict["MT5_PASSWORD"] = mt5_creds["password"]
+        config_dict["MT5_SERVER"] = mt5_creds["server"]
+        config_dict["MT5_PATH"] = mt5_creds["path"]
+
     except ValueError as e:
         logger.warning(f"Учётные данные MT5 не загружены: {e}")
         # Не прерываем выполнение, позволяя системе работать в режиме без MT5

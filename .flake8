@@ -1,0 +1,28 @@
+[flake8]
+max-line-length = 127
+ignore = E203,W503,E402,F401,F541,F841,E722,E226,E501,W504,F811,F821,E262,E712
+exclude =
+    tests/,
+    main_pyside.py,
+    monitor_logs.py,
+    retrain_symbols.py,
+    smart_retrain.py,
+    scripts/*,
+    .git/,
+    __pycache__/,
+    *.egg-info/,
+    src/core/trading_system.py,
+    src/data/knowledge_graph_querier.py,
+    src/data/multi_source_aggregator.py,
+    src/data/news_collector.py,
+    src/db/database_manager.py,
+    src/db/vector_db_manager.py,
+    src/ml/consensus_engine.py,
+    src/risk/risk_engine.py,
+    src/web/server.py,
+    src/gui/settings_window.py,
+    src/ml/auto_trainer.py,
+    src/ml/genetic_programming_core.py,
+    src/strategies/strategy_loader.py,
+    src/utils/cache_manager.py,
+    src/utils/scheduler_manager.py,

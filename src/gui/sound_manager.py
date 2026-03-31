@@ -1,9 +1,10 @@
 # src/gui/sound_manager.py
+import logging
 import os
+from typing import Dict
+
 from PySide6.QtCore import QUrl
 from PySide6.QtMultimedia import QSoundEffect
-from typing import Dict
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ class SoundManager:
             "error": "error.mp3",
             "system_start": "system_start.mp3",
             "system_stop": "system_stop.mp3",
-            "alert": "alert.mp3"
+            "alert": "alert.mp3",
         }
         self._load_sounds()
 
@@ -25,7 +26,7 @@ class SoundManager:
         """Загружает все звуковые файлы в память."""
         # --- ИЗМЕНЕНИЕ: Используем переданный project_root для построения пути ---
         # Это делает путь абсолютно надежным, независимо от того, откуда запускается скрипт.
-        sounds_dir = os.path.join(self.project_root, 'assets', 'sounds')
+        sounds_dir = os.path.join(self.project_root, "assets", "sounds")
 
         if not os.path.isdir(sounds_dir):
             logger.warning(f"Папка со звуками не найдена по пути: {sounds_dir}. Звуковые эффекты будут отключены.")

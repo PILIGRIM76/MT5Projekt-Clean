@@ -1,0 +1,74 @@
+# Pre-commit hooks для Genesis Trading System
+# Установка: pip install pre-commit && pre-commit install
+# Запуск: pre-commit run --all-files
+
+repos:
+  # Python code formatting
+  - repo: https://github.com/psf/black
+    rev: 26.3.1
+    hooks:
+      - id: black
+        language_version: python3.10
+        args: [--line-length=127]
+
+  # Import sorting
+  - repo: https://github.com/pycqa/isort
+    rev: 8.0.1
+    hooks:
+      - id: isort
+        args: ["--profile", "black", "--line-length=127"]
+
+  # Linting
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.3.0
+    hooks:
+      - id: flake8
+
+  # Type checking (only in CI)
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.1
+    hooks:
+      - id: mypy
+        args: [--ignore-missing-imports, --strict]
+        exclude: ^tests/
+        stages: [manual]
+
+  # Security checks (only in CI)
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: [-r, src/]
+        exclude: tests/
+        stages: [manual]
+
+  # YAML validation
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: [-d, relaxed]
+
+  # Check for merge conflicts
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: detect-private-key
+      - id: check-json
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  # pytest tests
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest tests/unit/ -v --no-cov
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]

@@ -1,7 +1,8 @@
 # src/risk/volatility_forecaster.py
 import logging
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from arch import arch_model
 
 logger = logging.getLogger(__name__)
@@ -37,11 +38,11 @@ class VolatilityForecaster:
 
             # Создаем и обучаем модель GARCH(1,1)
             # mean='Zero' для финансовых рядов, vol='Garch'
-            model = arch_model(returns, mean='Zero', vol='Garch', p=1, q=1, rescale=False)
+            model = arch_model(returns, mean="Zero", vol="Garch", p=1, q=1, rescale=False)
 
             # Используем try/except для fit, так как GARCH может не сойтись
             try:
-                res = model.fit(disp='off', show_warning=False)
+                res = model.fit(disp="off", show_warning=False)
             except Exception as e:
                 logger.warning(f"GARCH(1,1) не сошелся: {e}. Возврат 0.0.")
                 return 0.0
@@ -59,4 +60,3 @@ class VolatilityForecaster:
         except Exception as e:
             logger.error(f"Критическая ошибка при прогнозировании волатильности GARCH: {e}", exc_info=True)
             return 0.0
-

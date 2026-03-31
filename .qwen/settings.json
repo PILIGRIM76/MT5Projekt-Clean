@@ -35,7 +35,8 @@
       "Bash(start *)",
       "Bash(chcp *)",
       "Bash(netstat *)",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(pre-commit *)"
     ]
   },
   "$version": 3

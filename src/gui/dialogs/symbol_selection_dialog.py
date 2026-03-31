@@ -1,8 +1,9 @@
 # src/gui/dialogs/symbol_selection_dialog.py
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QListWidget, QPushButton, QLabel, QHBoxLayout, QCheckBox, \
-    QListWidgetItem
-from PySide6.QtCore import Qt
 from typing import List
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout
+
 
 class SymbolSelectionDialog(QDialog):
     def __init__(self, symbols: list, parent=None):

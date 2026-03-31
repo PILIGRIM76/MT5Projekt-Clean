@@ -9,42 +9,23 @@ GUI компоненты для Genesis Trading System.
 - charts: Графические компоненты (CustomCandlestickItem, GraphBackend)
 """
 
-from .models import (
-    DictTableModel,
-    GenericTableModel,
-    RDTableModel
-)
-
-from .bridges import (
-    Bridge,
-    GUIBridge
-)
-
-from .backtest import (
-    run_backtest_process,
-    DirectiveDialog
-)
-
-from .charts import (
-    CustomCandlestickItem,
-    GraphBackend
-)
+from .backtest import DirectiveDialog, run_backtest_process
+from .bridges import Bridge, GUIBridge
+from .charts import CustomCandlestickItem, GraphBackend
+from .models import DictTableModel, GenericTableModel, RDTableModel
 
 __all__ = [
     # Models
-    'DictTableModel',
-    'GenericTableModel',
-    'RDTableModel',
-    
+    "DictTableModel",
+    "GenericTableModel",
+    "RDTableModel",
     # Bridges
-    'Bridge',
-    'GUIBridge',
-    
+    "Bridge",
+    "GUIBridge",
     # Backtest
-    'run_backtest_process',
-    'DirectiveDialog',
-    
+    "run_backtest_process",
+    "DirectiveDialog",
     # Charts
-    'CustomCandlestickItem',
-    'GraphBackend',
+    "CustomCandlestickItem",
+    "GraphBackend",
 ]

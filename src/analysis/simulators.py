@@ -1,12 +1,13 @@
 import logging
 import random
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional
-from dataclasses import dataclass
+
+import MetaTrader5 as mt5  # Нужен для кодов возврата
 
 # Импортируем интерфейс, чтобы наследовать его
 from src.core.interfaces import ITerminalConnector
-import MetaTrader5 as mt5  # Нужен для кодов возврата
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,8 @@ class SimPosition:
     profit: float = 0.0
 
     @property
-    def price_current(self): return 0.0
+    def price_current(self):
+        return 0.0
 
 
 class SimulatedBroker(ITerminalConnector):
@@ -55,9 +57,9 @@ class SimulatedBroker(ITerminalConnector):
         spread_val = self.spread_pips * self.point
 
         self.current_prices[symbol] = {
-            'bid': close_price - (spread_val / 2),
-            'ask': close_price + (spread_val / 2),
-            'time': time
+            "bid": close_price - (spread_val / 2),
+            "ask": close_price + (spread_val / 2),
+            "time": time,
         }
         self._check_stops(symbol)
         self._update_equity()
@@ -72,28 +74,30 @@ class SimulatedBroker(ITerminalConnector):
 
     def _check_stops(self, symbol: str):
         prices = self.current_prices.get(symbol)
-        if not prices: return
+        if not prices:
+            return
 
         for ticket in list(self.positions.keys()):
             pos = self.positions[ticket]
-            if pos.symbol != symbol: continue
+            if pos.symbol != symbol:
+                continue
 
             close_price = None
             comment = ""
             slippage = self._calculate_slippage()
 
             if pos.type == 0:  # BUY
-                if prices['bid'] <= pos.sl and pos.sl > 0:
+                if prices["bid"] <= pos.sl and pos.sl > 0:
                     close_price = pos.sl - abs(slippage)
                     comment = "sl"
-                elif prices['bid'] >= pos.tp and pos.tp > 0:
+                elif prices["bid"] >= pos.tp and pos.tp > 0:
                     close_price = pos.tp + slippage
                     comment = "tp"
             else:  # SELL
-                if prices['ask'] >= pos.sl and pos.sl > 0:
+                if prices["ask"] >= pos.sl and pos.sl > 0:
                     close_price = pos.sl + abs(slippage)
                     comment = "sl"
-                elif prices['ask'] <= pos.tp and pos.tp > 0:
+                elif prices["ask"] <= pos.tp and pos.tp > 0:
                     close_price = pos.tp - slippage
                     comment = "tp"
 
@@ -101,7 +105,8 @@ class SimulatedBroker(ITerminalConnector):
                 self._close_position(ticket, close_price, comment)
 
     def _close_position(self, ticket: int, price: float, comment: str):
-        if ticket not in self.positions: return
+        if ticket not in self.positions:
+            return
         pos = self.positions.pop(ticket)
 
         if pos.type == 0:  # BUY
@@ -115,18 +120,18 @@ class SimulatedBroker(ITerminalConnector):
         self.equity = self.balance
 
         deal = {
-            'ticket': ticket,
-            'position_id': ticket,
-            'symbol': pos.symbol,
-            'type': pos.type,
-            'volume': pos.volume,
-            'price': price,
-            'profit': net_profit,
-            'commission': pos.commission,
-            'swap': pos.swap,
-            'time': self.current_time.timestamp(),
-            'comment': comment,
-            'entry': 1
+            "ticket": ticket,
+            "position_id": ticket,
+            "symbol": pos.symbol,
+            "type": pos.type,
+            "volume": pos.volume,
+            "price": price,
+            "profit": net_profit,
+            "commission": pos.commission,
+            "swap": pos.swap,
+            "time": self.current_time.timestamp(),
+            "comment": comment,
+            "entry": 1,
         }
         self.history_deals.append(deal)
 
@@ -134,8 +139,9 @@ class SimulatedBroker(ITerminalConnector):
         floating_pl = 0.0
         for pos in self.positions.values():
             prices = self.current_prices.get(pos.symbol)
-            if not prices: continue
-            current_price = prices['bid'] if pos.type == 0 else prices['ask']
+            if not prices:
+                continue
+            current_price = prices["bid"] if pos.type == 0 else prices["ask"]
             if pos.type == 0:
                 gross = (current_price - pos.price_open) * pos.volume * 100000
             else:
@@ -162,21 +168,24 @@ class SimulatedBroker(ITerminalConnector):
         return AccountInfoStub(self.balance, self.equity)
 
     def get_positions(self, symbol: str = None, ticket: int = None):
-        if ticket: return [self.positions[ticket]] if ticket in self.positions else []
-        if symbol: return [p for p in self.positions.values() if p.symbol == symbol]
+        if ticket:
+            return [self.positions[ticket]] if ticket in self.positions else []
+        if symbol:
+            return [p for p in self.positions.values() if p.symbol == symbol]
         return list(self.positions.values())
 
     def get_history_deals(self, date_from: datetime = None, date_to: datetime = None, ticket: int = None):
         class DealStub:
             def __init__(self, data):
-                for k, v in data.items(): setattr(self, k, v)
+                for k, v in data.items():
+                    setattr(self, k, v)
 
         if ticket:
-            return [DealStub(d) for d in self.history_deals if d['ticket'] == ticket]
+            return [DealStub(d) for d in self.history_deals if d["ticket"] == ticket]
 
         ts_from = date_from.timestamp() if date_from else 0
         ts_to = date_to.timestamp() if date_to else 9999999999
-        return [DealStub(d) for d in self.history_deals if ts_from <= d['time'] <= ts_to]
+        return [DealStub(d) for d in self.history_deals if ts_from <= d["time"] <= ts_to]
 
     # --- НОВЫЕ МЕТОДЫ (Исправление ошибки Abstract Class) ---
     def get_orders(self, ticket: int = None, symbol: str = None):
@@ -206,7 +215,8 @@ class SimulatedBroker(ITerminalConnector):
 
     def symbol_info_tick(self, symbol: str):
         prices = self.current_prices.get(symbol)
-        if not prices: return None
+        if not prices:
+            return None
 
         class TickStub:
             def __init__(self, bid, ask, time):
@@ -214,54 +224,54 @@ class SimulatedBroker(ITerminalConnector):
                 self.ask = ask
                 self.time = int(time.timestamp())
 
-        return TickStub(prices['bid'], prices['ask'], prices['time'])
+        return TickStub(prices["bid"], prices["ask"], prices["time"])
 
     def order_check(self, request: dict):
-        return type('Res', (), {'retcode': 0, 'comment': 'Done'})()
+        return type("Res", (), {"retcode": 0, "comment": "Done"})()
 
     def order_send(self, request: dict):
         self.ticket_counter += 1
 
         # Если это отложенный ордер (Limit), мы его отклоняем в симуляторе,
         # чтобы TradeExecutor сразу перешел к рыночному исполнению.
-        if request['action'] == mt5.TRADE_ACTION_PENDING:
-            return type('Res', (), {'retcode': 10013, 'comment': 'Simulator: Pending orders not supported'})()
+        if request["action"] == mt5.TRADE_ACTION_PENDING:
+            return type("Res", (), {"retcode": 10013, "comment": "Simulator: Pending orders not supported"})()
 
-        if request['action'] == mt5.TRADE_ACTION_DEAL:
-            symbol = request['symbol']
+        if request["action"] == mt5.TRADE_ACTION_DEAL:
+            symbol = request["symbol"]
             prices = self.current_prices.get(symbol)
             if not prices:
-                return type('Res', (), {'retcode': 10004, 'comment': 'No price'})()
+                return type("Res", (), {"retcode": 10004, "comment": "No price"})()
 
             slippage = self._calculate_slippage()
-            base_price = prices['ask'] if request['type'] == 0 else prices['bid']
+            base_price = prices["ask"] if request["type"] == 0 else prices["bid"]
             exec_price = base_price + slippage
-            commission = self.commission_per_lot * request['volume']
+            commission = self.commission_per_lot * request["volume"]
 
             new_pos = SimPosition(
                 ticket=self.ticket_counter,
                 symbol=symbol,
-                type=request['type'],
-                volume=request['volume'],
+                type=request["type"],
+                volume=request["volume"],
                 price_open=exec_price,
-                sl=request['sl'],
-                tp=request['tp'],
+                sl=request["sl"],
+                tp=request["tp"],
                 time_open=self.current_time,
-                commission=commission
+                commission=commission,
             )
             self.positions[self.ticket_counter] = new_pos
 
             deal_in = {
-                'ticket': self.ticket_counter,
-                'position_id': self.ticket_counter,
-                'symbol': symbol,
-                'type': request['type'],
-                'volume': request['volume'],
-                'price': exec_price,
-                'profit': 0.0,
-                'time': self.current_time.timestamp(),
-                'comment': request.get('comment', ''),
-                'entry': 0
+                "ticket": self.ticket_counter,
+                "position_id": self.ticket_counter,
+                "symbol": symbol,
+                "type": request["type"],
+                "volume": request["volume"],
+                "price": exec_price,
+                "profit": 0.0,
+                "time": self.current_time.timestamp(),
+                "comment": request.get("comment", ""),
+                "entry": 0,
             }
             self.history_deals.append(deal_in)
 
@@ -273,13 +283,13 @@ class SimulatedBroker(ITerminalConnector):
 
             return OrderResult()
 
-        elif request['action'] == mt5.TRADE_ACTION_DEAL and 'position' in request:
+        elif request["action"] == mt5.TRADE_ACTION_DEAL and "position" in request:
             # Закрытие позиции
-            pos_ticket = request['position']
+            pos_ticket = request["position"]
             if pos_ticket in self.positions:
-                prices = self.current_prices.get(request['symbol'])
+                prices = self.current_prices.get(request["symbol"])
                 slippage = self._calculate_slippage()
-                base_price = prices['bid'] if self.positions[pos_ticket].type == 0 else prices['ask']
+                base_price = prices["bid"] if self.positions[pos_ticket].type == 0 else prices["ask"]
                 close_price = base_price + slippage
 
                 self._close_position(pos_ticket, close_price, "closed by script")
@@ -291,4 +301,4 @@ class SimulatedBroker(ITerminalConnector):
 
                 return OrderResult()
 
-        return type('Res', (), {'retcode': 10013, 'comment': 'Invalid request'})()
+        return type("Res", (), {"retcode": 10013, "comment": "Invalid request"})()
