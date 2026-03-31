@@ -360,15 +360,16 @@ class TestDatabaseManagerAuditLog:
 
     def test_create_trade_audit_success(self, mock_session):
         """Тест успешного создания аудита торговли"""
-        from src.db.database_manager import DatabaseManager, TradeAudit
+        from src.db.database_manager import DatabaseManager
 
         dm = Mock()
         dm.Session = Mock(return_value=mock_session)
 
+        # Полностью мокаем TradeAudit чтобы избежать проблем с SQLAlchemy mapper
         mock_audit = Mock()
         mock_audit.id = 1
 
-        with patch.object(TradeAudit, "__init__", return_value=None):
+        with patch("src.db.database_manager.TradeAudit", return_value=mock_audit):
             audit_id = DatabaseManager.create_trade_audit(
                 dm,
                 trade_ticket=12345,
@@ -379,7 +380,7 @@ class TestDatabaseManagerAuditLog:
             )
 
             assert audit_id == 1
-            mock_session.add.assert_called()
+            mock_session.add.assert_called_once_with(mock_audit)
             mock_session.commit.assert_called()
 
     def test_create_trade_audit_error_handling(self, mock_session):
@@ -414,9 +415,8 @@ class TestDatabaseManagerAuditLog:
         mock_log.execution_status = "EXECUTED"
 
         # get_audit_logs возвращает список объектов TradeAudit
-        mock_session.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [
-            mock_log
-        ]
+        mock_query = mock_session.query.return_value
+        mock_query.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [mock_log]
 
         logs = DatabaseManager.get_audit_logs(dm, limit=5)
 
