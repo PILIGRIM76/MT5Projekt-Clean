@@ -219,13 +219,14 @@ class LRUCache:
     def stats(self) -> Dict[str, Any]:
         """
         Получение статистики кэша.
-        
+
         Returns:
             Словарь со статистикой
         """
         total = self.hits + self.misses
         hit_rate = (self.hits / total * 100) if total > 0 else 0
-        
+        miss_rate = (self.misses / total * 100) if total > 0 else 0
+
         return {
             'name': self.name,
             'size': len(self.cache),
@@ -234,27 +235,43 @@ class LRUCache:
             'misses': self.misses,
             'expirations': self.expirations,
             'hit_rate': f"{hit_rate:.2f}%",
+            'miss_rate': f"{miss_rate:.2f}%",
             'utilization': f"{len(self.cache) / self.max_size * 100:.1f}%"
         }
     
     def keys(self) -> List[str]:
         """
         Получение всех ключей.
-        
+
         Returns:
             Список ключей
         """
         return list(self.cache.keys())
-    
+
+    def __contains__(self, key: str) -> bool:
+        """
+        Проверка наличия ключа в кэше.
+
+        Args:
+            key: Ключ для проверки
+
+        Returns:
+            True если ключ существует и не истек
+        """
+        if key not in self.cache:
+            return False
+        entry = self.cache[key]
+        return not entry.is_expired()
+
     def __len__(self) -> int:
         """
         Размер кэша.
-        
+
         Returns:
             Количество элементов
         """
         return len(self.cache)
-    
+
     def __repr__(self) -> str:
         stats = self.stats()
         return f"<{self.name} size={stats['size']}/{stats['max_size']} hit_rate={stats['hit_rate']}>"

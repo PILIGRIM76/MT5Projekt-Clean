@@ -78,7 +78,7 @@ cache/
 htmlcov/
 .tox/
 .nox/
-tests/
+# tests/ - теперь включены в репозиторий
 
 # --- Jupyter ---
 .ipynb_checkpoints/
