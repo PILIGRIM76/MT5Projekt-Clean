@@ -878,11 +878,40 @@ class SettingsWindow(QDialog):
             logger.warning("alerting конфигурация не найдена в settings.json")
 
     def save_settings(self):
-        # --- Сохранение .env (остается без изменений) ---
-        for key, widget in self.mt5_entries.items():
-            set_key(self.env_path, key, widget.text())
+        """Сохранение настроек из GUI."""
 
-        # --- Сохранение API ключей ---
+        # --- 1. Сохранение MT5-настроек в Credential Manager (приоритет) и .env (для совместимости) ---
+        secrets_mgr = None
+        try:
+            secrets_mgr = get_secrets_manager()
+            logger.info(f"SecretsManager инициализирован: {secrets_mgr is not None}")
+        except Exception as e:
+            logger.error(f"Ошибка инициализации SecretsManager: {e}", exc_info=True)
+            secrets_mgr = None
+
+        # Сохраняем MT5 credentials
+        mt5_values = {}
+        for key, widget in self.mt5_entries.items():
+            value = widget.text()
+            mt5_values[key] = value
+
+            # .env для совместимости
+            set_key(self.env_path, key, value)
+
+            # Credential Manager для безопасности (особенно пароль)
+            if secrets_mgr and key in ["MT5_PASSWORD", "MT5_LOGIN"]:
+                try:
+                    success = secrets_mgr.store_secret(key, value)
+                    if success:
+                        logger.info(f"{key} сохранён в Credential Manager")
+                    else:
+                        logger.warning(f"Не удалось сохранить {key} в Credential Manager")
+                except Exception as e:
+                    logger.error(f"Ошибка сохранения {key} в Credential Manager: {e}")
+
+        logger.info("MT5-настройки сохранены в .env и Credential Manager")
+
+        # --- 2. Сохранение API ключей ---
         try:
             initial_keys = {
                 k
@@ -898,6 +927,16 @@ class SettingsWindow(QDialog):
                     value = value_item.text()
                     table_keys.add(key)
                     set_key(self.env_path, key, value)
+
+                    # Сохраняем API ключи в Credential Manager
+                    if secrets_mgr and key.endswith(("_KEY", "_TOKEN")):
+                        try:
+                            success = secrets_mgr.store_secret(key, value)
+                            if success:
+                                logger.debug(f"{key} сохранён в Credential Manager")
+                        except Exception as e:
+                            logger.debug(f"Не удалось сохранить {key} в Credential Manager: {e}")
+
             keys_to_delete = initial_keys - table_keys
             for key in keys_to_delete:
                 set_key(self.env_path, key, "")
@@ -906,17 +945,7 @@ class SettingsWindow(QDialog):
             logger.error(f"Произошла ошибка при сохранении API ключей: {e}")
             QMessageBox.critical(self, "Ошибка сохранения", f"Не удалось сохранить API ключи: {e}")
 
-        # --- Сохранение настроек уведомлений в .env и SecretsManager ---
-        secrets_mgr = None
-        try:
-            # Получаем SecretsManager для безопасного хранения паролей
-            secrets_mgr = get_secrets_manager()
-            logger.info(f"SecretsManager для сохранения: {secrets_mgr}")
-            logger.info(f"Secrets file: {secrets_mgr.secrets_file}")
-        except Exception as e:
-            logger.error(f"Ошибка инициализации SecretsManager: {e}", exc_info=True)
-            secrets_mgr = None
-
+        # --- 3. Сохранение настроек уведомлений ---
         try:
             # Сохраняем Telegram токен (чувствительные данные)
             telegram_token = self.telegram_token_edit.text()

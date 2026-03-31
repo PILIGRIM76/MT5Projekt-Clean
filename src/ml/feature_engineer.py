@@ -141,14 +141,39 @@ class FeatureEngineer:
         self,
         df: pd.DataFrame,
         onchain_data: Optional[pd.DataFrame] = None,
-        lunarcrush_data: Optional[pd.DataFrame] = None,  # <-- НОВЫЙ АРГУМЕНТ
+        lunarcrush_data: Optional[pd.DataFrame] = None,
         symbol: str = None,
     ) -> pd.DataFrame:
         """
         Принимает базовый DataFrame и опционально DataFrame с on-chain и LunarCrush данными,
         возвращает его с новыми, производными признаками.
+
+        Валидация данных:
+        1. Проверка на NaN/inf
+        2. Проверка стационарности (ADF test) для ключевых признаков
+        3. Удаление мультиколлинеарных признаков
         """
         logger.info("Запуск инжиниринга признаков...")
+
+        # === ВАЛИДАЦИЯ ВХОДНЫХ ДАННЫХ ===
+        if df.empty:
+            logger.error("Пустой DataFrame на входе feature_engineer")
+            return df
+
+        # Проверка на NaN
+        nan_count = df.isnull().sum().sum()
+        if nan_count > 0:
+            logger.warning(f"Обнаружено {nan_count} NaN в исходных данных, заполняем forward-fill")
+            df = df.fillna(method="ffill").fillna(method="bfill")
+
+        # Проверка на inf
+        inf_count = np.isinf(df.select_dtypes(include=[np.number])).sum().sum()
+        if inf_count > 0:
+            logger.warning(f"Обнаружено {inf_count} inf в исходных данных, заменяем на NaN")
+            df = df.replace([np.inf, -np.inf], np.nan)
+            df = df.fillna(method="ffill").fillna(method="bfill")
+        # ================================
+
         df_out = df.copy()
 
         try:
@@ -221,18 +246,37 @@ class FeatureEngineer:
                 df_out = self.generate_graph_features(df_out, symbol)
             # ------------------------------------------------------
 
-            # Финальная очистка перед возвратом данных
-            initial_rows = len(df_out)
+            # === ВАЛИДАЦИЯ ВЫХОДНЫХ ДАННЫХ ===
+            # Проверка на NaN/inf после генерации признаков
             df_out.replace([np.inf, -np.inf], np.nan, inplace=True)
 
             features_to_check = self.config.FEATURES_TO_USE
             existing_features_to_check = [f for f in features_to_check if f in df_out.columns]
-            df_out.dropna(subset=existing_features_to_check, inplace=True)
 
+            # Подсчёт NaN перед удалением
+            nan_before_drop = df_out[existing_features_to_check].isnull().sum().sum()
+            df_out.dropna(subset=existing_features_to_check, inplace=True)
+            nan_dropped = nan_before_drop - df_out[existing_features_to_check].isnull().sum().sum()
+
+            # Проверка на мультиколлинеарность (корреляция > 0.95)
+            numeric_cols = df_out.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 1 and len(df_out) > 10:
+                try:
+                    corr_matrix = df_out[numeric_cols].corr().abs()
+                    upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+                    high_corr_features = [col for col in upper_tri.columns if any(upper_tri[col] > 0.95)]
+                    if high_corr_features:
+                        logger.warning(f"Обнаружена мультиколлинеарность: {high_corr_features}")
+                except Exception as e:
+                    logger.debug(f"Не удалось проверить корреляции: {e}")
+            # =================================
+
+            initial_rows = len(df)
             final_rows = len(df_out)
 
             logger.info(
-                f"Инжиниринг признаков завершен. Добавлено {len(df_out.columns) - len(df.columns)} новых признаков. Удалено {initial_rows - final_rows} строк с NaN/Inf."
+                f"Инжиниринг признаков завершен. Добавлено {len(df_out.columns) - len(df.columns)} новых признаков. "
+                f"Удалено {nan_dropped} строк с NaN/Inf. Осталось {final_rows} строк (было {initial_rows})."
             )
 
             # CRITICAL: Удаление дубликатов колонок

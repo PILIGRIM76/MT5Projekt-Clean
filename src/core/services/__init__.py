@@ -1,37 +1,27 @@
 # src/core/services/__init__.py
 """
-Пакет сервисов для TradingSystem.
+Пакет сервисов Genesis Trading System.
 
-Сервисы инкапсулируют отдельные функции системы:
-- Торговля
-- Мониторинг
-- Оркестратор
-- Риск-менеджмент
-- Исполнение ордеров
+Сервисы — это компоненты с управляемым жизненным циклом:
+- start(): Запуск сервиса
+- stop(): Остановка сервиса
+- health_check(): Проверка здоровья
+
+Доступные сервисы:
+- BaseService: Абстрактный базовый класс
+- DataService: Управление рыночными данными
+- MLService: Машинное обучение (признаки, модели, предсказания)
+- ExecutionService: Исполнение ордеров и управление рисками
 """
 
-from src.core.services.base_service import (
-    BaseService,
-    HealthStatus,
-    ServiceManager,
-    ServiceMetrics,
-    ServiceState,
-)
-from src.core.services.monitoring_service import MonitoringService
-from src.core.services.orchestrator_service import OrchestratorService
-from src.core.services.risk_service import RiskService
-from src.core.services.trading_service import TradingService
+from src.core.services.base_service import BaseService
+from src.core.services.data_service import DataService
+from src.core.services.execution_service import ExecutionService
+from src.core.services.ml_service import MLService
 
 __all__ = [
-    # Базовые классы
     "BaseService",
-    "ServiceManager",
-    "ServiceState",
-    "HealthStatus",
-    "ServiceMetrics",
-    # Конкретные сервисы
-    "TradingService",
-    "MonitoringService",
-    "OrchestratorService",
-    "RiskService",
+    "DataService",
+    "MLService",
+    "ExecutionService",
 ]

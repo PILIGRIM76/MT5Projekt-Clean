@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
@@ -17,6 +18,57 @@ from src.core.config_models import Settings
 from src.data_models import NewsItem
 
 logger = logging.getLogger(__name__)
+
+
+class LRUCache:
+    """
+    LRU-кэш для хранения исторических данных.
+    Потокобезопасная реализация с ограничением по размеру.
+    """
+
+    def __init__(self, max_size: int = 100):
+        self.max_size = max_size
+        self.cache: OrderedDict[str, pd.DataFrame] = OrderedDict()
+        self._lock = threading.RLock()
+
+    def get(self, key: str) -> Optional[pd.DataFrame]:
+        """Получить данные из кэша."""
+        with self._lock:
+            if key in self.cache:
+                # Переместить в конец (свежий)
+                self.cache.move_to_end(key)
+                logger.debug(f"Cache HIT: {key}")
+                return self.cache[key]
+            logger.debug(f"Cache MISS: {key}")
+            return None
+
+    def put(self, key: str, value: pd.DataFrame) -> None:
+        """Сохранить данные в кэш."""
+        with self._lock:
+            if key in self.cache:
+                # Обновить существующий
+                self.cache.move_to_end(key)
+                self.cache[key] = value
+            else:
+                # Добавить новый
+                if len(self.cache) >= self.max_size:
+                    # Удалить самый старый
+                    oldest_key = next(iter(self.cache))
+                    del self.cache[oldest_key]
+                    logger.debug(f"Cache EVICT: {oldest_key}")
+                self.cache[key] = value
+                logger.debug(f"Cache PUT: {key}")
+
+    def clear(self) -> None:
+        """Очистить кэш."""
+        with self._lock:
+            self.cache.clear()
+            logger.info("Cache cleared")
+
+    def size(self) -> int:
+        """Вернуть текущий размер кэша."""
+        with self._lock:
+            return len(self.cache)
 
 
 class DataProvider:
@@ -35,17 +87,18 @@ class DataProvider:
         self.symbols_whitelist = self.config.SYMBOLS_WHITELIST
 
         # Ограничиваем количество параллельных запросов к MT5
-        # Максимум 5 одновременных подключений
         self.mt5_semaphore = asyncio.Semaphore(5)
 
-        # ИСПРАВЛЕНИЕ: Ограничение ThreadPoolExecutor до 4-х потоков (для 8-ядерного CPU)
-        # self.executor = ThreadPoolExecutor(max_workers=4)
+        # LRU-кэш для исторических данных (100 последних запросов)
+        self._data_cache = LRUCache(max_size=100)
+
+        # Кэш для курсов конвертации (50 последних курсов)
+        self._conversion_cache = LRUCache(max_size=50)
 
         # Инициализация last_news_timestamp для get_mt5_news
         self.last_news_timestamp = datetime.now(timezone.utc) - timedelta(days=1)
 
-        # Создаём ThreadPoolExecutor для всех асинхронных операций
-        # Используем max_workers=None (по умолчанию) для стабильности
+        # ThreadPoolExecutor для всех асинхронных операций
         self.executor = ThreadPoolExecutor(max_workers=None)
 
     def __del__(self):
@@ -95,10 +148,17 @@ class DataProvider:
 
     def get_conversion_rate(self, from_currency: str, to_currency: str) -> float:
         """
-        Получает курс конвертации, используя прямые, обратные пары или USD как кросс-валюту.
+        Получает курс конвертации с кэшированием.
+        Ключ кэша: {from_currency}_{to_currency}
         """
         if from_currency == to_currency:
             return 1.0
+
+        # Проверка кэша
+        cache_key = f"{from_currency}_{to_currency}"
+        cached_rate = self._conversion_cache.get(cache_key)
+        if cached_rate is not None:
+            return cached_rate
 
         # 1. Поиск прямой или обратной пары
         def _get_rate_from_mt5(pair: str) -> Optional[float]:
@@ -117,13 +177,16 @@ class DataProvider:
         pair_direct = f"{from_currency}{to_currency}"
         rate = _get_rate_from_mt5(pair_direct)
         if rate is not None:
+            self._conversion_cache.put(cache_key, rate)
             return rate
 
         # Поиск обратной пары (e.g., RUBUSD)
         pair_inverse = f"{to_currency}{from_currency}"
         rate = _get_rate_from_mt5(pair_inverse)
         if rate is not None and rate > 0:
-            return 1.0 / rate
+            inverse_rate = 1.0 / rate
+            self._conversion_cache.put(cache_key, inverse_rate)
+            return inverse_rate
 
         # 2. Поиск через USD (Кросс-курс)
         if from_currency != "USD" and to_currency != "USD":
@@ -136,7 +199,9 @@ class DataProvider:
             rate_usd_to_final = self.get_conversion_rate("USD", to_currency)
 
             if rate_to_usd != 1.0 and rate_usd_to_final != 1.0:
-                return rate_to_usd * rate_usd_to_final
+                cross_rate = rate_to_usd * rate_usd_to_final
+                self._conversion_cache.put(cache_key, cross_rate)
+                return cross_rate
 
         # 3. Неудача
         logger.warning(f"Не удалось найти курс конвертации для {from_currency} -> {to_currency}. Используется курс 1.0.")
@@ -389,7 +454,23 @@ class DataProvider:
     def get_historical_data(
         self, symbol: str, timeframe: int, start_date: datetime, end_date: datetime
     ) -> Optional[pd.DataFrame]:
-        logger.debug(f"Запрос исторических данных для {symbol} с {start_date} по {end_date}.")
+        """
+        Загружает исторические данные с кэшированием.
+
+        Ключ кэша: {symbol}_{timeframe}_{start}_{end}
+        TTL: Данные кэшируются до сброса кэша (автоматически при старте)
+        """
+        # Формируем ключ кэша
+        cache_key = f"{symbol}_{timeframe}_{start_date.timestamp()}_{end_date.timestamp()}"
+
+        # Проверяем кэш
+        cached_data = self._data_cache.get(cache_key)
+        if cached_data is not None:
+            logger.debug(f"Кэш HIT для {symbol} {timeframe}")
+            return cached_data.copy()
+
+        logger.debug(f"Кэш MISS для {symbol} {timeframe}, загрузка из MT5...")
+
         try:
             with self.mt5_lock:
                 if not mt5.initialize(path=self.config.MT5_PATH):
@@ -398,8 +479,10 @@ class DataProvider:
                     return None
                 rates = mt5.copy_rates_range(symbol, timeframe, start_date, end_date)
                 mt5.shutdown()
+
             if rates is None or len(rates) == 0:
                 return None
+
             df = pd.DataFrame(rates)
             df["time"] = pd.to_datetime(df["time"], unit="s")
             df.set_index("time", inplace=True)
@@ -409,7 +492,15 @@ class DataProvider:
 
             if "tick_volume" not in df.columns:
                 df["tick_volume"] = 0
-            return self._add_features(df, symbol)
+
+            # Добавляем признаки
+            df_with_features = self._add_features(df, symbol)
+
+            # Сохраняем в кэш
+            self._data_cache.put(cache_key, df_with_features)
+
+            return df_with_features
+
         except Exception as e:
             logger.error(f"Критическая ошибка при загрузке исторических данных для {symbol}: {e}", exc_info=True)
             if mt5.terminal_info():

@@ -44,9 +44,9 @@ aiohttp
 asyncpg
 
 # Машинное обучение
-torch==2.2.2
-torchvision
-torchaudio
+torch>=2.5.1
+torchvision>=0.20.0
+torchaudio>=2.5.0
 lightgbm
 stable-baselines3
 gymnasium
