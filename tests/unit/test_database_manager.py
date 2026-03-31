@@ -420,8 +420,8 @@ class TestDatabaseManagerAuditLog:
         logs = DatabaseManager.get_audit_logs(dm, limit=5)
 
         assert len(logs) == 1
-        assert logs[0]["id"] == 1
-        assert logs[0]["trade_ticket"] == 12345
+        assert logs[0].id == 1
+        assert logs[0].trade_ticket == 12345
 
 
 class TestDatabaseManagerHumanFeedback:
