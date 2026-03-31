@@ -14,10 +14,10 @@ jobs:
 
     steps:
     - name: 📥 Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: 🐍 Setup Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.9'
         cache: 'pip'
@@ -51,7 +51,7 @@ jobs:
       continue-on-error: true
 
     - name: 📤 Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: GenesisTrading-v${{ github.ref_name }}
         path: |
@@ -66,7 +66,7 @@ jobs:
         retention-days: 30
 
     - name: 📦 Upload Portable ZIP
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       if: always()
       with:
         name: GenesisTrading-Portable-v${{ github.ref_name }}
@@ -76,7 +76,7 @@ jobs:
 
     - name: 🏷️ Create Release
       if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
         name: Release ${{ github.ref_name }}
         body: |
