@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import numpy as np
 import pandas as pd
+from statsmodels.tsa.stattools import adfuller
 
 from src.core.config_models import Settings
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
@@ -257,6 +258,34 @@ class FeatureEngineer:
             nan_before_drop = df_out[existing_features_to_check].isnull().sum().sum()
             df_out.dropna(subset=existing_features_to_check, inplace=True)
             nan_dropped = nan_before_drop - df_out[existing_features_to_check].isnull().sum().sum()
+
+            # === ADF TEST: Проверка стационарности признаков ===
+            stationary_features = []
+            non_stationary_features = []
+
+            for col in existing_features_to_check:
+                if col in df_out.columns and len(df_out[col].dropna()) > 50:
+                    try:
+                        # ADF test
+                        adf_result = adfuller(df_out[col].dropna(), maxlag=10, regression="c")
+                        p_value = adf_result[1]
+
+                        if p_value < 0.05:
+                            stationary_features.append(col)
+                        else:
+                            non_stationary_features.append((col, p_value))
+                    except Exception as e:
+                        logger.debug(f"ADF test для {col} не удался: {e}")
+
+            # Логирование результатов
+            if non_stationary_features:
+                logger.warning(
+                    f"Нестационарные признаки (ADF p-value > 0.05): "
+                    f"{[(f, round(p, 3)) for f, p in non_stationary_features[:5]]}"
+                )
+
+            logger.info(f"Стационарность: {len(stationary_features)} из {len(existing_features_to_check)} признаков")
+            # =============================================
 
             # Проверка на мультиколлинеарность (корреляция > 0.95)
             numeric_cols = df_out.select_dtypes(include=[np.number]).columns

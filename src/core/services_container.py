@@ -21,6 +21,7 @@ Dependency Injection контейнер для сервисов Genesis Trading 
 
 import asyncio
 import logging
+import queue
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,18 @@ _data_service: Any = None
 _ml_service: Any = None
 _execution_service: Any = None
 
+# Очередь для записи в БД (общая для всех компонентов)
+_db_write_queue: Optional[queue.Queue] = None
+
+
+def get_db_write_queue() -> queue.Queue:
+    """Получение очереди записи в БД."""
+    global _db_write_queue
+    if _db_write_queue is None:
+        _db_write_queue = queue.Queue(maxsize=1000)
+        logger.info("DB write queue создан")
+    return _db_write_queue
+
 
 def get_config() -> Settings:
     """Получение конфигурации (Singleton)."""
@@ -55,7 +68,10 @@ def get_db_manager():
     if _db_manager is None:
         from src.db.database_manager import DatabaseManager
 
-        _db_manager = DatabaseManager(get_config())
+        _db_manager = DatabaseManager(
+            config=get_config(),
+            write_queue=get_db_write_queue(),
+        )
         logger.info("DatabaseManager инициализирован (Singleton)")
     return _db_manager
 

@@ -60,17 +60,22 @@ class ExecutionService(BaseService):
         self.db_manager = db_manager
         self.mt5_lock = mt5_lock
 
-        # Инициализация TradeExecutor
-        self.trade_executor = TradeExecutor(
-            config=config,
-            mt5_lock=mt5_lock,
-            db_manager=db_manager,
-        )
-
         # Инициализация RiskEngine
         self.risk_engine = RiskEngine(
             config=config,
             trading_system_ref=None,  # Будет установлено позже
+        )
+
+        # Инициализация PortfolioService (требуется rl_manager, data_provider)
+        # Пока используем упрощённую инициализацию
+        self.portfolio_service = None  # Временно None
+
+        # Инициализация TradeExecutor (требуется risk_engine и portfolio_service)
+        self.trade_executor = TradeExecutor(
+            config=config,
+            risk_engine=self.risk_engine,
+            portfolio_service=self.portfolio_service,
+            mt5_lock=mt5_lock,
         )
 
         # Статистика

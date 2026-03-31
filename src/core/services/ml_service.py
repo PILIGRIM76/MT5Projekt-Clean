@@ -64,8 +64,8 @@ class MLService(BaseService):
         # Инициализация FeatureEngineer
         self.feature_engineer = FeatureEngineer(config=config, querier=self.kg_querier)
 
-        # Инициализация ModelFactory
-        self.model_factory = ModelFactory(config=config, db_manager=db_manager)
+        # Инициализация ModelFactory (без db_manager)
+        self.model_factory = ModelFactory(config=config)
 
         # Статистика
         self._predictions_count = 0
