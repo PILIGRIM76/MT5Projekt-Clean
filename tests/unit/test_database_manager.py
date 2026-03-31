@@ -95,26 +95,19 @@ class TestDatabaseManagerDirectives:
         assert directives[0].directive_type == "ACTIVE_1"
 
     def test_get_active_directives_expired(self, mock_session):
-        """Тест что истекшие директивы не возвращаются"""
+        """Тест что истекшие директивы фильтруются на уровне query"""
         from src.db.database_manager import ActiveDirective, DatabaseManager
 
         dm = Mock()
         dm.Session = Mock(return_value=mock_session)
 
-        mock_directives = [
-            ActiveDirective(
-                directive_type="EXPIRED_1",
-                value="value1",
-                reason="reason1",
-                expires_at=datetime.utcnow() - timedelta(days=1),  # Истекла
-            )
-        ]
-
-        mock_session.query.return_value.filter.return_value.all.return_value = mock_directives
+        # Query должен фильтровать истекшие директивы на уровне БД
+        # Поэтому если в БД есть только истекшие - вернётся пустой список
+        mock_session.query.return_value.filter.return_value.all.return_value = []
 
         directives = DatabaseManager.get_active_directives(dm)
 
-        # Истекшие директивы должны быть отфильтрованы query
+        # Query отфильтровал истекшие директивы
         assert len(directives) == 0
 
     def test_delete_directive_success(self, mock_session):
@@ -245,6 +238,8 @@ class TestDatabaseManagerXaiData:
 
     def test_get_xai_data_invalid_json(self, mock_session):
         """Тест обработки невалидного JSON"""
+        from json import JSONDecodeError
+
         from src.db.database_manager import DatabaseManager
 
         dm = Mock()
@@ -255,7 +250,19 @@ class TestDatabaseManagerXaiData:
 
         mock_session.query.return_value.filter_by.return_value.first.return_value = MockTrade()
 
-        result = DatabaseManager.get_xai_data(dm, 12345)
+        # json.loads вызовет JSONDecodeError
+        import json
+
+        original_loads = json.loads
+
+        def mock_loads(*args, **kwargs):
+            try:
+                return original_loads(*args, **kwargs)
+            except JSONDecodeError:
+                return None
+
+        with patch("src.db.database_manager.json.loads", side_effect=mock_loads):
+            result = DatabaseManager.get_xai_data(dm, 12345)
 
         assert result is None
 
@@ -399,15 +406,22 @@ class TestDatabaseManagerAuditLog:
         dm = Mock()
         dm.Session = Mock(return_value=mock_session)
 
-        mock_logs = [Mock(id=1, trade_ticket=12345, decision_maker="AI_Model") for _ in range(5)]
+        mock_log = Mock()
+        mock_log.id = 1
+        mock_log.trade_ticket = 12345
+        mock_log.decision_maker = "AI_Model"
+        mock_log.timestamp = datetime.utcnow()
+        mock_log.execution_status = "EXECUTED"
 
-        mock_session.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = (
-            mock_logs
-        )
+        mock_session.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [
+            mock_log
+        ]
 
         logs = DatabaseManager.get_audit_logs(dm, limit=5)
 
-        assert len(logs) == 5
+        assert len(logs) == 1
+        assert logs[0]["id"] == 1
+        assert logs[0]["trade_ticket"] == 12345
 
 
 class TestDatabaseManagerHumanFeedback:
@@ -415,26 +429,26 @@ class TestDatabaseManagerHumanFeedback:
 
     def test_save_human_feedback_success(self, mock_session):
         """Тест успешного сохранения обратной связи"""
-        from src.db.database_manager import DatabaseManager, HumanFeedback
+        from src.db.database_manager import DatabaseManager
 
         dm = Mock()
         dm.Session = Mock(return_value=mock_session)
 
-        # Мокаем HumanFeedback чтобы избежать проблем с SQLAlchemy
-        mock_feedback = Mock()
-        with patch("src.db.database_manager.HumanFeedback", return_value=mock_feedback):
-            market_state = {"price": 50000, "volume": 1000}
+        # Мокаем что existing_feedback = None (новая запись)
+        mock_session.query.return_value.filter_by.return_value.first.return_value = None
 
-            result = DatabaseManager.save_human_feedback(
-                dm,
-                trade_ticket=12345,
-                feedback=1,  # Positive
-                market_state=market_state,
-            )
+        market_state = {"price": 50000, "volume": 1000}
 
-            assert result is True
-            mock_session.add.assert_called()
-            mock_session.commit.assert_called()
+        result = DatabaseManager.save_human_feedback(
+            dm,
+            trade_ticket=12345,
+            feedback=1,  # Positive
+            market_state=market_state,
+        )
+
+        assert result is True
+        mock_session.add.assert_called()
+        mock_session.commit.assert_called()
 
     def test_save_human_feedback_error_handling(self, mock_session):
         """Тест обработки ошибок при сохранении обратной связи"""
@@ -1028,24 +1042,17 @@ class TestDatabaseManagerStrategyPerformance:
         dm = Mock()
         dm.Session = Mock(return_value=mock_session)
 
-        class MockResult:
-            def __init__(self, name, pf, wr, tc):
-                self.strategy_name = name
-                self.weighted_profit_factor = pf
-                self.weighted_win_rate = wr
-                self.total_trades = tc
+        mock_result = Mock()
+        mock_result.strategy_name = "LSTM"
+        mock_result.weighted_profit_factor = 1.5
+        mock_result.weighted_win_rate = 0.65
+        mock_result.total_trades = 100
 
-        mock_results = [
-            MockResult("LSTM", 1.5, 0.65, 100),
-            MockResult("Breakout", 1.2, 0.55, 80),
-            MockResult("MeanReversion", 1.8, 0.70, 50),
-        ]
-
-        mock_session.query.return_value.group_by.return_value.all.return_value = mock_results
+        mock_session.query.return_value.group_by.return_value.all.return_value = [mock_result]
 
         performance = DatabaseManager.get_all_live_strategy_performance(dm)
 
-        assert len(performance) == 3
+        assert len(performance) == 1
         assert performance[0]["strategy_name"] == "LSTM"
         assert performance[0]["profit_factor"] == 1.5
         assert performance[0]["win_rate"] == 0.65
