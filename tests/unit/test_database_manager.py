@@ -413,12 +413,15 @@ class TestDatabaseManagerAuditLog:
         mock_log.timestamp = datetime.utcnow()
         mock_log.execution_status = "EXECUTED"
 
+        # get_audit_logs возвращает список объектов TradeAudit
         mock_session.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [
             mock_log
         ]
 
         logs = DatabaseManager.get_audit_logs(dm, limit=5)
 
+        # logs - это список объектов, а не Mock
+        assert isinstance(logs, list)
         assert len(logs) == 1
         assert logs[0].id == 1
         assert logs[0].trade_ticket == 12345
@@ -659,6 +662,7 @@ class TestDatabaseManagerGraphData:
         graph_data = DatabaseManager.get_graph_data(dm, limit=50)
 
         assert graph_data is not None
+        assert isinstance(graph_data, dict)
         assert "nodes" in graph_data
         assert "edges" in graph_data
         assert len(graph_data["nodes"]) == 1
@@ -705,16 +709,23 @@ class TestDatabaseManagerLogTradeOutcomeToKG:
 
         dm = Mock()
         dm.Session = Mock(return_value=mock_session)
+        # Ошибка может произойти при закрытии сессии
         mock_session.close.side_effect = Exception("DB Error")
 
-        # Не должно вызывать исключений
-        DatabaseManager._log_trade_outcome_to_kg_internal(
-            dm,
-            trade_ticket=12345,
-            profit=100.0,
-            market_regime="Trend",
-            kg_cb_sentiment=0.5,
-        )
+        # Метод должен обработать ошибку без выброса исключения
+        try:
+            DatabaseManager._log_trade_outcome_to_kg_internal(
+                dm,
+                trade_ticket=12345,
+                profit=100.0,
+                market_regime="Trend",
+                kg_cb_sentiment=0.5,
+            )
+            # Ошибка обработана внутри метода
+            assert True
+        except Exception:
+            # Если ошибка выброшена - тест провален
+            assert False, "Метод выбросил исключение вместо обработки ошибки"
 
 
 class TestDatabaseManagerHelperMethods:
@@ -742,6 +753,7 @@ class TestDatabaseManagerHelperMethods:
 
         tickets = DatabaseManager.get_all_logged_trade_tickets(dm)
 
+        assert isinstance(tickets, set)
         assert len(tickets) == 3
         assert 12345 in tickets
         assert 12346 in tickets
@@ -952,24 +964,18 @@ class TestDatabaseManagerAuditStatistics:
         dm = Mock()
         dm.Session = Mock(return_value=mock_session)
 
-        # Мокаем query и count
+        # Мокаем count() для total
         mock_query = mock_session.query.return_value
         mock_query.count.return_value = 100  # total
 
         # Мокаем filter().count() для статусов
-        mock_executed_query = Mock()
-        mock_executed_query.count.return_value = 80
-        mock_rejected_query = Mock()
-        mock_rejected_query.count.return_value = 15
-        mock_failed_query = Mock()
-        mock_failed_query.count.return_value = 5
+        mock_query.filter.return_value.count.side_effect = [80, 15, 5]  # executed, rejected, failed
 
-        mock_query.filter.return_value.count.side_effect = [80, 15, 5]
-
-        # Мокаем with_entities().scalar() для avg
-        mock_avg_query = Mock()
-        mock_avg_query.scalar.return_value = 0.75  # avg_confidence
-        mock_query.filter.return_value.with_entities.return_value = mock_avg_query
+        # Мокаем scalar() для avg
+        mock_session.query.return_value.filter.return_value.scalar.side_effect = [
+            0.75,  # avg_confidence
+            150.0,  # avg_execution_time
+        ]
 
         stats = DatabaseManager.get_audit_statistics(
             dm,
@@ -977,10 +983,10 @@ class TestDatabaseManagerAuditStatistics:
             end_date=datetime.utcnow(),
         )
 
-        assert stats is not None
+        assert isinstance(stats, dict)
         assert stats["total_audits"] == 100
         assert stats["executed"] == 80
-        assert stats["avg_confidence"] == 0.75
+        assert stats["avg_confidence_executed"] == 0.75
 
     def test_get_audit_statistics_no_filters(self, mock_session):
         """Тест получения статистики без фильтров по датам"""
@@ -993,13 +999,14 @@ class TestDatabaseManagerAuditStatistics:
         mock_query.count.return_value = 50
         mock_query.filter.return_value.count.side_effect = [40, 8, 2]
 
-        mock_avg_query = Mock()
-        mock_avg_query.scalar.return_value = 0.8
-        mock_query.filter.return_value.with_entities.return_value = mock_avg_query
+        mock_session.query.return_value.filter.return_value.scalar.side_effect = [
+            0.8,
+            120.0,
+        ]
 
         stats = DatabaseManager.get_audit_statistics(dm)
 
-        assert stats is not None
+        assert isinstance(stats, dict)
         assert stats["total_audits"] == 50
 
     def test_get_audit_statistics_empty(self, mock_session):
@@ -1012,12 +1019,13 @@ class TestDatabaseManagerAuditStatistics:
         mock_query = mock_session.query.return_value
         mock_query.count.return_value = 0
         mock_query.filter.return_value.count.return_value = 0
-        mock_query.filter.return_value.with_entities.return_value.scalar.return_value = None
+        mock_session.query.return_value.filter.return_value.scalar.return_value = None
 
         stats = DatabaseManager.get_audit_statistics(dm)
 
-        assert stats is not None
+        assert isinstance(stats, dict)
         assert stats["total_audits"] == 0
+        assert stats["execution_rate"] == 0.0
 
     def test_get_audit_statistics_error_handling(self, mock_session):
         """Тест обработки ошибок при получении статистики"""
@@ -1042,16 +1050,19 @@ class TestDatabaseManagerStrategyPerformance:
         dm = Mock()
         dm.Session = Mock(return_value=mock_session)
 
+        # Мокаем результат запроса с правильными атрибутами
         mock_result = Mock()
         mock_result.strategy_name = "LSTM"
         mock_result.weighted_profit_factor = 1.5
         mock_result.weighted_win_rate = 0.65
         mock_result.total_trades = 100
 
+        # Настраиваем chain mock для query().group_by().all()
         mock_session.query.return_value.group_by.return_value.all.return_value = [mock_result]
 
         performance = DatabaseManager.get_all_live_strategy_performance(dm)
 
+        assert isinstance(performance, list)
         assert len(performance) == 1
         assert performance[0]["strategy_name"] == "LSTM"
         assert performance[0]["profit_factor"] == 1.5
