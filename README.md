@@ -4,7 +4,9 @@
 **Платформа:** Windows 10/11 x64
 **Python:** 3.9+
 
+[![Tests](https://github.com/PILIGRIM76/MT5Projekt-Clean/actions/workflows/tests.yml/badge.svg)](https://github.com/PILIGRIM76/MT5Projekt-Clean/actions/workflows/tests.yml)
 [![Build EXE](https://github.com/PILIGRIM76/MT5Projekt-Clean/actions/workflows/build.yml/badge.svg)](https://github.com/PILIGRIM76/MT5Projekt-Clean/actions/workflows/build.yml)
+[![Coverage Status](https://codecov.io/gh/PILIGRIM76/MT5Projekt-Clean/branch/main/graph/badge.svg)](https://codecov.io/gh/PILIGRIM76/MT5Projekt-Clean)
 
 ---
 
@@ -19,6 +21,39 @@ Genesis Trading System - это саморазвивающаяся торгов�
 - 🛡️ Risk Management (управление рисками)
 - 📉 Backtesting (тестирование на истории)
 - 🔄 Auto Retraining (автоматическое переобучение)
+
+---
+
+## 🧪 Тестирование
+
+### Unit тесты
+
+```bash
+# Запустить все unit тесты
+pytest tests/unit/ -v
+
+# Запустить с покрытием
+pytest tests/unit/ --cov=src --cov-report=html
+```
+
+### E2E тесты
+
+Требуется демо-счет MT5. См. [tests/e2e/README.md](tests/e2e/README.md)
+
+```bash
+# Запустить E2E тесты
+pytest tests/e2e/ -v --e2e
+```
+
+### Покрытие
+
+Текущее покрытие:
+
+| Модуль | Покрытие | Цель |
+|--------|----------|------|
+| signal_service.py | ~30% | 30% ✅ |
+| database_manager.py | ~41% | 40% ✅ |
+| trading_system.py | ~15% | 20% 🟡 |
 
 ---
 
