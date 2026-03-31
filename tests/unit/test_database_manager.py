@@ -661,3 +661,320 @@ class TestDatabaseManagerHelperMethods:
         tickets = DatabaseManager.get_all_logged_trade_tickets(dm)
 
         assert tickets == set()
+
+
+class TestDatabaseManagerCandleData:
+    """Тесты для методов работы с свечными данными"""
+
+    def test_save_candle_data_success(self, mock_session):
+        """Тест успешного сохранения свечных данных"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+
+        candles = [
+            {
+                "time": datetime.utcnow(),
+                "open": 100.0,
+                "high": 105.0,
+                "low": 99.0,
+                "close": 102.0,
+                "tick_volume": 1000,
+            },
+            {
+                "time": datetime.utcnow() + timedelta(minutes=1),
+                "open": 102.0,
+                "high": 106.0,
+                "low": 101.0,
+                "close": 104.0,
+                "tick_volume": 1200,
+            },
+        ]
+
+        # Первая свеча существует (обновление), вторая нет (создание)
+        mock_session.query.return_value.filter_by.return_value.first.side_effect = [
+            Mock(),  # existing candle
+            None,  # new candle
+        ]
+
+        saved_count = DatabaseManager.save_candle_data(dm, "BTCUSD", "M1", candles)
+
+        assert saved_count == 1  # Только одна новая запись
+        mock_session.commit.assert_called()
+        mock_session.close.assert_called()
+
+    def test_save_candle_data_error_handling(self, mock_session):
+        """Тест обработки ошибок при сохранении свечных данных"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+        mock_session.commit.side_effect = Exception("DB Error")
+
+        candles = [
+            {
+                "time": datetime.utcnow(),
+                "open": 100.0,
+                "high": 105.0,
+                "low": 99.0,
+                "close": 102.0,
+                "tick_volume": 1000,
+            }
+        ]
+
+        saved_count = DatabaseManager.save_candle_data(dm, "BTCUSD", "M1", candles)
+
+        assert saved_count == 0
+        mock_session.rollback.assert_called()
+
+    def test_get_candle_data_success(self, mock_session):
+        """Тест успешного получения свечных данных"""
+        from src.db.database_manager import CandleData, DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+
+        class MockCandle:
+            def __init__(self, close):
+                self.time = datetime.utcnow()
+                self.open = 100.0
+                self.high = 105.0
+                self.low = 99.0
+                self.close = close
+                self.tick_volume = 1000
+
+        mock_candles = [MockCandle(100 + i) for i in range(10)]
+
+        mock_session.query.return_value.filter_by.return_value.order_by.return_value.limit.return_value.all.return_value = (
+            mock_candles
+        )
+
+        df = DatabaseManager.get_candle_data(dm, "BTCUSD", "M1", limit=10)
+
+        assert df is not None
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 10
+        assert "close" in df.columns
+        assert "open" in df.columns
+        assert "high" in df.columns
+        assert "low" in df.columns
+        assert "tick_volume" in df.columns
+
+    def test_get_candle_data_empty(self, mock_session):
+        """Тест получения пустых свечных данных"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+        mock_session.query.return_value.filter_by.return_value.order_by.return_value.limit.return_value.all.return_value = []
+
+        df = DatabaseManager.get_candle_data(dm, "BTCUSD", "M1", limit=10)
+
+        assert df is None
+
+    def test_get_candle_data_error_handling(self, mock_session):
+        """Тест обработки ошибок при получении свечных данных"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+        mock_session.query.side_effect = Exception("DB Error")
+
+        df = DatabaseManager.get_candle_data(dm, "BTCUSD", "M1", limit=10)
+
+        assert df is None
+
+
+class TestDatabaseManagerChampionInfo:
+    """Тесты для метода get_champion_info"""
+
+    def test_get_champion_info_success(self, mock_session):
+        """Тест успешного получения информации о чемпионе"""
+        from src.db.database_manager import DatabaseManager, TrainedModel
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+
+        mock_champion = Mock(spec=TrainedModel)
+        mock_champion.id = 100
+        mock_champion.performance_report = '{"sharpe": 1.5, "total_return": 0.15}'
+
+        mock_session.query.return_value.filter_by.return_value.order_by.return_value.first.return_value = mock_champion
+
+        result = DatabaseManager.get_champion_info(dm, "BTCUSD", 60)
+
+        assert result is not None
+        assert result["id"] == 100
+        assert result["performance_report"] == '{"sharpe": 1.5, "total_return": 0.15}'
+
+    def test_get_champion_info_not_found(self, mock_session):
+        """Тест когда чемпион не найден"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+        mock_session.query.return_value.filter_by.return_value.order_by.return_value.first.return_value = None
+
+        result = DatabaseManager.get_champion_info(dm, "BTCUSD", 60)
+
+        assert result is None
+
+    def test_get_champion_info_error_handling(self, mock_session):
+        """Тест обработки ошибок при получении информации о чемпионе"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+        mock_session.query.side_effect = Exception("DB Error")
+
+        result = DatabaseManager.get_champion_info(dm, "BTCUSD", 60)
+
+        assert result is None
+
+
+class TestDatabaseManagerAuditStatistics:
+    """Тесты для метода get_audit_statistics"""
+
+    def test_get_audit_statistics_success(self, mock_session):
+        """Тест успешного получения статистики аудита"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+
+        # Мокаем count() для разных статусов
+        mock_query = mock_session.query.return_value
+        mock_query.count.return_value = 100  # total
+        mock_query.filter.return_value.count.side_effect = [80, 15, 5]  # executed, rejected, failed
+
+        # Мокаем avg() для confidence и execution_time
+        mock_query.filter.return_value.with_entities.return_value.scalar.side_effect = [
+            0.75,  # avg_confidence
+            150.0,  # avg_execution_time
+        ]
+
+        stats = DatabaseManager.get_audit_statistics(
+            dm,
+            start_date=datetime.utcnow() - timedelta(days=7),
+            end_date=datetime.utcnow(),
+        )
+
+        assert stats is not None
+        assert stats["total_audits"] == 100
+        assert stats["executed"] == 80
+        assert stats["rejected"] == 15
+        assert stats["failed"] == 5
+        assert stats["execution_rate"] == 0.8
+        assert stats["rejection_rate"] == 0.15
+        assert stats["avg_confidence_executed"] == 0.75
+        assert stats["avg_execution_time_ms"] == 150.0
+
+    def test_get_audit_statistics_no_filters(self, mock_session):
+        """Тест получения статистики без фильтров по датам"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+
+        mock_query = mock_session.query.return_value
+        mock_query.count.return_value = 50
+        mock_query.filter.return_value.count.side_effect = [40, 8, 2]
+        mock_query.filter.return_value.with_entities.return_value.scalar.side_effect = [
+            0.8,
+            120.0,
+        ]
+
+        stats = DatabaseManager.get_audit_statistics(dm)
+
+        assert stats is not None
+        assert stats["total_audits"] == 50
+
+    def test_get_audit_statistics_empty(self, mock_session):
+        """Тест получения статистики при отсутствии данных"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+
+        mock_query = mock_session.query.return_value
+        mock_query.count.return_value = 0
+        mock_query.filter.return_value.count.return_value = 0
+        mock_query.filter.return_value.with_entities.return_value.scalar.return_value = None
+
+        stats = DatabaseManager.get_audit_statistics(dm)
+
+        assert stats is not None
+        assert stats["total_audits"] == 0
+        assert stats["execution_rate"] == 0.0
+        assert stats["avg_confidence_executed"] == 0.0
+
+    def test_get_audit_statistics_error_handling(self, mock_session):
+        """Тест обработки ошибок при получении статистики"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+        mock_session.query.side_effect = Exception("DB Error")
+
+        stats = DatabaseManager.get_audit_statistics(dm)
+
+        assert stats == {}
+
+
+class TestDatabaseManagerStrategyPerformance:
+    """Тесты для метода get_all_live_strategy_performance"""
+
+    def test_get_all_live_strategy_performance_success(self, mock_session):
+        """Тест успешного получения производительности всех стратегий"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+
+        class MockResult:
+            def __init__(self, name, pf, wr, tc):
+                self.strategy_name = name
+                self.weighted_profit_factor = pf
+                self.weighted_win_rate = wr
+                self.total_trades = tc
+
+        mock_results = [
+            MockResult("LSTM", 1.5, 0.65, 100),
+            MockResult("Breakout", 1.2, 0.55, 80),
+            MockResult("MeanReversion", 1.8, 0.70, 50),
+        ]
+
+        mock_session.query.return_value.group_by.return_value.all.return_value = mock_results
+
+        performance = DatabaseManager.get_all_live_strategy_performance(dm)
+
+        assert len(performance) == 3
+        assert performance[0]["strategy_name"] == "LSTM"
+        assert performance[0]["profit_factor"] == 1.5
+        assert performance[0]["win_rate"] == 0.65
+        assert performance[0]["trade_count"] == 100
+
+    def test_get_all_live_strategy_performance_empty(self, mock_session):
+        """Тест получения пустой производительности"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+        mock_session.query.return_value.group_by.return_value.all.return_value = []
+
+        performance = DatabaseManager.get_all_live_strategy_performance(dm)
+
+        assert len(performance) == 0
+
+    def test_get_all_live_strategy_performance_error_handling(self, mock_session):
+        """Тест обработки ошибок при получении производительности"""
+        from src.db.database_manager import DatabaseManager
+
+        dm = Mock()
+        dm.Session = Mock(return_value=mock_session)
+        mock_session.query.side_effect = Exception("DB Error")
+
+        performance = DatabaseManager.get_all_live_strategy_performance(dm)
+
+        assert performance == []
