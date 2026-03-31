@@ -62,7 +62,7 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
 
-  # pytest tests
+  # pytest tests (manual only - run in CI)
   - repo: local
     hooks:
       - id: pytest
