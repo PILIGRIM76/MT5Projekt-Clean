@@ -239,7 +239,14 @@ class FeatureImportanceTracker:
         """
         try:
             # Создаём запись
-            from sqlalchemy import Column, DateTime, Float, Integer, String, Text
+            from sqlalchemy import (
+                Column,
+                DateTime,
+                Float,
+                Integer,
+                String,
+                UniqueConstraint,
+            )
             from sqlalchemy.orm import declarative_base
 
             Base = declarative_base()
