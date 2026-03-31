@@ -3056,11 +3056,15 @@ class MainWindow(QMainWindow):
 
     def update_market_scanner_view(self, ranked_list: list):
         # ОТЛАДКА: Логируем (используем logger вместо print для Windows GUI)
-        logger.debug(
+        logger.info(
             f"[DEBUG] update_market_scanner_view ВЫЗВАН с {len(ranked_list) if ranked_list else 0} элементами")
+        
+        if ranked_list and len(ranked_list) > 0:
+            logger.info(f"[DEBUG] Первый элемент: {ranked_list[0]}")
 
         # КРИТИЧНО: Не обновляем таблицу пустыми данными
         if not ranked_list or len(ranked_list) == 0:
+            logger.warning("[Scanner] Пустые данные, пропускаем обновление")
             return
 
         logger.info(
@@ -3086,7 +3090,7 @@ class MainWindow(QMainWindow):
                 ]
                 table_data.append(row)
 
-            # Убрано избыточное логирование
+            logger.info(f"[Scanner] Подготовлено {len(table_data)} строк для таблицы")
 
             # Оптимизация: обновляем только данные модели, не создавая новую
             if not hasattr(self, 'scanner_model') or self.scanner_model is None:
@@ -3103,6 +3107,8 @@ class MainWindow(QMainWindow):
                     header.setSectionResizeMode(
                         i, QHeaderView.ResizeMode.ResizeToContents)
                 self._scanner_columns_resized = True
+                
+            logger.info(f"[Scanner] Таблица успешно обновлена")
         except Exception as e:
             logger.error(
                 f"[GUI-Scanner] Ошибка при обновлении сканера: {e}", exc_info=True)

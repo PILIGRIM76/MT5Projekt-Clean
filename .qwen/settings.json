@@ -34,7 +34,8 @@
       "Bash(start-sleep *)",
       "Bash(start *)",
       "Bash(chcp *)",
-      "Bash(netstat *)"
+      "Bash(netstat *)",
+      "Bash(curl *)"
     ]
   },
   "$version": 3

@@ -56,17 +56,26 @@ class ControlCenterWidget(QWidget):
         """
         Подготавливает данные для ControlCenterWidget из сырых данных.
         """
+        logger.info(f"[PrepareData] Обработка {len(raw_data) if raw_data else 0} элементов")
         processed_data = []
         for item in raw_data:
+            # Логирование первого элемента для отладки
+            if len(processed_data) == 0:
+                logger.info(f"[PrepareData] Исходный элемент: {item}")
+            
             processed_item = {
                 'symbol': item.get('symbol', 'N/A'),
-                'price': item.get('last_close', item.get('price', 0)),
-                'change_24h': item.get('normalized_atr_percent', item.get('change_24h', 0)),
-                'rsi': item.get('trend_score', item.get('rsi', 0)) * 50,  # масштабируем trend_score в диапазон RSI
-                'volatility': item.get('volatility_score', item.get('volatility', 0)),
-                'regime': item.get('symbol', 'N/A')  # используем символ как режим, если нет другого
+                'price': item.get('price', item.get('last_close', 0)),
+                'change_24h': item.get('change_24h', item.get('normalized_atr_percent', 0)),
+                # RSI берём напрямую, без масштабирования
+                'rsi': item.get('rsi', item.get('trend_score', 50.0) * 50),
+                'volatility': item.get('volatility', item.get('volatility_score', 0)),
+                # Режим берём из правильного поля
+                'regime': item.get('regime', 'Unknown')
             }
             processed_data.append(processed_item)
+        
+        logger.info(f"[PrepareData] Обработано {len(processed_data)} элементов, первый: {processed_data[0] if processed_data else 'N/A'}")
         return processed_data
 
     def on_display_mode_changed(self):
@@ -198,30 +207,36 @@ class ControlCenterWidget(QWidget):
     @Slot(list)
     def update_market_table(self, data: list):
         """Обновляет таблицу сканера."""
-        # Убрано избыточное логирование
-        
+        # Логирование для отладки
+        logger.info(f"[MarketTable] Получено данных: {len(data) if data else 0}")
+        if data and len(data) > 0:
+            logger.info(f"[MarketTable] Первый элемент: {data[0] if len(data) > 0 else 'N/A'}")
+
         if not data:
+            logger.warning("[MarketTable] Данные пустые (data is None or empty)")
             return
 
         # ИСПРАВЛЕНИЕ: Игнорируем данные с малым количеством элементов (торговые сигналы)
         # Торговые сигналы приходят по 1 элементу, данные сканера - списком из 10+ элементов
-        if len(data) < 5:
+        if len(data) < 2:  # Уменьшил порог с 5 до 2
+            logger.warning(f"[MarketTable] Мало данных ({len(data)} элементов), возможно это торговый сигнал")
             return
 
         # Сохраняем последние данные для возможного переключения режимов
         self._last_market_data = data
-        
+
         # Проверяем, в каком режиме мы находимся
         if hasattr(self, 'signals_radio') and self.signals_radio.isChecked():
             # Если включён режим торговых сигналов, используем другой метод
+            logger.info("[MarketTable] Режим торговых сигналов, вызываем update_trading_signals_table")
             self.update_trading_signals_table(data)
             return
-        
+
         # Убрано избыточное логирование
-        
+
         # Подготавливаем данные для ControlCenterWidget
         processed_data = self.prepare_control_center_data(data)
-        # Убрано избыточное логирование
+        logger.info(f"[MarketTable] Обработано данных: {len(processed_data)}")
 
         # Отключаем сортировку для производительности
         self.market_table.setSortingEnabled(False)
@@ -291,6 +306,7 @@ class ControlCenterWidget(QWidget):
 
         # Включаем сортировку обратно
         self.market_table.setSortingEnabled(True)
+        logger.info(f"[MarketTable] Таблица обновлена: {len(processed_data)} строк")
 
     @Slot(list)
     def update_trading_signals_table(self, data: list):

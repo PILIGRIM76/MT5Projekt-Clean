@@ -828,8 +828,17 @@ class TradeExecutor:
         return result, check_result
 
     def _build_request(self, symbol, lot, signal_type, price, sl, tp, timeframe, strategy_name, digits):
-        type_map = {SignalType.BUY: mt5.ORDER_TYPE_BUY,
-                    SignalType.SELL: mt5.ORDER_TYPE_SELL}
+        # type_map = {SignalType.BUY: mt5.ORDER_TYPE_BUY,
+        #            SignalType.SELL: mt5.ORDER_TYPE_SELL}
+        
+        # Поддержка как объектов SignalType, так и строк
+        type_map = {
+            SignalType.BUY: mt5.ORDER_TYPE_BUY,
+            SignalType.SELL: mt5.ORDER_TYPE_SELL,
+            'BUY': mt5.ORDER_TYPE_BUY,      # <-- Добавлена поддержка строк
+            'SELL': mt5.ORDER_TYPE_SELL,    # <-- Добавлена поддержка строк
+        }
+        
         # Конвертируем numpy типы в Python float для MT5
         return {
             "action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": float(lot),

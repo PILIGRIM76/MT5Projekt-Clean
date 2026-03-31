@@ -17,6 +17,10 @@ jinja2
 schedule
 slowapi
 dependency-injector
+keyring
+requests>=2.32.0
+urllib3>=1.26.0
+pysocks>=1.7.1
 
 # Данные и Аналитика
 numpy==1.26.4

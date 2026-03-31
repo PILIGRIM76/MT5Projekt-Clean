@@ -212,6 +212,31 @@ class Relation(Base):
         return f"<Relation(source={self.source_id}, target={self.target_id}, type='{self.relation_type}')>"
 
 
+class CandleData(Base):
+    """
+    Таблица для хранения свечных данных (OHLCV).
+    Используется для кэширования исторических данных из MT5.
+    """
+    __tablename__ = 'candle_data'
+    
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True, comment="Торговый инструмент (например, EURUSD)")
+    timeframe = Column(String, nullable=False, index=True, comment="Таймфрейм (например, H1, M15)")
+    time = Column(DateTime, nullable=False, index=True, comment="Время свечи")
+    open = Column(Float, nullable=False, comment="Цена открытия")
+    high = Column(Float, nullable=False, comment="Максимум")
+    low = Column(Float, nullable=False, comment="Минимум")
+    close = Column(Float, nullable=False, comment="Цена закрытия")
+    tick_volume = Column(Integer, nullable=True, comment="Тиковый объём")
+    
+    __table_args__ = (
+        UniqueConstraint('symbol', 'timeframe', 'time', name='_candle_data_uc'),
+    )
+    
+    def __repr__(self):
+        return f"<CandleData(symbol='{self.symbol}', timeframe='{self.timeframe}', time={self.time})>"
+
+
 class DatabaseManager:
     def __init__(self, config: Settings, write_queue: queue.Queue):
         db_folder = Path(config.DATABASE_FOLDER)
@@ -460,6 +485,148 @@ class DatabaseManager:
         finally:
             session.close()
 
+    # ===========================================
+    # Методы для работы с свечными данными (CandleData)
+    # ===========================================
+
+    def save_candle_data(self, symbol: str, timeframe: str, candles: List[Dict]) -> int:
+        """
+        Сохраняет свечные данные в базу данных.
+        
+        Args:
+            symbol: Торговый инструмент (например, EURUSD)
+            timeframe: Таймфрейм (например, H1, M15)
+            candles: Список словарей с данными свечей [
+                {'time': datetime, 'open': float, 'high': float, 'low': float, 
+                 'close': float, 'tick_volume': int}, ...
+            ]
+            
+        Returns:
+            Количество сохранённых записей
+        """
+        session = self.Session()
+        try:
+            saved_count = 0
+            for candle in candles:
+                # Проверяем существование записи
+                existing = session.query(CandleData).filter_by(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    time=candle['time']
+                ).first()
+                
+                if existing:
+                    # Обновляем существующую запись
+                    existing.open = candle['open']
+                    existing.high = candle['high']
+                    existing.low = candle['low']
+                    existing.close = candle['close']
+                    existing.tick_volume = candle.get('tick_volume', 0)
+                else:
+                    # Создаём новую запись
+                    new_candle = CandleData(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        time=candle['time'],
+                        open=candle['open'],
+                        high=candle['high'],
+                        low=candle['low'],
+                        close=candle['close'],
+                        tick_volume=candle.get('tick_volume', 0)
+                    )
+                    session.add(new_candle)
+                    saved_count += 1
+            
+            session.commit()
+            logger.debug(f"Сохранено {saved_count} свечей для {symbol} {timeframe}")
+            return saved_count
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Ошибка при сохранении свечных данных для {symbol} {timeframe}: {e}")
+            return 0
+        finally:
+            session.close()
+
+    def get_candle_data(self, symbol: str, timeframe: str, limit: int = 1000) -> Optional[pd.DataFrame]:
+        """
+        Загружает свечные данные из базы данных.
+        
+        Args:
+            symbol: Торговый инструмент
+            timeframe: Таймфрейм
+            limit: Максимальное количество записей
+            
+        Returns:
+            DataFrame с данными или None
+        """
+        session = self.Session()
+        try:
+            candles = session.query(CandleData).filter_by(
+                symbol=symbol,
+                timeframe=timeframe
+            ).order_by(CandleData.time.desc()).limit(limit).all()
+            
+            if not candles:
+                return None
+            
+            # Преобразуем в DataFrame
+            data = {
+                'time': [c.time for c in candles],
+                'open': [c.open for c in candles],
+                'high': [c.high for c in candles],
+                'low': [c.low for c in candles],
+                'close': [c.close for c in candles],
+                'tick_volume': [c.tick_volume for c in candles]
+            }
+            
+            df = pd.DataFrame(data)
+            # Разворачиваем, чтобы старые данные были в начале
+            df = df.iloc[::-1].reset_index(drop=True)
+            df.set_index('time', inplace=True)
+            
+            logger.info(f"Загружено {len(df)} свечей из БД для {symbol} {timeframe}")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке свечных данных для {symbol} {timeframe}: {e}")
+            return None
+        finally:
+            session.close()
+
+    def clear_old_candle_data(self, symbol: str, timeframe: str, max_age_days: int = 365) -> int:
+        """
+        Удаляет старые свечные данные.
+        
+        Args:
+            symbol: Торговый инструмент
+            timeframe: Таймфрейм
+            max_age_days: Максимальный возраст данных в днях
+            
+        Returns:
+            Количество удалённых записей
+        """
+        session = self.Session()
+        try:
+            cutoff_date = datetime.utcnow() - timedelta(days=max_age_days)
+            
+            deleted_count = session.query(CandleData).filter(
+                CandleData.symbol == symbol,
+                CandleData.timeframe == timeframe,
+                CandleData.time < cutoff_date
+            ).delete()
+            
+            session.commit()
+            logger.info(f"Удалено {deleted_count} старых свечей для {symbol} {timeframe}")
+            return deleted_count
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Ошибка при очистке старых свечных данных: {e}")
+            return 0
+        finally:
+            session.close()
+
     def add_news_article(self, **kwargs):
         self.write_queue.put(('add_news_article', kwargs))
 
@@ -500,6 +667,14 @@ class DatabaseManager:
             with self.engine.connect() as connection:
                 inspector = inspect(connection)
                 with connection.begin():
+                    # Проверка и создание таблицы candle_data
+                    candle_table_name = CandleData.__tablename__
+                    if not inspector.has_table(candle_table_name):
+                        # Создаём таблицу, если она не существует
+                        CandleData.__table__.create(connection)
+                        logger.info(f"Таблица '{candle_table_name}' успешно создана.")
+                    
+                    # Проверка таблицы trained_models
                     table_name = TrainedModel.__tablename__
                     if inspector.has_table(table_name):
                         columns = [col['name'] for col in inspector.get_columns(table_name)]
@@ -518,6 +693,7 @@ class DatabaseManager:
                         if 'training_batch_id' not in columns:
                             connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN training_batch_id VARCHAR'))
 
+                    # Проверка таблицы trade_history
                     table_name = TradeHistory.__tablename__
                     if inspector.has_table(table_name):
                         columns = [col['name'] for col in inspector.get_columns(table_name)]
@@ -530,6 +706,7 @@ class DatabaseManager:
                         if 'volatility_metric' not in columns:
                             connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN volatility_metric FLOAT'))
 
+                    # Проверка таблицы strategy_performance
                     table_name = StrategyPerformance.__tablename__
                     if inspector.has_table(table_name):
                         columns = [col['name'] for col in inspector.get_columns(table_name)]

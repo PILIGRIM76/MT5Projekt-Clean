@@ -414,10 +414,10 @@
     "cooldown_minutes": 15
   },
   "alerting": {
-    "enabled": true,
+    "enabled": false,
     "channels": {
       "telegram": {
-        "enabled": true,
+        "enabled": false,
         "bot_token_env": "TELEGRAM_BOT_TOKEN",
         "chat_id_env": "TELEGRAM_CHAT_ID"
       },

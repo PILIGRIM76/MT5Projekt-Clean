@@ -642,6 +642,9 @@ class TradingSystem(QObject):
         Одна итерация торгового цикла.
         Здесь происходит сканирование, анализ и отправка данных в GUI.
         """
+        # Логирование для отладки
+        logger.info("[run_cycle] Начало цикла")
+        
         # CRITICAL: Check safety before each cycle
         if self.safety_monitor and not self.safety_monitor.check_safety_conditions():
             logger.critical("⛔ Trading stopped by Safety Monitor")
@@ -649,11 +652,14 @@ class TradingSystem(QObject):
 
         # Проверки перед запуском
         if self.stop_event.is_set() or not self.is_heavy_init_complete or self.update_pending:
+            logger.warning(f"[run_cycle] Пропуск: stop_event={self.stop_event.is_set()}, heavy_init={self.is_heavy_init_complete}, update_pending={self.update_pending}")
             return
 
         try:
+            logger.info("[run_cycle] Запуск performance timer")
             self.start_performance_timer("run_cycle_total")
 
+            logger.info("[run_cycle] Обработка команд")
             self._process_commands()
 
             # 1. Получение данных аккаунта (Синхронно в потоке)
@@ -661,15 +667,17 @@ class TradingSystem(QObject):
             current_positions = []
 
             def get_account_and_positions_sync():
+                logger.info("[run_cycle] Попытка захвата mt5_lock...")
                 # ИСПРАВЛЕНИЕ: Сделаем таймаут коротким (0.5 сек) чтобы не блокировать торговлю на долго
                 if not self.mt5_lock.acquire(timeout=0.5):
-                    logger.debug(
-                        "[run_cycle] MT5 Lock недоступен (таймаут 0.5с), пропуск цикла, сохраняем сигнал")
+                    logger.warning("[run_cycle] MT5 Lock недоступен (таймаут 0.5с), пропуск цикла")
                     return None, []
-
+                
+                logger.info("[run_cycle] MT5 Lock захвачен")
                 try:
                     # Сначала пробуем мягкое подключение
                     if not self.terminal_connector.initialize(path=self.config.MT5_PATH):
+                        logger.warning("[run_cycle] Не удалось подключиться к MT5 (мягкое)")
                         # Если не вышло, пробуем полную авторизацию
                         if not self.terminal_connector.initialize(
                                 path=self.config.MT5_PATH,
@@ -677,20 +685,26 @@ class TradingSystem(QObject):
                                 password=self.config.MT5_PASSWORD,
                                 server=self.config.MT5_SERVER
                         ):
+                            logger.error("[run_cycle] Не удалось подключиться к MT5 (полная авторизация)")
                             return None, []
 
                     try:
                         acc_info = self.terminal_connector.account_info()
                         pos = self.terminal_connector.positions_get()
+                        logger.info(f"[run_cycle] Данные аккаунта получены: balance={acc_info.balance if acc_info else 'None'}")
                         return acc_info, list(pos) if pos else []
                     finally:
                         self.terminal_connector.shutdown()
                 finally:
+                    logger.info("[run_cycle] MT5 Lock освобождается")
                     self.mt5_lock.release()
 
+            logger.info("[run_cycle] Запрос данных аккаунта через asyncio.to_thread")
             account_info, current_positions = await asyncio.to_thread(get_account_and_positions_sync)
+            logger.info(f"[run_cycle] Данные аккаунта получены: {account_info is not None}")
 
             if not account_info or not self.risk_engine.check_daily_drawdown(account_info):
+                logger.warning("[run_cycle] Нет данных аккаунта или не прошла проверка drawdown")
                 self.end_performance_timer("run_cycle_total")
                 return
 
@@ -709,8 +723,9 @@ class TradingSystem(QObject):
             if should_fetch_news:
                 logger.info(
                     f"[News] Загрузка новостей (кэш: {len(self.news_cache) if self.news_cache else 0} записей, last_fetch: {self.last_news_fetch_time})")
+                # ИСПРАВЛЕНИЕ: Вызываем только загрузку новостей, без сбора рыночных данных
                 news_task = asyncio.create_task(
-                    self.data_aggregator.aggregate_all_sources_async())
+                    self.data_aggregator._load_all_news_async())
                 self.last_news_fetch_time = now
 
             # 3. Сбор рыночных данных (Асинхронно)
@@ -730,8 +745,10 @@ class TradingSystem(QObject):
             cache_key = f"market_data_{'_'.join(available_symbols)}_{len(timeframes_to_check)}"
             data_dict_raw = self.get_cached_data(
                 cache_key, ttl_seconds=60)  # Возвращаем TTL к 60 секундам
+            logger.info(f"[run_cycle] Данные из кэша: {data_dict_raw is not None}")
 
             if data_dict_raw is None:
+                logger.info("[run_cycle] Данные не в кэше, загрузка из MT5...")
                 # Данные не в кэше, получить из провайдера
                 data_task = asyncio.create_task(
                     self.data_provider.get_all_symbols_data_async(available_symbols, timeframes_to_check))
@@ -739,12 +756,15 @@ class TradingSystem(QObject):
                 tasks = [data_task]
                 if news_task:
                     tasks.append(news_task)
+                    logger.info(f"[run_cycle] Запуск задач: данные + новости")
 
                 # Ждем завершения всех задач
+                logger.info("[run_cycle] Ожидание завершения задач...")
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 data_dict_raw = results[0]
                 news_result_tuple = results[1] if news_task else None
+                logger.info(f"[run_cycle] Задачи завершены: данные={data_dict_raw is not None}, новости={news_result_tuple is not None}")
 
                 # Проверяем, не вернула ли новость ошибку
                 if news_result_tuple and isinstance(news_result_tuple, Exception):
@@ -765,6 +785,7 @@ class TradingSystem(QObject):
             else:
                 # Данные получены из кэша, news_task нужно обработать отдельно
                 if news_task:
+                    logger.info("[run_cycle] Данные из кэша, ожидание новостей...")
                     news_result_tuple = await news_task
                     if isinstance(news_result_tuple, Exception):
                         logger.error(
@@ -774,6 +795,7 @@ class TradingSystem(QObject):
                     news_result_tuple = None
 
             self.end_performance_timer("get_market_data")
+            logger.info(f"[run_cycle] Сбор данных завершён, обработка новостей...")
 
             # Обработка новостей для VectorDB (с максимальной защитой от крашей)
             try:

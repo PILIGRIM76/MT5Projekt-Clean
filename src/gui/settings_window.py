@@ -80,43 +80,68 @@ class TelegramTester(QThread):
         try:
             import requests
             from urllib3.exceptions import ConnectTimeoutError
-            
-            # Настраиваем прокси (если включено)
-            proxies = None
-            if self.use_proxy:
-                # Пробуем популярные прокси для обхода блокировок
-                proxies = {
-                    'https': 'http://proxy.workingproxy.com:8080'  # Публичный прокси
-                }
-                logger.debug("Используется прокси для Telegram API")
-            
-            # Этап 1: Быстрая проверка токена (5 сек)
+
+            # Расширенный список прокси (HTTP + SOCKS5)
+            # SOCKS5 прокси работают надёжнее для Telegram
+            proxy_list = [
+                None,  # 0: Прямое подключение
+                {'https': 'http://185.162.228.73:80'},  # 1: NL HTTP
+                {'https': 'http://103.155.217.156:41476'},  # 2: ID HTTP
+                {'https': 'http://51.159.115.23:3128'},  # 3: FR HTTP
+                {'https': 'http://178.128.200.88:3128'},  # 4: DE HTTP
+                {'https': 'http://103.152.112.162:80'},  # 5: IN HTTP
+                {'https': 'http://20.204.212.76:3128'},  # 6: US HTTP
+                {'https': 'http://103.167.135.110:80'},  # 7: TH HTTP
+                # SOCKS5 прокси (более надёжные)
+                {'https': 'socks5://176.115.126.216:14568'},  # 8: UA SOCKS5
+                {'https': 'socks5://195.154.220.171:1080'},  # 9: FR SOCKS5
+                {'https': 'socks5://51.159.114.111:3128'},  # 10: FR SOCKS5
+            ]
+
+            # Этап 1: Быстрая проверка токена (3 сек на попытку)
             logger.info("🔍 Этап 1: Проверка токена бота...")
             url = f"https://api.telegram.org/bot{self.token}/getMe"
-            
-            try:
-                response = requests.get(url, timeout=5, proxies=proxies)
-                response.raise_for_status()
-                result = response.json()
-            except requests.exceptions.Timeout:
-                logger.warning("Превышено время ожидания при проверке токена (5 сек)")
-                # Пробуем без прокси
-                if self.use_proxy:
-                    logger.info("Повторная попытка без прокси...")
-                    response = requests.get(url, timeout=10)
+
+            success = False
+            for i, proxies in enumerate(proxy_list):
+                try:
+                    if proxies:
+                        proxy_type = list(proxies.values())[0].split('://')[0].upper() if '://' in list(proxies.values())[0] else 'HTTP'
+                        proxy_name = f"#{i} ({['Прямое', 'NL', 'ID', 'FR', 'DE', 'IN', 'US', 'TH', 'UA-S5', 'FR-S5', 'FR-S5'][i]} {proxy_type})"
+                    else:
+                        proxy_name = "прямое подключение"
+
+                    logger.debug(f"Попытка {i+1}/{len(proxy_list)}: {proxy_name}")
+
+                    response = requests.get(url, timeout=3, proxies=proxies, verify=False)
                     response.raise_for_status()
                     result = response.json()
-                else:
-                    raise
-            
-            if not result.get('ok'):
-                self.result_ready.emit(False, f"❌ Неверный токен бота: {result.get('description', 'Unknown error')}")
+
+                    if result.get('ok'):
+                        success = True
+                        logger.info(f"✅ Успешно через {proxy_name}")
+                        break
+                    else:
+                        # Токен недействителен
+                        self.result_ready.emit(False, f"❌ Неверный токен бота: {result.get('description', 'Unknown error')}")
+                        return
+
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, requests.exceptions.ProxyError) as e:
+                    logger.debug(f"Попытка {i+1} не удалась: {type(e).__name__}")
+                    continue
+                except Exception as e:
+                    logger.debug(f"Попытка {i+1} ошибка: {e}")
+                    continue
+
+            if not success:
+                logger.warning("Все попытки подключения не удались")
+                self.result_ready.emit(False, "⏱️ Telegram заблокирован\n\n🔍 Все прокси недоступны\n\n💡 Решение:\n• Включите VPN и попробуйте снова\n• Проверьте интернет-соединение")
                 return
-            
+
             bot_username = result.get('result', {}).get('username', 'unknown')
             logger.info(f"✅ Токен действителен: @{bot_username}")
-            
-            # Этап 2: Отправка сообщения (10 сек)
+
+            # Этап 2: Отправка сообщения (5 сек на попытку)
             logger.info(f"📤 Этап 2: Отправка сообщения в чат {self.chat_id}...")
             url = f"https://api.telegram.org/bot{self.token}/sendMessage"
             payload = {
@@ -124,22 +149,39 @@ class TelegramTester(QThread):
                 'text': f'🧪 <b>Тест Genesis Trading System</b>\n\nУведомления Telegram работают корректно!\nБот: @{bot_username}',
                 'parse_mode': 'HTML'
             }
-            
-            try:
-                response = requests.post(url, json=payload, timeout=10, proxies=proxies)
-                response.raise_for_status()
-                result = response.json()
-            except requests.exceptions.Timeout:
-                logger.warning("Превышено время ожидания при отправке сообщения (10 сек)")
-                # Пробуем без прокси
-                if self.use_proxy:
-                    logger.info("Повторная попытка без прокси...")
-                    response = requests.post(url, json=payload, timeout=15)
+
+            send_success = False
+            for i, proxies in enumerate(proxy_list):
+                try:
+                    if proxies:
+                        proxy_type = list(proxies.values())[0].split('://')[0].upper() if '://' in list(proxies.values())[0] else 'HTTP'
+                        proxy_name = f"#{i} ({['Прямое', 'NL', 'ID', 'FR', 'DE', 'IN', 'US', 'TH', 'UA-S5', 'FR-S5', 'FR-S5'][i]} {proxy_type})"
+                    else:
+                        proxy_name = "прямое подключение"
+
+                    logger.debug(f"Отправка {i+1}/{len(proxy_list)}: {proxy_name}")
+
+                    response = requests.post(url, json=payload, timeout=5, proxies=proxies, verify=False)
                     response.raise_for_status()
                     result = response.json()
-                else:
-                    raise
-            
+
+                    if result.get('ok'):
+                        send_success = True
+                        logger.info(f"✅ Отправлено через {proxy_name}")
+                        break
+
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, requests.exceptions.ProxyError) as e:
+                    logger.debug(f"Отправка {i+1} не удалась: {type(e).__name__}")
+                    continue
+                except Exception as e:
+                    logger.debug(f"Отправка {i+1} ошибка: {e}")
+                    continue
+
+            if not send_success:
+                logger.warning("Не удалось отправить сообщение")
+                self.result_ready.emit(False, "⏱️ Не удалось отправить\n\n💡 Проверьте:\n• Chat ID (число)\n• Бот в чате\n• Включите VPN")
+                return
+
             if result.get('ok'):
                 self.result_ready.emit(True, f"✅ Успех! Бот @{bot_username} отправил сообщение.\n\nПроверьте Telegram!")
             else:
@@ -152,11 +194,7 @@ class TelegramTester(QThread):
                 elif 'user is deactivated' in error_msg.lower():
                     error_msg += "\n\n💀 Аккаунт пользователя удалён или заблокирован"
                 self.result_ready.emit(False, f"❌ Ошибка отправки: {error_msg}")
-                
-        except requests.exceptions.Timeout:
-            self.result_ready.emit(False, "⏱️ Превышено время ожидания (20 сек)\n\n🔍 Возможные причины:\n• Telegram заблокирован провайдером\n• Нет подключения к интернету\n• Прокси не работает\n\n💡 Решение:\n• Попробуйте VPN\n• Проверьте настройки прокси")
-        except requests.exceptions.ConnectionError:
-            self.result_ready.emit(False, "🌐 Ошибка подключения\n\n🔍 Возможные причины:\n• Нет интернета\n• Telegram заблокирован\n• Проблема с DNS\n• Прокси/фаервол блокирует")
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Telegram API error: {e}")
             self.result_ready.emit(False, f"❌ Ошибка запроса: {str(e)}")
@@ -876,23 +914,33 @@ class SettingsWindow(QDialog):
                                  f"Не удалось сохранить API ключи: {e}")
 
         # --- Сохранение настроек уведомлений в .env и SecretsManager ---
+        secrets_mgr = None
         try:
             # Получаем SecretsManager для безопасного хранения паролей
             secrets_mgr = get_secrets_manager()
             logger.info(f"SecretsManager для сохранения: {secrets_mgr}")
             logger.info(f"Secrets file: {secrets_mgr.secrets_file}")
-            
+        except Exception as e:
+            logger.error(f"Ошибка инициализации SecretsManager: {e}", exc_info=True)
+            secrets_mgr = None
+
+        try:
             # Сохраняем Telegram токен (чувствительные данные)
             telegram_token = self.telegram_token_edit.text()
             telegram_enabled = self.telegram_enabled_checkbox.isChecked()
             logger.info(f"Telegram: enabled={telegram_enabled}, token={'есть' if telegram_token else 'пуст'}")
-            
+
             if telegram_token:
                 logger.info("Сохранение Telegram token...")
                 set_key(self.env_path, 'TELEGRAM_BOT_TOKEN', telegram_token)
                 # Сохраняем также в SecretsManager для безопасности
-                success = secrets_mgr.store_secret('TELEGRAM_BOT_TOKEN', telegram_token)
-                logger.info(f"Telegram token сохранён в SecretsManager: {success}")
+                if secrets_mgr:
+                    success = secrets_mgr.store_secret('TELEGRAM_BOT_TOKEN', telegram_token)
+                    logger.info(f"Telegram token сохранён в SecretsManager: {success}")
+                    if not success:
+                        logger.warning("Не удалось сохранить Telegram token в SecretsManager, сохранён только в .env")
+                else:
+                    logger.warning("SecretsManager не доступен, Telegram token сохранён только в .env")
             else:
                 set_key(self.env_path, 'TELEGRAM_BOT_TOKEN', '')
                 logger.debug("Telegram token пуст, не сохраняем")
@@ -907,19 +955,24 @@ class SettingsWindow(QDialog):
             email_from = self.email_from_edit.text()
             email_recipients = self.email_recipients_edit.text()
             logger.info(f"Email: enabled={email_enabled}, from={email_from}, recipients={email_recipients}")
-            
+
             set_key(self.env_path, 'ALERT_EMAIL_FROM', email_from)
             set_key(self.env_path, 'ALERT_EMAIL_RECIPIENTS', email_recipients)
 
             # Пароль email сохраняем в SecretsManager для безопасности
             email_password = self.email_password_edit.text()
             logger.info(f"Email password: {'есть' if email_password else 'пуст'}")
-            
+
             if email_password:
                 logger.info("Сохранение Email password...")
                 # Сохраняем в зашифрованном виде через SecretsManager
-                success = secrets_mgr.store_secret('ALERT_EMAIL_PASSWORD', email_password)
-                logger.info(f"Email password сохранён в SecretsManager: {success}")
+                if secrets_mgr:
+                    success = secrets_mgr.store_secret('ALERT_EMAIL_PASSWORD', email_password)
+                    logger.info(f"Email password сохранён в SecretsManager: {success}")
+                    if not success:
+                        logger.warning("Не удалось сохранить Email password в SecretsManager, сохранён только в .env")
+                else:
+                    logger.warning("SecretsManager не доступен, Email password сохранён только в .env")
                 # Также сохраняем в .env для совместимости
                 set_key(self.env_path, 'ALERT_EMAIL_PASSWORD', email_password)
             else:

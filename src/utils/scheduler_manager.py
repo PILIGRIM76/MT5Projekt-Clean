@@ -79,8 +79,23 @@ class SchedulerManager:
     def create_task(self, task_name: str, script_name: str, trigger_type: str,
                     trigger_time: str = None, trigger_day: str = "SAT") -> tuple[bool, str]:
         """Создает задачу с разными типами триггеров."""
+        # Определяем базовую директорию проекта
+        # Если запускается из scripts/, то родительская директория
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        script_path = os.path.join(script_dir, script_name)
+        
+        # Проверяем, является ли script_name полным путём
+        if os.path.isabs(script_name):
+            script_path = script_name
+        else:
+            # Скрипты планировщика находятся в папке scripts/
+            scripts_dir = os.path.join(script_dir, 'scripts')
+            if not os.path.exists(scripts_dir):
+                # Если scripts/ не найдена, возможно мы уже в ней или в src/
+                # Пробуем найти относительно корня проекта
+                parent_dir = os.path.dirname(script_dir)
+                scripts_dir = os.path.join(parent_dir, 'scripts')
+            
+            script_path = os.path.join(scripts_dir, script_name)
 
         if not os.path.exists(script_path):
             return False, f"Не найден скрипт: {script_path}"

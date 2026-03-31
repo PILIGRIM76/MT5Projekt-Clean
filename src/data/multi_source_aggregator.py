@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import random  # <-- Добавлен для рандомизации User-Agent
 from datetime import datetime, timezone, timedelta
 from typing import List, Tuple, Optional, Dict, Any
 import httpx
@@ -21,6 +22,47 @@ from src.data_models import NewsItem
 from src.core.config_models import Settings
 
 logger = logging.getLogger(__name__)  # Исправлено имя логгера
+
+# Пул User-Agent для обхода блокировок
+USER_AGENTS = [
+    # Chrome (Windows)
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+    # Firefox (Windows)
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0',
+    # Edge (Windows)
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+    # Safari (macOS)
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+    # Chrome (macOS)
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    # Chrome (Linux)
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    # Firefox (Linux)
+    'Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0',
+]
+
+
+def get_random_user_agent() -> str:
+    """Возвращает случайный User-Agent из пула."""
+    return random.choice(USER_AGENTS)
+
+
+def get_headers() -> Dict[str, str]:
+    """Возвращает заголовки со случайным User-Agent."""
+    return {
+        'User-Agent': get_random_user_agent(),
+        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0',
+    }
+
 
 class MultiSourceDataAggregator:
     def __init__(self, config: Settings):
@@ -119,37 +161,47 @@ class MultiSourceDataAggregator:
         Возвращает кортеж: (список новостей, fear_greed_index, on_chain_data)
         """
         logger.info("Загрузка новостей из всех источников...")
-        
+
         all_news = []
         fear_greed_index = None
         on_chain_data = None
-        
+
         try:
+            logger.info("[News] Шаг 1: Fear & Greed Index...")
             # Загружаем новости из различных источников - ИСПРАВЛЕНИЕ: отключаем прокси
             async with httpx.AsyncClient(timeout=30.0, proxy=None) as client:
                 # 1. Fear & Greed Index
                 fear_greed_index = await self._fetch_fear_and_greed_index_async(client)
-                
-                # 2. Economic Calendar
+                logger.info(f"[News] Шаг 1 завершён: Fear & Greed = {fear_greed_index}")
+
+                # 2. Economic Calendar (синхронный вызов)
+                logger.info("[News] Шаг 2: Economic Calendar...")
                 calendar_news = self._fetch_economic_calendar()
                 all_news.extend(calendar_news)
-                
-                # 3. News API
+                logger.info(f"[News] Шаг 2 завершён: {len(calendar_news)} новостей")
+
+                # 3. News API (синхронный вызов)
+                logger.info("[News] Шаг 3: News API...")
                 api_news = self._fetch_news_api()
                 all_news.extend(api_news)
-                
-                # 4. RSS Feeds
-                rss_news = self._fetch_rss()
+                logger.info(f"[News] Шаг 3 завершён: {len(api_news)} новостей")
+
+                # 4. RSS Feeds (ВЫНОСИМ В ПОТОК!)
+                logger.info("[News] Шаг 4: RSS Feeds (в потоке)...")
+                rss_news = await asyncio.to_thread(self._fetch_rss)
                 all_news.extend(rss_news)
-                
+                logger.info(f"[News] Шаг 4 завершён: {len(rss_news)} новостей")
+
                 # 5. On-chain данные (для криптовалют)
+                logger.info("[News] Шаг 5: On-chain данные...")
                 on_chain_data = await self._fetch_binance_open_interest_async(client)
-                
+                logger.info(f"[News] Шаг 5 завершён: On-chain = {on_chain_data is not None}")
+
             logger.info(f"Загружено {len(all_news)} новостей из всех источников")
-            
+
         except Exception as e:
             logger.error(f"Ошибка загрузки новостей: {e}", exc_info=True)
-        
+
         return all_news, fear_greed_index, on_chain_data
 
     def _fetch_twitter_scrape(self) -> List[NewsItem]:
@@ -227,7 +279,16 @@ class MultiSourceDataAggregator:
 
         for url in self.rss_feeds:
             try:
-                feed = feedparser.parse(url)
+                # ИСПРАВЛЕНИЕ: Добавляем таймаут и случайные заголовки для RSS-запросов
+                import requests
+                headers = get_headers()  # <-- Случайные заголовки для каждого запроса
+                logger.debug(f"RSS запрос к {url} с User-Agent: {headers['User-Agent'][:50]}...")
+                
+                response = requests.get(url, timeout=10, headers=headers)  # 10 секунд таймаут
+                response.raise_for_status()
+                
+                # Парсим полученный XML
+                feed = feedparser.parse(response.content)
 
                 # --- ИСПРАВЛЕНИЕ: Используем .get() для безопасного доступа к title ---
                 feed_title = feed.feed.get('title', 'Unknown RSS Feed')
@@ -247,6 +308,14 @@ class MultiSourceDataAggregator:
                         text=f"{entry_title}. {entry_summary}",
                         timestamp=published_time
                     ))
+            except requests.Timeout:
+                logger.error(f"Таймаут при загрузке RSS-ленты {url}")
+            except requests.HTTPError as e:
+                # Логируем ошибку, но продолжаем обработку других лент
+                logger.warning(f"HTTP {e.response.status_code} при загрузке RSS-ленты {url} - пропускаем")
+            except requests.RequestException as e:
+                # Логируем ошибку, но продолжаем обработку других лент
+                logger.error(f"Ошибка HTTP при обработке RSS-ленты {url}: {e}")
             except Exception as e:
                 # Логируем ошибку, но продолжаем обработку других лент
                 logger.error(f"Ошибка при обработке RSS-ленты {url}: {e}")
