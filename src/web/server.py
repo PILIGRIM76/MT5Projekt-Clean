@@ -237,6 +237,55 @@ class WebServer:
     def setup_routes(self):
         """Настройка API routes с Rate Limiting."""
 
+        # --- Health Check & Metrics (без лимитов) ---
+
+        @app.get("/health")
+        async def health_check():
+            """
+            Health check endpoint для Kubernetes/monitoring.
+
+            Returns:
+                {"status": "healthy" | "unhealthy", "timestamp": "..."}
+            """
+            from src.core.services_container import get_all_health_checks
+
+            health_checks = get_all_health_checks()
+
+            all_healthy = all(check.get("status") == "healthy" for check in health_checks.values())
+
+            return {
+                "status": "healthy" if all_healthy else "unhealthy",
+                "timestamp": datetime.now().isoformat(),
+                "components": health_checks,
+            }
+
+        @app.get("/health/live")
+        async def liveness_probe():
+            """Liveness probe для Kubernetes."""
+            return {"status": "alive"}
+
+        @app.get("/health/ready")
+        async def readiness_probe():
+            """Readiness probe для Kubernetes."""
+            if app_state and app_state.trading_system and app_state.trading_system.running:
+                return {"status": "ready"}
+            raise HTTPException(status_code=503, detail="System not ready")
+
+        @app.get("/metrics")
+        async def get_metrics():
+            """
+            Prometheus metrics endpoint.
+
+            Returns метрики в формате Prometheus.
+            """
+            from fastapi.responses import Response
+            from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+            return Response(
+                content=generate_latest(),
+                media_type=CONTENT_TYPE_LATEST,
+            )
+
         # --- Public API (высокие лимиты) ---
 
         @app.get("/api/v1/status", response_model=SystemStatus)

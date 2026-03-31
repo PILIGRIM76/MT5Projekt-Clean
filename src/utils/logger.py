@@ -2,13 +2,21 @@
 """
 Модуль логирования для системы Genesis Trading
 Обеспечивает централизованное логирование с ротацией файлов
+
+Поддержка:
+- Текстовое логирование (стандартное)
+- JSON логирование (для ELK/Loki)
+- Ротация по времени и размеру
 """
 
+import json
 import logging
 import sys
+import traceback
 from datetime import datetime
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from pathlib import Path
+from typing import Any, Dict
 
 
 def get_log_directory():
@@ -23,6 +31,91 @@ def get_log_directory():
     return log_dir
 
 
+class JSONFormatter(logging.Formatter):
+    """
+    JSON форматтер для логирования.
+
+    Используется для отправки логов в ELK/Loki.
+
+    Example:
+        {
+            "timestamp": "2026-03-31T12:00:00.000Z",
+            "level": "INFO",
+            "logger": "genesis",
+            "message": "System started",
+            "module": "trading_system",
+            "function": "start",
+            "line": 123,
+            "thread": "MainThread",
+            "extra_data": {...}
+        }
+    """
+
+    def __init__(self, include_extra: bool = True):
+        super().__init__()
+        self.include_extra = include_extra
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Форматирование записи в JSON."""
+        log_data: Dict[str, Any] = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+            "thread": record.threadName,
+            "process": record.process,
+        }
+
+        # Добавляем exception если есть
+        if record.exc_info:
+            log_data["exception"] = {
+                "type": record.exc_info[0].__name__ if record.exc_info[0] else None,
+                "message": str(record.exc_info[1]) if record.exc_info[1] else None,
+                "traceback": traceback.format_exception(*record.exc_info),
+            }
+
+        # Добавляем extra данные если есть
+        if self.include_extra:
+            extra_data = {
+                key: value
+                for key, value in record.__dict__.items()
+                if key
+                not in [
+                    "name",
+                    "msg",
+                    "args",
+                    "created",
+                    "filename",
+                    "funcName",
+                    "levelname",
+                    "levelno",
+                    "lineno",
+                    "module",
+                    "msecs",
+                    "pathname",
+                    "process",
+                    "processName",
+                    "relativeCreated",
+                    "stack_info",
+                    "exc_info",
+                    "exc_text",
+                    "thread",
+                    "threadName",
+                    "message",
+                    "asctime",
+                    "asctime_ms",
+                ]
+                and not key.startswith("_")
+            }
+            if extra_data:
+                log_data["extra"] = extra_data
+
+        return json.dumps(log_data, ensure_ascii=False, default=str)
+
+
 def setup_logger(
     name: str = "genesis",
     level: int = logging.INFO,
@@ -32,6 +125,7 @@ def setup_logger(
     backup_count: int = 7,
     max_bytes: int = 10 * 1024 * 1024,  # 10 MB для размерной ротации
     format_string: str = None,
+    json_format: bool = False,  # Новый параметр для JSON логирования
 ) -> logging.Logger:
     """
     Настроить и вернуть логгер с ротацией файлов
@@ -45,6 +139,7 @@ def setup_logger(
         backup_count: Количество резервных файлов
         max_bytes: Максимальный размер файла (для размерной ротации)
         format_string: Формат сообщений логов
+        json_format: Использовать JSON формат (для ELK/Loki)
 
     Returns:
         Настроенный логгер
@@ -52,7 +147,11 @@ def setup_logger(
     if format_string is None:
         format_string = "%(asctime)s | %(levelname)-8s | " "%(name)s | %(funcName)s:%(lineno)d | " "%(message)s"
 
-    formatter = logging.Formatter(format_string, datefmt="%Y-%m-%d %H:%M:%S")
+    # Выбираем форматтер
+    if json_format:
+        formatter = JSONFormatter()
+    else:
+        formatter = logging.Formatter(format_string, datefmt="%Y-%m-%d %H:%M:%S")
 
     logger = logging.getLogger(name)
     logger.setLevel(level)
