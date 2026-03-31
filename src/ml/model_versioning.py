@@ -200,7 +200,7 @@ class ModelVersioning:
             if model_type:
                 query = query.filter(TrainedModel.model_type == model_type)
 
-            query = query.order_by(TrainedModel.trained_at.desc())
+            query = query.order_by(TrainedModel.training_date.desc())
 
             db_models = query.all()
             versions = [ModelVersion.from_database(m) for m in db_models]
