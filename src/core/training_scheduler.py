@@ -115,11 +115,15 @@ class TrainingScheduler:
 
     def _scheduled_training_job(self):
         """Задача планировщика для запуска обучения."""
-        if self.training_in_progress:
-            logger.warning("Обучение уже запущено, пропускаем запланированный запуск")
-            return
-
+        logger.info("=" * 80)
         logger.info(f"🕐 [{datetime.now().strftime('%H:%M:%S')}] Запланированное переобучение моделей...")
+        logger.info(f"   training_in_progress={self.training_in_progress}")
+        logger.info(f"   last_training_time={self.last_training_time}")
+        logger.info("=" * 80)
+
+        if self.training_in_progress:
+            logger.warning("⚠️ Обучение уже запущено, пропускаем запланированный запуск")
+            return
 
         # Запускаем обучение в отдельном потоке
         self.training_in_progress = True
@@ -127,6 +131,7 @@ class TrainingScheduler:
 
         training_thread = threading.Thread(target=self._execute_training, name="ScheduledTraining", daemon=True)
         training_thread.start()
+        logger.info("✅ Поток обучения запущен")
 
     def _scheduler_loop(self):
         """Основной цикл планировщика."""
@@ -186,20 +191,27 @@ class TrainingScheduler:
     def _execute_training(self):
         """Выполняет обучение моделей."""
         try:
-            logger.info(f"Начинаем обучение {self.max_symbols} символов в {self.max_workers} потоков...")
+            logger.info("=" * 80)
+            logger.info("🎓 НАЧАЛО ОБУЧЕНИЯ МОДЕЛЕЙ")
+            logger.info(f"   Параметры: max_symbols={self.max_symbols}, max_workers={self.max_workers}")
+            logger.info(f"   Время начала: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info("=" * 80)
+
+            logger.info(f"📢 Вызов training_callback(max_symbols={self.max_symbols}, max_workers={self.max_workers})...")
 
             # Вызываем callback функцию обучения
             self.training_callback(max_symbols=self.max_symbols, max_workers=self.max_workers)
 
             logger.info("=" * 80)
-            logger.info("АВТОМАТИЧЕСКОЕ ПЕРЕОБУЧЕНИЕ ЗАВЕРШЕНО УСПЕШНО")
-            logger.info(f"Время завершения: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info("✅ АВТОМАТИЧЕСКОЕ ПЕРЕОБУЧЕНИЕ ЗАВЕРШЕНО УСПЕШНО")
+            logger.info(f"   Время завершения: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             logger.info("=" * 80)
 
         except Exception as e:
-            logger.error(f"Ошибка при автоматическом переобучении: {e}", exc_info=True)
+            logger.error(f"❌ Ошибка при автоматическом переобучении: {e}", exc_info=True)
         finally:
             self.training_in_progress = False
+            logger.info("📢 training_in_progress = False")
 
     def _is_good_time_to_train(self) -> bool:
         """

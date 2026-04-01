@@ -3795,20 +3795,28 @@ class TradingSystem(QObject):
         Вызывается планировщиком по расписанию.
         """
         try:
-            logger.info("🔄 Запуск автоматического переобучения моделей...")
+            logger.info("=" * 80)
+            logger.info("🔄 ЗАПУСК АВТОМАТИЧЕСКОГО ПЕРЕОБУЧЕНИЯ МОДЕЛЕЙ")
+            logger.info(f"   Параметры: max_symbols={max_symbols}, max_workers={max_workers}")
+            logger.info(f"   Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info("=" * 80)
 
             # Импортируем функцию из smart_retrain
             from smart_retrain import smart_retrain_models
 
             # Запускаем обучение
-            smart_retrain_models(max_symbols=max_symbols, max_workers=max_workers)
+            logger.info("📢 Вызов smart_retrain_models()...")
+            result = smart_retrain_models(max_symbols=max_symbols, max_workers=max_workers)
+            logger.info(f"✅ Результат переобучения: {result}")
 
             logger.info("✅ Автоматическое переобучение завершено")
 
             # ОТПРАВКА ДАННЫХ В GUI ПОСЛЕ ОБУЧЕНИЯ
             if self.bridge:
+                logger.info("📊 Отправка данных в GUI...")
                 self._send_model_accuracy_to_gui()
                 self._send_retrain_progress_to_gui()
+                logger.info("✅ Данные отправлены в GUI")
 
         except Exception as e:
             logger.error(f"❌ Ошибка при автоматическом переобучении: {e}", exc_info=True)
