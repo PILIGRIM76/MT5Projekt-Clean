@@ -310,16 +310,9 @@ class TestGetTopFeatures:
     def test_get_top_features(self, mock_get_history, feature_tracker):
         """Тест получения топ признаков."""
         # Мок возврата DataFrame с данными
-        mock_df = MagicMock()
-        mock_df.empty = False
-        mock_df.columns = MagicMock()
-        mock_df.columns.__iter__ = lambda self: iter(["importance"])
+        import pandas as pd
 
-        # Мок для nlargest
-        mock_nlargest_result = MagicMock()
-        mock_nlargest_result.index.tolist.return_value = ["ATR_14", "RSI_14"]
-        mock_df.__getitem__.return_value.nlargest.return_value = mock_nlargest_result
-
+        mock_df = pd.DataFrame({"importance": [0.5, 0.3, 0.2]}, index=["ATR_14", "RSI_14", "MACD"])
         mock_get_history.return_value = mock_df
 
         top = feature_tracker.get_top_features("EURUSD", top_n=5)
@@ -391,17 +384,10 @@ class TestAnalyzeFeatureDrift:
     @patch.object(FeatureImportanceTracker, "get_importance_history")
     def test_analyze_feature_drift_detected(self, mock_get_history, feature_tracker):
         """Тест обнаружения дрейфа."""
-        # Мок возврата DataFrame с дрейфом
-        mock_df = MagicMock()
-        mock_df.empty = False
-        mock_df.columns = ["importance"]
+        import pandas as pd
 
-        # Создаём мок series с данными
-        mock_series = MagicMock()
-        mock_series.tolist.return_value = [0.1, 0.1, 0.1, 0.5, 0.5, 0.5]  # Резкий рост
-        mock_df.loc = MagicMock()
-        mock_df.loc.__getitem__.return_value = mock_series
-
+        # Мок DataFrame с дрейфом (резкий рост важности)
+        mock_df = pd.DataFrame({"importance": [0.1, 0.1, 0.1, 0.5, 0.5, 0.5]}, index=["MACD"] * 6)
         mock_get_history.return_value = mock_df
 
         result = feature_tracker.analyze_feature_drift(
@@ -410,7 +396,7 @@ class TestAnalyzeFeatureDrift:
             threshold=0.3,
         )
 
-        assert result["drift_detected"] is True
+        assert result["drift_detected"] == True  # np.True_ == True
         assert "change_ratio" in result
 
     def test_analyze_feature_drift_no_data(self, feature_tracker, mock_db_manager):
