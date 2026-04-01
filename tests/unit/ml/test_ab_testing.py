@@ -387,7 +387,7 @@ class TestABTestingIntegration:
         result = ab_framework.analyze_test(test_id)
 
         assert result.status == TestStatus.COMPLETED
-        assert "strategy_b_metrics" in result.strategy_b_metrics
+        assert "total_trades" in result.strategy_b_metrics
         assert result.strategy_b_metrics["total_trades"] == 35
 
         # 5. Получение результатов

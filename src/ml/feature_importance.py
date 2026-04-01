@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from sqlalchemy.orm import declarative_base
 
 from src.core.config_models import Settings
 from src.db.database_manager import DatabaseManager

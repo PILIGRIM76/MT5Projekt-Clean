@@ -568,7 +568,11 @@ class ABTestingFramework:
             ab_test = session.query(ABTest).filter(ABTest.test_id == test_id).first()
 
             if ab_test and ab_test.results_json:
-                return json.loads(ab_test.results_json)
+                try:
+                    return json.loads(ab_test.results_json)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"Не удалось распарсить results_json для теста {test_id}")
+                    return None
 
             return None
 
@@ -584,7 +588,7 @@ class ABTestingFramework:
         del self.active_tests[test_id]
 
         # Обновляем в БД
-        from sqlalchemy import Column, DateTime, String, Text
+        from sqlalchemy import Column, DateTime, Integer, String, Text
         from sqlalchemy.orm import declarative_base
 
         Base = declarative_base()
