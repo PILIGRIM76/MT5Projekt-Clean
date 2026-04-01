@@ -37,6 +37,21 @@ class Bridge(QObject):
     directives_updated = Signal(list)
     times_updated = Signal(str, str)
     model_list_updated = Signal(list)
+    orchestrator_allocation_updated = Signal(dict)
+    knowledge_graph_updated = Signal(str)
+    observer_pnl_updated = Signal(list)
+    vector_db_search_results = Signal(list)
+
+    thread_status_updated = Signal(str, str)
+    # task_id, message, is_finished
+    long_task_status_updated = Signal(str, str, bool)
+    heavy_initialization_finished = Signal()
+    drift_data_updated = Signal(float, str, float, bool)
+    pnl_kpis_updated = Signal(dict)
+
+    # НОВЫЕ: Сигналы для визуализации переобучения
+    model_accuracy_updated = Signal(dict)  # {symbol: accuracy}
+    retrain_progress_updated = Signal(dict)  # {symbol: hours_since_training}
 
 
 class GUIBridge(QObject):
