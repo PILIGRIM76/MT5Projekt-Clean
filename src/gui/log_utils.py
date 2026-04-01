@@ -70,12 +70,21 @@ class QtLogHandler(logging.Handler):
 def setup_qt_logging(bridge_log_signal, config: Settings):
     """
     Централизованно настраивает корневой логгер для вывода в консоль, в GUI и в файл.
-    Гарантирует, что обработчики не будут дублироваться.
+    Гарантирует, что настройка произойдет только один раз.
     """
 
     global _logger_configured
     if _logger_configured:
         return
+
+    # Устанавливаем кодировку UTF-8 для логов на Windows
+    import locale
+    import sys
+
+    try:
+        locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
+    except locale.Error:
+        pass  # Windows может не поддерживать эту локаль
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
@@ -87,8 +96,6 @@ def setup_qt_logging(bridge_log_signal, config: Settings):
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(ColorFormatter())
     # Устанавливаем utf-8 для корректного отображения кириллицы в Windows
-    import sys
-
     if hasattr(sys.stdout, "reconfigure"):
         try:
             sys.stdout.reconfigure(encoding="utf-8")
@@ -110,7 +117,13 @@ def setup_qt_logging(bridge_log_signal, config: Settings):
         log_file_path = logs_path / "genesis_system.log"
 
         # Создаем обработчик, который будет создавать до 5 файлов логов по 5 МБ каждый
-        file_handler = RotatingFileHandler(log_file_path, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8")  # 5 MB
+        file_handler = RotatingFileHandler(
+            log_file_path,
+            maxBytes=5 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+            delay=True,  # Откладываем открытие файла до первой записи
+        )
         # Устанавливаем более детальный формат для файла
         file_formatter = logging.Formatter(
             "%(asctime)s - %(levelname)s - [%(name)s:%(lineno)d] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
