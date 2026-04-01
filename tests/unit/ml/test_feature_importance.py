@@ -119,14 +119,14 @@ class TestComputeLGBImportance:
 class TestComputeSHAPValues:
     """Тесты compute_shap_values."""
 
-    @patch("src.ml.feature_importance.shap")
-    def test_compute_shap_values(self, mock_shap, feature_tracker, sample_lgb_model, sample_data, sample_features):
+    @patch("shap.TreeExplainer")
+    def test_compute_shap_values(self, mock_tree_explainer, feature_tracker, sample_lgb_model, sample_data, sample_features):
         """Тест вычисления SHAP значений."""
         X, y = sample_data
 
         # Мок explainer
         mock_explainer = MagicMock()
-        mock_shap.TreeExplainer.return_value = mock_explainer
+        mock_tree_explainer.return_value = mock_explainer
         mock_explainer.shap_values.return_value = np.random.rand(100, 5)
 
         shap_values, mean_importance = feature_tracker.compute_shap_values(
@@ -138,20 +138,19 @@ class TestComputeSHAPValues:
 
         assert len(mean_importance) == 5
         assert "ATR_14" in mean_importance
-        mock_shap.TreeExplainer.assert_called_once()
+        mock_tree_explainer.assert_called_once()
 
-    @patch("src.ml.feature_importance.shap")
-    def test_compute_shap_import_error(self, mock_shap, feature_tracker, sample_lgb_model, sample_data, sample_features):
+    def test_compute_shap_import_error(self, feature_tracker, sample_lgb_model, sample_data, sample_features):
         """Тест когда SHAP не установлен."""
-        mock_shap = None  # Имитация отсутствия shap
-
         X, y = sample_data
 
-        shap_values, mean_importance = feature_tracker.compute_shap_values(
-            model=sample_lgb_model,
-            X=X,
-            features=sample_features,
-        )
+        # Патчим import shap чтобы вызвать ImportError
+        with patch.dict("sys.modules", {"shap": None}):
+            shap_values, mean_importance = feature_tracker.compute_shap_values(
+                model=sample_lgb_model,
+                X=X,
+                features=sample_features,
+            )
 
         assert len(shap_values) == 0
         assert mean_importance == {}
@@ -165,7 +164,7 @@ class TestComputeSHAPValues:
 class TestPermutationImportance:
     """Тесты compute_permutation_importance."""
 
-    @patch("src.ml.feature_importance.permutation_importance")
+    @patch("sklearn.inspection.permutation_importance")
     def test_compute_permutation_importance(
         self, mock_perm_importance, feature_tracker, sample_lgb_model, sample_data, sample_features
     ):
@@ -190,7 +189,7 @@ class TestPermutationImportance:
         assert importance["ATR_14"] == 0.5
         mock_perm_importance.assert_called_once()
 
-    @patch("src.ml.feature_importance.permutation_importance")
+    @patch("sklearn.inspection.permutation_importance")
     def test_compute_permutation_importance_error(
         self, mock_perm_importance, feature_tracker, sample_lgb_model, sample_data, sample_features
     ):
@@ -257,8 +256,13 @@ class TestSaveImportance:
 class TestGetImportanceHistory:
     """Тесты get_importance_history."""
 
-    def test_get_importance_history_empty(self, feature_tracker, mock_db_manager):
+    @patch("src.ml.feature_importance.declarative_base")
+    def test_get_importance_history_empty(self, mock_declarative, feature_tracker, mock_db_manager):
         """Тест пустой истории."""
+        # Мок Base
+        mock_base = MagicMock()
+        mock_declarative.return_value = mock_base
+
         session = mock_db_manager.Session.return_value
         session.query.return_value.filter.return_value.all.return_value = []
 
@@ -266,8 +270,13 @@ class TestGetImportanceHistory:
 
         assert history.empty
 
-    def test_get_importance_history_with_data(self, feature_tracker, mock_db_manager):
+    @patch("src.ml.feature_importance.declarative_base")
+    def test_get_importance_history_with_data(self, mock_declarative, feature_tracker, mock_db_manager):
         """Тест с данными."""
+        # Мок Base
+        mock_base = MagicMock()
+        mock_declarative.return_value = mock_base
+
         mock_record = MagicMock()
         mock_record.model_id = 42
         mock_record.feature_name = "ATR_14"
@@ -291,8 +300,13 @@ class TestGetImportanceHistory:
 class TestGetTopFeatures:
     """Тесты get_top_features."""
 
-    def test_get_top_features(self, feature_tracker, mock_db_manager):
+    @patch("src.ml.feature_importance.declarative_base")
+    def test_get_top_features(self, mock_declarative, feature_tracker, mock_db_manager):
         """Тест получения топ признаков."""
+        # Мок Base
+        mock_base = MagicMock()
+        mock_declarative.return_value = mock_base
+
         mock_record = MagicMock()
         mock_record.model_id = 42
         mock_record.feature_name = "ATR_14"
@@ -316,8 +330,13 @@ class TestGetTopFeatures:
 class TestComputeStabilityScore:
     """Тесты compute_stability_score."""
 
-    def test_compute_stability_score_stable(self, feature_tracker, mock_db_manager):
+    @patch("src.ml.feature_importance.declarative_base")
+    def test_compute_stability_score_stable(self, mock_declarative, feature_tracker, mock_db_manager):
         """Тест стабильного признака."""
+        # Мок Base
+        mock_base = MagicMock()
+        mock_declarative.return_value = mock_base
+
         # Мок истории со стабильными значениями
         mock_record = MagicMock()
         mock_record.model_id = 42
@@ -336,8 +355,12 @@ class TestComputeStabilityScore:
 
         assert 0.0 <= stability <= 1.0
 
-    def test_compute_stability_score_no_data(self, feature_tracker, mock_db_manager):
+    @patch("src.ml.feature_importance.declarative_base")
+    def test_compute_stability_score_no_data(self, mock_declarative, feature_tracker, mock_db_manager):
         """Тест без данных."""
+        mock_base = MagicMock()
+        mock_declarative.return_value = mock_base
+
         session = mock_db_manager.Session.return_value
         session.query.return_value.filter.return_value.all.return_value = []
 
@@ -357,8 +380,12 @@ class TestComputeStabilityScore:
 class TestAnalyzeFeatureDrift:
     """Тесты analyze_feature_drift."""
 
-    def test_analyze_feature_drift_detected(self, feature_tracker, mock_db_manager):
+    @patch("src.ml.feature_importance.declarative_base")
+    def test_analyze_feature_drift_detected(self, mock_declarative, feature_tracker, mock_db_manager):
         """Тест обнаружения дрейфа."""
+        mock_base = MagicMock()
+        mock_declarative.return_value = mock_base
+
         # Мок истории с дрейфом
         records = []
         for i in range(6):
@@ -381,8 +408,12 @@ class TestAnalyzeFeatureDrift:
         assert "drift_detected" in result
         assert "change_ratio" in result
 
-    def test_analyze_feature_drift_no_data(self, feature_tracker, mock_db_manager):
+    @patch("src.ml.feature_importance.declarative_base")
+    def test_analyze_feature_drift_no_data(self, mock_declarative, feature_tracker, mock_db_manager):
         """Тест без данных."""
+        mock_base = MagicMock()
+        mock_declarative.return_value = mock_base
+
         session = mock_db_manager.Session.return_value
         session.query.return_value.filter.return_value.all.return_value = []
 
