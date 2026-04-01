@@ -259,12 +259,25 @@ class TestGetImportanceHistory:
     @patch("src.ml.feature_importance.declarative_base")
     def test_get_importance_history_empty(self, mock_declarative, feature_tracker, mock_db_manager):
         """Тест пустой истории."""
-        # Мок Base
+        # Мок Base и класса FeatureImportance
         mock_base = MagicMock()
         mock_declarative.return_value = mock_base
 
+        # Создаём мок класс с атрибутами
+        mock_fi_class = MagicMock()
+        mock_fi_class.symbol = "EURUSD"  # Для filter
+        mock_fi_class.model_id = 42  # Для filter
+        mock_fi_class.created_at = "2024-01-01"  # Для order_by
+
+        mock_base.__subclasses__.return_value = [mock_fi_class]
+
         session = mock_db_manager.Session.return_value
-        session.query.return_value.filter.return_value.all.return_value = []
+        mock_query = MagicMock()
+        session.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = []
 
         history = feature_tracker.get_importance_history("EURUSD")
 
@@ -277,15 +290,26 @@ class TestGetImportanceHistory:
         mock_base = MagicMock()
         mock_declarative.return_value = mock_base
 
-        mock_record = MagicMock()
-        mock_record.model_id = 42
-        mock_record.feature_name = "ATR_14"
-        mock_record.importance = 0.5
-        mock_record.importance_type = "gain"
-        mock_record.created_at = datetime.now()
+        # Создаём мок запись с правильными атрибутами
+        mock_record = type(
+            "MockRecord",
+            (),
+            {
+                "model_id": 42,
+                "feature_name": "ATR_14",
+                "importance": 0.5,
+                "importance_type": "gain",
+                "created_at": datetime.now(),
+            },
+        )()
 
         session = mock_db_manager.Session.return_value
-        session.query.return_value.filter.return_value.all.return_value = [mock_record]
+        mock_query = MagicMock()
+        session.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = [mock_record]
 
         history = feature_tracker.get_importance_history("EURUSD")
 
@@ -307,15 +331,26 @@ class TestGetTopFeatures:
         mock_base = MagicMock()
         mock_declarative.return_value = mock_base
 
-        mock_record = MagicMock()
-        mock_record.model_id = 42
-        mock_record.feature_name = "ATR_14"
-        mock_record.importance = 0.5
-        mock_record.importance_type = "gain"
-        mock_record.created_at = datetime.now()
+        # Создаём мок запись с правильными атрибутами
+        mock_record = type(
+            "MockRecord",
+            (),
+            {
+                "model_id": 42,
+                "feature_name": "ATR_14",
+                "importance": 0.5,
+                "importance_type": "gain",
+                "created_at": datetime.now(),
+            },
+        )()
 
         session = mock_db_manager.Session.return_value
-        session.query.return_value.filter.return_value.all.return_value = [mock_record]
+        mock_query = MagicMock()
+        session.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = [mock_record]
 
         top = feature_tracker.get_top_features("EURUSD", top_n=5)
 
@@ -337,15 +372,16 @@ class TestComputeStabilityScore:
         mock_base = MagicMock()
         mock_declarative.return_value = mock_base
 
-        # Мок истории со стабильными значениями
-        mock_record = MagicMock()
-        mock_record.model_id = 42
-        mock_record.feature_name = "ATR_14"
-        mock_record.importance = 0.5  # Стабильное значение
-        mock_record.created_at = datetime.now()
+        # Создаём мок записи
+        mock_record = type(
+            "MockRecord", (), {"model_id": 42, "feature_name": "ATR_14", "importance": 0.5, "created_at": datetime.now()}
+        )()
 
         session = mock_db_manager.Session.return_value
-        session.query.return_value.filter.return_value.all.return_value = [mock_record] * 5
+        mock_query = MagicMock()
+        session.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.all.return_value = [mock_record] * 5
 
         stability = feature_tracker.compute_stability_score(
             symbol="EURUSD",
@@ -362,7 +398,10 @@ class TestComputeStabilityScore:
         mock_declarative.return_value = mock_base
 
         session = mock_db_manager.Session.return_value
-        session.query.return_value.filter.return_value.all.return_value = []
+        mock_query = MagicMock()
+        session.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.all.return_value = []
 
         stability = feature_tracker.compute_stability_score(
             symbol="EURUSD",
@@ -386,18 +425,26 @@ class TestAnalyzeFeatureDrift:
         mock_base = MagicMock()
         mock_declarative.return_value = mock_base
 
-        # Мок истории с дрейфом
+        # Создаём мок записи с дрейфом
         records = []
         for i in range(6):
-            mock_record = MagicMock()
-            mock_record.model_id = i
-            mock_record.feature_name = "MACD"
-            mock_record.importance = 0.1 if i < 3 else 0.5  # Резкий рост
-            mock_record.created_at = datetime.now()
+            mock_record = type(
+                "MockRecord",
+                (),
+                {
+                    "model_id": i,
+                    "feature_name": "MACD",
+                    "importance": 0.1 if i < 3 else 0.5,  # Резкий рост
+                    "created_at": datetime.now(),
+                },
+            )()
             records.append(mock_record)
 
         session = mock_db_manager.Session.return_value
-        session.query.return_value.filter.return_value.all.return_value = records
+        mock_query = MagicMock()
+        session.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.all.return_value = records
 
         result = feature_tracker.analyze_feature_drift(
             symbol="EURUSD",
@@ -415,7 +462,10 @@ class TestAnalyzeFeatureDrift:
         mock_declarative.return_value = mock_base
 
         session = mock_db_manager.Session.return_value
-        session.query.return_value.filter.return_value.all.return_value = []
+        mock_query = MagicMock()
+        session.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.all.return_value = []
 
         result = feature_tracker.analyze_feature_drift(
             symbol="EURUSD",
