@@ -256,21 +256,8 @@ class TestSaveImportance:
 class TestGetImportanceHistory:
     """Тесты get_importance_history."""
 
-    @patch("src.ml.feature_importance.declarative_base")
-    def test_get_importance_history_empty(self, mock_declarative, feature_tracker, mock_db_manager):
+    def test_get_importance_history_empty(self, feature_tracker, mock_db_manager):
         """Тест пустой истории."""
-        # Мок Base и класса FeatureImportance
-        mock_base = MagicMock()
-        mock_declarative.return_value = mock_base
-
-        # Создаём мок класс с атрибутами
-        mock_fi_class = MagicMock()
-        mock_fi_class.symbol = "EURUSD"  # Для filter
-        mock_fi_class.model_id = 42  # Для filter
-        mock_fi_class.created_at = "2024-01-01"  # Для order_by
-
-        mock_base.__subclasses__.return_value = [mock_fi_class]
-
         session = mock_db_manager.Session.return_value
         mock_query = MagicMock()
         session.query.return_value = mock_query
@@ -283,13 +270,8 @@ class TestGetImportanceHistory:
 
         assert history.empty
 
-    @patch("src.ml.feature_importance.declarative_base")
-    def test_get_importance_history_with_data(self, mock_declarative, feature_tracker, mock_db_manager):
+    def test_get_importance_history_with_data(self, feature_tracker, mock_db_manager):
         """Тест с данными."""
-        # Мок Base
-        mock_base = MagicMock()
-        mock_declarative.return_value = mock_base
-
         # Создаём мок запись с правильными атрибутами
         mock_record = type(
             "MockRecord",
@@ -324,13 +306,8 @@ class TestGetImportanceHistory:
 class TestGetTopFeatures:
     """Тесты get_top_features."""
 
-    @patch("src.ml.feature_importance.declarative_base")
-    def test_get_top_features(self, mock_declarative, feature_tracker, mock_db_manager):
+    def test_get_top_features(self, feature_tracker, mock_db_manager):
         """Тест получения топ признаков."""
-        # Мок Base
-        mock_base = MagicMock()
-        mock_declarative.return_value = mock_base
-
         # Создаём мок запись с правильными атрибутами
         mock_record = type(
             "MockRecord",
@@ -365,16 +342,18 @@ class TestGetTopFeatures:
 class TestComputeStabilityScore:
     """Тесты compute_stability_score."""
 
-    @patch("src.ml.feature_importance.declarative_base")
-    def test_compute_stability_score_stable(self, mock_declarative, feature_tracker, mock_db_manager):
+    def test_compute_stability_score_stable(self, feature_tracker, mock_db_manager):
         """Тест стабильного признака."""
-        # Мок Base
-        mock_base = MagicMock()
-        mock_declarative.return_value = mock_base
-
         # Создаём мок записи
         mock_record = type(
-            "MockRecord", (), {"model_id": 42, "feature_name": "ATR_14", "importance": 0.5, "created_at": datetime.now()}
+            "MockRecord",
+            (),
+            {
+                "model_id": 42,
+                "feature_name": "ATR_14",
+                "importance": 0.5,
+                "created_at": datetime.now(),
+            },
         )()
 
         session = mock_db_manager.Session.return_value
@@ -391,12 +370,8 @@ class TestComputeStabilityScore:
 
         assert 0.0 <= stability <= 1.0
 
-    @patch("src.ml.feature_importance.declarative_base")
-    def test_compute_stability_score_no_data(self, mock_declarative, feature_tracker, mock_db_manager):
+    def test_compute_stability_score_no_data(self, feature_tracker, mock_db_manager):
         """Тест без данных."""
-        mock_base = MagicMock()
-        mock_declarative.return_value = mock_base
-
         session = mock_db_manager.Session.return_value
         mock_query = MagicMock()
         session.query.return_value = mock_query
@@ -419,12 +394,8 @@ class TestComputeStabilityScore:
 class TestAnalyzeFeatureDrift:
     """Тесты analyze_feature_drift."""
 
-    @patch("src.ml.feature_importance.declarative_base")
-    def test_analyze_feature_drift_detected(self, mock_declarative, feature_tracker, mock_db_manager):
+    def test_analyze_feature_drift_detected(self, feature_tracker, mock_db_manager):
         """Тест обнаружения дрейфа."""
-        mock_base = MagicMock()
-        mock_declarative.return_value = mock_base
-
         # Создаём мок записи с дрейфом
         records = []
         for i in range(6):
@@ -455,12 +426,8 @@ class TestAnalyzeFeatureDrift:
         assert "drift_detected" in result
         assert "change_ratio" in result
 
-    @patch("src.ml.feature_importance.declarative_base")
-    def test_analyze_feature_drift_no_data(self, mock_declarative, feature_tracker, mock_db_manager):
+    def test_analyze_feature_drift_no_data(self, feature_tracker, mock_db_manager):
         """Тест без данных."""
-        mock_base = MagicMock()
-        mock_declarative.return_value = mock_base
-
         session = mock_db_manager.Session.return_value
         mock_query = MagicMock()
         session.query.return_value = mock_query
