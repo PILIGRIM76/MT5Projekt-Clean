@@ -90,35 +90,51 @@ class OrchestratorEnv(gym.Env):
         # --- ИСПРАВЛЕНИЕ КРИТИЧЕСКОЙ ОШИБКИ: Правильное разделение action_matrix ---
 
         # action.shape теперь (5, 12) (5 режимов, 6 стратегий * 2)
+        logger.info(f"[OrchestratorEnv] Получено действие shape={action.shape}")
+        logger.debug(f"[OrchestratorEnv] Action matrix:\n{action}")
 
         # Разделяем на Enable/Disable и Weight
         enable_actions = action[:, : self.num_strategies]  # Shape: (5, 6)
         weight_actions = action[:, self.num_strategies :]  # Shape: (5, 6)
 
+        logger.debug(f"[OrchestratorEnv] Enable actions:\n{enable_actions}")
+        logger.debug(f"[OrchestratorEnv] Weight actions:\n{weight_actions}")
+
         regime_allocations = {}
         for i in range(self.num_regimes):
             regime = self.regime_names[i]
 
-            # 1. Определяем, какие стратегии включены (Enable/Disable)
-            is_enabled = enable_actions[i, :] > 0.5  # Shape: (6,)
+            # Получаем веса стратегий для данного режима
             raw_weights = weight_actions[i, :]  # Shape: (6,)
 
-            # 2. Применяем маску: вес = 0, если стратегия отключена
-            # Shape: (6,) * (6,) = (6,) -> БЕЗ ОШИБКИ
-            final_weights = raw_weights * is_enabled
+            # 🔍 ДИАГНОСТИКА
+            logger.info(f"[OrchestratorEnv] Режим {regime}:")
+            logger.info(f"  Raw weights от PPO: {raw_weights}")
 
-            # 3. Нормализуем оставшиеся веса
-            sum_weights = np.sum(final_weights)
+            # АВТОНОМНОЕ РЕШЕНИЕ: Нормализуем веса как есть
+            # PPO модель сама решает какие стратегии выбрать и их веса
+            sum_weights = np.sum(raw_weights)
+            logger.info(f"  Sum of weights: {sum_weights:.6f}")
 
             if sum_weights > 1e-6:
-                normalized_weights = final_weights / sum_weights
+                # Нормализуем веса PPO
+                normalized_weights = raw_weights / sum_weights
+                logger.info(f"  Normalized weights: {normalized_weights}")
             else:
-                normalized_weights = np.ones_like(final_weights) / self.num_strategies
+                # КРАЙНИЙ СЛУЧАЙ: Если PPO выдала нулевые веса, используем равномерное распределение
+                normalized_weights = np.ones_like(raw_weights) / self.num_strategies
+                logger.warning(
+                    f"[OrchestratorEnv] ⚠️ PPO выдала нулевые веса для режима '{regime}'! "
+                    f"Используется равномерное распределение: {normalized_weights}"
+                )
 
             allocation = {name: float(weight) for name, weight in zip(self.strategy_names, normalized_weights)}
             regime_allocations[regime] = allocation
 
+            logger.info(f"  Allocation: {allocation}")
+
         # 4. Передаем полную матрицу распределения в TradingSystem
+        logger.info(f"[OrchestratorEnv] Передаём распределение в TradingSystem: {len(regime_allocations)} режимов")
         self.trading_system.apply_orchestrator_action(regime_allocations)
 
         # 5. Расчет награды (Reward)

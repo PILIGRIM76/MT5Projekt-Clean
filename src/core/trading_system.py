@@ -1910,9 +1910,20 @@ class TradingSystem(QObject):
 
     def apply_orchestrator_action(self, regime_allocations: Dict[str, Dict[str, float]]):
         logger.warning(f"[Orchestrator] Новое режимное распределение капитала: {list(regime_allocations.keys())} режимов.")
+
+        # 🔍 ДИАГНОСТИКА: Логирование распределения
+        for regime, allocation in regime_allocations.items():
+            logger.info(f"[Orchestrator] {regime}:")
+            for strategy, weight in allocation.items():
+                logger.info(f"  - {strategy}: {weight:.2%}")
+
         self.risk_engine.update_regime_capital_allocation(regime_allocations)
         current_regime = self._get_current_market_regime_name()
         current_allocation = regime_allocations.get(current_regime, self.risk_engine.default_capital_allocation)
+
+        logger.info(f"[Orchestrator] Текущий режим: {current_regime}")
+        logger.info(f"[Orchestrator] Применяемое распределение: {current_allocation}")
+
         self.orchestrator_allocation_updated.emit(current_allocation)
 
     def force_gp_cycle(self):
