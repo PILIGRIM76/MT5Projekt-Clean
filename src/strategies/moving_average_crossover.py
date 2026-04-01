@@ -70,8 +70,7 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
             return None
 
         # Простое предсказание: цена + небольшой процент в направлении сигнала
-        current_price = df_copy["close"].iloc[current_index]
-        predicted_price = None
+        current_price = float(df_copy["close"].iloc[current_index])
 
         if short_ma > long_ma and prev_short_ma <= prev_long_ma:
             # BUY сигнал - предсказываем рост на 0.5%
@@ -81,7 +80,7 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
                 confidence=0.6,
                 symbol=symbol,
                 strategy_name=self.__class__.__name__,
-                predicted_price=predicted_price,
+                predicted_price=float(predicted_price),
             )
         elif short_ma < long_ma and prev_short_ma >= prev_long_ma:
             # SELL сигнал - предсказываем падение на 0.5%
@@ -91,6 +90,6 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
                 confidence=0.6,
                 symbol=symbol,
                 strategy_name=self.__class__.__name__,
-                predicted_price=predicted_price,
+                predicted_price=float(predicted_price),
             )
         return None

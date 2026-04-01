@@ -41,6 +41,11 @@ class FakeTradingSystemForBacktest:
         # Имитируем необходимые менеджеры
         self.gp_rd_manager = backtester_ref.gp_rd_manager
         self.data_provider = backtester_ref.data_provider  # Для RiskEngine
+        # Добавляем mt5_lock для совместимости с RiskEngine и другими компонентами
+        self.mt5_lock = threading.Lock()
+        self.mt5_connection_failed = False  # Флаг для TradeExecutor
+        self.terminal_connector = None  # Для совместимости
+        self.sound_manager = type("SoundManagerStub", (), {"play": lambda *args: None})()  # Заглушка
 
     def _get_current_market_regime_name(self) -> str:
         """

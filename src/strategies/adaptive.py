@@ -66,7 +66,10 @@ class AdaptiveStrategy(BaseStrategy):
         super().__init__(config)
 
         # Инициализация под-стратегий
-        self.strategies = {"breakout": BreakoutStrategy(config), "mean_reversion": MeanReversionStrategy(config)}
+        self.strategies = {
+            "BreakoutStrategy": BreakoutStrategy(config),
+            "MeanReversionStrategy": MeanReversionStrategy(config),
+        }
 
         # Базовые веса
         self.weights = {"breakout": 0.5, "mean_reversion": 0.5}
@@ -95,8 +98,10 @@ class AdaptiveStrategy(BaseStrategy):
             TradeSignal или None
         """
         # Получение сигналов от под-стратегий с передачей symbol
-        breakout_signal = self.strategies["breakout"].check_entry_conditions(df, current_index, timeframe, symbol)
-        reversion_signal = self.strategies["mean_reversion"].check_entry_conditions(df, current_index, timeframe, symbol)
+        breakout_signal = self.strategies["BreakoutStrategy"].check_entry_conditions(df, current_index, timeframe, symbol)
+        reversion_signal = self.strategies["MeanReversionStrategy"].check_entry_conditions(
+            df, current_index, timeframe, symbol
+        )
 
         # Сохранение в кэш
         self._last_signals[
@@ -197,14 +202,13 @@ class AdaptiveStrategy(BaseStrategy):
         )
 
         # Возвращаем сигнал с откорректированной уверенностью
+        # Примечание: entry_price, stop_loss, take_profit не передаём, т.к. они запрещены в TradeSignal
         return TradeSignal(
             type=best_signal.type,
             confidence=round(adjusted_confidence, 3),
             symbol=symbol,
             strategy_name=self.__class__.__name__,
-            entry_price=best_signal.entry_price,
-            stop_loss=best_signal.stop_loss,
-            take_profit=best_signal.take_profit,
+            predicted_price=best_signal.predicted_price,
         )
 
     def adjust_weights(self, market_regime: str):

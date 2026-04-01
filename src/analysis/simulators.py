@@ -158,6 +158,10 @@ class SimulatedBroker(ITerminalConnector):
     def shutdown(self):
         pass
 
+    def is_connected(self) -> bool:
+        """Проверка подключения (в симуляторе всегда True)."""
+        return True
+
     def get_account_info(self):
         class AccountInfoStub:
             def __init__(self, balance, equity):

@@ -60,13 +60,16 @@ class MeanReversionStrategy(BaseStrategy):
             return None
 
         # Простое предсказание: возврат к средней линии (средней полосе Боллинджера)
-        current_price = df["close"].iloc[current_index]
-        middle_band = (
-            df["close"].iloc[current_index - self.window : current_index + 1].mean()
-            if self.window <= len(df)
-            else current_price
-        )
-        predicted_price = None
+        current_price = float(df["close"].iloc[current_index])
+
+        # Вычисляем среднюю полосу Боллинджера (SMA за window периодов)
+        if self.window <= len(df):
+            middle_band = float(df["close"].iloc[current_index - self.window : current_index + 1].mean())
+            # Проверяем, что middle_band не nan и положительный
+            if pd.isna(middle_band) or middle_band <= 0:
+                middle_band = current_price
+        else:
+            middle_band = current_price
 
         # is_buy_signal = last_price < lower_band and prev_price <= lower_band
         is_sell_signal = last_price > upper_band and prev_price >= upper_band
@@ -74,23 +77,21 @@ class MeanReversionStrategy(BaseStrategy):
         # Проверка сигналов
         if last_price < lower_band:
             # BUY сигнал - предсказываем возврат к средней полосе
-            predicted_price = middle_band
             return TradeSignal(
                 type=SignalType.BUY,
                 confidence=0.8,
                 symbol=symbol,
                 strategy_name=self.__class__.__name__,
-                predicted_price=predicted_price,
+                predicted_price=float(middle_band),  # Гарантируем float > 0
             )
         elif last_price > upper_band:
             # SELL сигнал - предсказываем возврат к средней полосе
-            predicted_price = middle_band
             return TradeSignal(
                 type=SignalType.SELL,
                 confidence=0.8,
                 symbol=symbol,
                 strategy_name=self.__class__.__name__,
-                predicted_price=predicted_price,
+                predicted_price=float(middle_band),  # Гарантируем float > 0
             )
 
         return None

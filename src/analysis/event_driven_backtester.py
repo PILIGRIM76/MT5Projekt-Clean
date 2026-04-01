@@ -76,6 +76,11 @@ class EventDrivenBacktester:
         # Важно: передаем bridge=None, так как GUI обновления нам здесь не нужны напрямую
         self.system = TradingSystem(config, bridge=None)
 
+        # Инициализируем компоненты системы (вызываем тяжелую инициализацию)
+        logger.info("Инициализация тяжелых компонентов TradingSystem для бэктеста...")
+        self.system.initialize_heavy_components(bridge=None)
+        logger.info(f"TradingSystem инициализирован: risk_engine={self.system.risk_engine is not None}")
+
         # --- ВНЕДРЕНИЕ ЗАВИСИМОСТЕЙ ---
         self.system.terminal_connector = self.broker
         self.system.data_provider = MockDataProvider(config, self.broker, historical_data)
@@ -85,13 +90,22 @@ class EventDrivenBacktester:
         self.system.sound_manager = None
 
         # Перенаправляем компоненты на симулятор
-        self.system.risk_engine.mt5_lock = self.system.mt5_lock  # Используем тот же лок (хотя в симуляции он не критичен)
-        self.system.risk_engine.trading_system = self.system  # Обновляем ссылку
-
-        # Важно: RiskEngine должен знать, что это симуляция, чтобы не делать лишних проверок
-        self.system.risk_engine.is_simulation = True
+        if self.system.risk_engine:
+            self.system.risk_engine.mt5_lock = self.system.mt5_lock  # Используем тот же лок (хотя в симуляции он не критичен)
+            self.system.risk_engine.trading_system = self.system  # Обновляем ссылку
+            # Важно: RiskEngine должен знать, что это симуляция, чтобы не делать лишних проверок
+            self.system.risk_engine.is_simulation = True
+        else:
+            logger.error("RiskEngine не был инициализирован!")
 
         self.results = []
+
+    async def _run_backtest_cycle(self):
+        """
+        Заглушка для backtest cycle.
+        В этой простой версии просто обновляем данные в брокере.
+        """
+        pass  # Вся работа делается в broker.update_market_data()
 
     async def run(self):
         logger.info("Запуск Event-Driven бэктеста...")
@@ -120,8 +134,8 @@ class EventDrivenBacktester:
             # Б. Обновляем время в провайдере
             self.system.data_provider.set_current_time(current_time)
 
-            # В. Шаг системы
-            await self.system.run_single_iteration()
+            # В. Шаг системы (упрощённый для бэктеста)
+            await self._run_backtest_cycle()
 
             # Г. Логирование (раз в час или день, чтобы не забивать память)
             if i % 1 == 0:  # Каждый бар
