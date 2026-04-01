@@ -39,7 +39,8 @@
       "Bash(pre-commit *)",
       "Bash(pytest *)",
       "Read(F:/Enjen/database/**)",
-      "Bash(sqlite3 *)"
+      "Bash(sqlite3 *)",
+      "Bash(set *)"
     ]
   },
   "$version": 3

@@ -72,8 +72,10 @@ class Container:
         """
         with cls._lock:
             if cls._instance:
-                cls._instance._components.clear()
-                cls._instance._config = None
+                if hasattr(cls._instance, "_components"):
+                    cls._instance._components.clear()
+                if hasattr(cls._instance, "_config"):
+                    cls._instance._config = None
             cls._instance = None
             cls._initialized = False
         logger.info("Container сброшен")

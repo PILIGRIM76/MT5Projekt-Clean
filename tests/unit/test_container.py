@@ -6,6 +6,7 @@ Unit тесты для модуля container.py.
 - Singleton паттерны
 - Lazy initialization
 - Reset функциональность
+- Потокобезопасность
 
 ПРИМЕЧАНИЕ: Тесты используют Mock для Settings из-за сложности конфигурации.
 """
@@ -30,16 +31,35 @@ class TestContainerClass:
         assert container is not None
         assert isinstance(container, Container)
 
-    def test_container_properties_exist(self):
-        """Проверка что свойства контейнера существуют.
+    def test_container_get_instance_singleton(self):
+        """Проверка что get_instance возвращает Singleton."""
+        container1 = Container.get_instance()
+        container2 = Container.get_instance()
 
-        Примечание: Не используем hasattr напрямую, так как это может вызвать
-        инициализацию компонентов и ошибки. Проверяем через __class__.__dict__.
-        """
+        assert container1 is container2
+
+    def test_container_get_instance_thread_safe(self):
+        """Проверка потокобезопасности get_instance."""
+        import threading
+
+        containers = []
+
+        def get_container():
+            containers.append(Container.get_instance())
+
+        threads = [threading.Thread(target=get_container) for _ in range(10)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        # Все потоки должны получить один и тот же экземпляр
+        assert len(set(id(c) for c in containers)) == 1
+
+    def test_container_properties_exist(self):
+        """Проверка что свойства контейнера существуют."""
         container = Container()
 
-        # Проверка что все свойства существуют в классе
-        # Используем __class__.__dict__ чтобы избежать вызова property getter
         properties = [name for name, obj in type(container).__dict__.items() if isinstance(obj, property)]
 
         expected_properties = [
@@ -58,20 +78,14 @@ class TestContainerClass:
         for prop in expected_properties:
             assert prop in properties, f"Property {prop} not found in Container"
 
-    def test_container_properties_return_callables(self):
-        """Проверка что свойства возвращают callable (lambda)."""
-        container = Container()
+    def test_container_reset_instance(self):
+        """Проверка reset_instance."""
+        container1 = Container.get_instance()
+        Container.reset_instance()
+        container2 = Container.get_instance()
 
-        # Все свойства должны возвращать callable (getter функции)
-        # Примечание: эти тесты могут вызвать ошибки инициализации,
-        # поэтому проверяем только базовую структуру
-
-        # config должен вернуть callable
-        try:
-            config_getter = container.config
-            # config - это не lambda, а direct value
-        except Exception:
-            pass  # Ожидаемо из-за отсутствия конфигурации
+        # После сброса должен быть создан новый экземпляр
+        assert container1 is not container2
 
 
 class TestContainerReset:
@@ -83,5 +97,34 @@ class TestContainerReset:
 
     def test_reset_all_does_not_crash(self):
         """Проверка что reset_all не вызывает ошибок."""
-        # Функция должна работать даже без инициализированных компонентов
         reset_all()  # Не должно вызвать исключений
+
+    def test_reset_all_resets_container(self):
+        """Проверка что reset_all сбрасывает контейнер."""
+        container1 = Container.get_instance()
+        reset_all()
+        container2 = Container.get_instance()
+
+        assert container1 is not container2
+
+
+class TestContainerBackwardCompatibility:
+    """Тесты обратной совместимости функций get_*()."""
+
+    def test_get_config_exists(self):
+        """Проверка что get_config существует."""
+        from src.core.container import get_config
+
+        assert callable(get_config)
+
+    def test_get_db_manager_exists(self):
+        """Проверка что get_db_manager существует."""
+        from src.core.container import get_db_manager
+
+        assert callable(get_db_manager)
+
+    def test_get_risk_engine_exists(self):
+        """Проверка что get_risk_engine существует."""
+        from src.core.container import get_risk_engine
+
+        assert callable(get_risk_engine)
