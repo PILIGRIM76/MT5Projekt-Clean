@@ -789,7 +789,11 @@ class SettingsWindow(QDialog):
             logger.info(f"alerting конфигурация найдена: {alerting_config}")
 
             # Telegram
-            telegram_config = alerting_config.channels.get("telegram", {})
+            telegram_config = (
+                alerting_config.channels.get("telegram", {})
+                if isinstance(alerting_config.channels, dict)
+                else {"enabled": False}
+            )
             logger.info(f"Telegram config: {telegram_config}")
 
             telegram_enabled_saved = telegram_config.get("enabled", False)
@@ -823,15 +827,21 @@ class SettingsWindow(QDialog):
             self.telegram_chat_id_edit.setText(telegram_chat_id)
 
             # Email
-            email_config = alerting_config.channels.get("email", {})
+            email_config = (
+                alerting_config.channels.get("email", {}) if isinstance(alerting_config.channels, dict) else {"enabled": False}
+            )
             logger.info(f"Email config: {email_config}")
 
             email_enabled_saved = email_config.get("enabled", False)
             logger.info(f"Email enabled из settings.json: {email_enabled_saved}")
             self.email_enabled_checkbox.setChecked(email_enabled_saved)
 
-            self.email_smtp_edit.setText(email_config.get("smtp_server", "smtp.gmail.com"))
-            self.email_port_edit.setValue(email_config.get("smtp_port", 587))
+            if isinstance(email_config, dict):
+                self.email_smtp_edit.setText(email_config.get("smtp_server", "smtp.gmail.com"))
+                self.email_port_edit.setValue(email_config.get("smtp_port", 587))
+            else:
+                self.email_smtp_edit.setText("smtp.gmail.com")
+                self.email_port_edit.setValue(587)
 
             # Загружаем Email из .env
             email_from = config_values.get("ALERT_EMAIL_FROM", "")
@@ -863,18 +873,32 @@ class SettingsWindow(QDialog):
             self.email_password_edit.setText(email_password)
 
             # Quiet Hours
-            quiet_hours_config = alerting_config.get("quiet_hours", {})
-            self.quiet_hours_enabled_checkbox.setChecked(quiet_hours_config.get("enabled", False))
-            if quiet_hours_config.get("start"):
-                self.quiet_hours_start_edit.setTime(QTime.fromString(quiet_hours_config["start"], "HH:mm"))
-            if quiet_hours_config.get("end"):
-                self.quiet_hours_end_edit.setTime(QTime.fromString(quiet_hours_config["end"], "HH:mm"))
+            if isinstance(alerting_config, dict):
+                quiet_hours_config = alerting_config.get("quiet_hours", {})
+            else:
+                quiet_hours_config = alerting_config.quiet_hours if hasattr(alerting_config, "quiet_hours") else {}
+
+            if isinstance(quiet_hours_config, dict):
+                self.quiet_hours_enabled_checkbox.setChecked(quiet_hours_config.get("enabled", False))
+                if quiet_hours_config.get("start"):
+                    self.quiet_hours_start_edit.setTime(QTime.fromString(quiet_hours_config["start"], "HH:mm"))
+                if quiet_hours_config.get("end"):
+                    self.quiet_hours_end_edit.setTime(QTime.fromString(quiet_hours_config["end"], "HH:mm"))
+            else:
+                self.quiet_hours_enabled_checkbox.setChecked(False)
 
             # Daily Digest
-            digest_config = alerting_config.get("daily_digest", {})
-            self.digest_enabled_checkbox.setChecked(digest_config.get("enabled", True))
-            if digest_config.get("time"):
-                self.digest_time_edit.setTime(QTime.fromString(digest_config["time"], "HH:mm"))
+            if isinstance(alerting_config, dict):
+                digest_config = alerting_config.get("daily_digest", {})
+            else:
+                digest_config = alerting_config.daily_digest if hasattr(alerting_config, "daily_digest") else {}
+
+            if isinstance(digest_config, dict):
+                self.digest_enabled_checkbox.setChecked(digest_config.get("enabled", True))
+                if digest_config.get("time"):
+                    self.digest_time_edit.setTime(QTime.fromString(digest_config["time"], "HH:mm"))
+            else:
+                self.digest_enabled_checkbox.setChecked(True)
         else:
             logger.warning("alerting конфигурация не найдена в settings.json")
 

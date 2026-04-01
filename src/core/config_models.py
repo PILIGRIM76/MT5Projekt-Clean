@@ -240,6 +240,80 @@ class AutoRetrainingSettings(BaseModel):
     max_workers: int = Field(default=3, description="Кол-во параллельных потоков обучения.")
 
 
+# === НАСТРОЙКИ УВЕДОМЛЕНИЙ ===
+class TelegramChannelSettings(BaseModel):
+    """Настройки Telegram канала."""
+
+    enabled: bool = Field(default=False, description="Включить Telegram уведомления")
+    bot_token_env: str = Field(default="TELEGRAM_BOT_TOKEN", description="Переменная окружения для токена")
+    chat_id_env: str = Field(default="TELEGRAM_CHAT_ID", description="Переменная окружения для Chat ID")
+
+
+class EmailChannelSettings(BaseModel):
+    """Настройки Email канала."""
+
+    enabled: bool = Field(default=False, description="Включить Email уведомления")
+    smtp_server: str = Field(default="smtp.gmail.com", description="SMTP сервер")
+    smtp_port: int = Field(default=587, description="SMTP порт")
+    use_tls: bool = Field(default=True, description="Использовать TLS")
+    from_email_env: str = Field(default="ALERT_EMAIL_FROM", description="Переменная для Email отправителя")
+    password_env: str = Field(default="ALERT_EMAIL_PASSWORD", description="Переменная для пароля")
+    recipients_env: str = Field(default="ALERT_EMAIL_RECIPIENTS", description="Переменная для получателей")
+
+
+class PushChannelSettings(BaseModel):
+    """Настройки Push уведомлений."""
+
+    enabled: bool = Field(default=False, description="Включить Push уведомления")
+    user_key_env: str = Field(default="PUSHOVER_USER_KEY", description="Переменная для ключа пользователя")
+    api_token_env: str = Field(default="PUSHOVER_API_TOKEN", description="Переменная для API токена")
+
+
+class RateLimitSettings(BaseModel):
+    """Настройки ограничения частоты уведомлений."""
+
+    max_per_minute: int = Field(default=10, description="Максимум уведомлений в минуту")
+    cooldown_seconds: int = Field(default=60, description="Пауза между уведомлениями в секундах")
+
+
+class QuietHoursSettings(BaseModel):
+    """Настройки тихих часов."""
+
+    enabled: bool = Field(default=False, description="Включить тихие часы")
+    start: str = Field(default="22:00", description="Время начала тихих часов")
+    end: str = Field(default="08:00", description="Время окончания тихих часов")
+    timezone: str = Field(default="UTC", description="Часовой пояс")
+
+
+class DailyDigestSettings(BaseModel):
+    """Настройки ежедневного дайджеста."""
+
+    enabled: bool = Field(default=True, description="Включить ежедневный дайджест")
+    time: str = Field(default="20:00", description="Время отправки дайджеста")
+    timezone: str = Field(default="UTC", description="Часовой пояс")
+
+
+class AlertingSettings(BaseModel):
+    """Общие настройки системы уведомлений."""
+
+    enabled: bool = Field(default=False, description="Включить систему уведомлений")
+    channels: Dict[str, Any] = Field(
+        default_factory=lambda: {"telegram": {"enabled": False}, "email": {"enabled": False}, "push": {"enabled": False}},
+        description="Настройки каналов уведомлений",
+    )
+    rate_limit: Dict[str, Any] = Field(
+        default_factory=lambda: {"max_per_minute": 10, "cooldown_seconds": 60}, description="Ограничение частоты уведомлений"
+    )
+    quiet_hours: Dict[str, Any] = Field(
+        default_factory=lambda: {"enabled": False, "start": "22:00", "end": "08:00", "timezone": "UTC"},
+        description="Настройки тихих часов",
+    )
+    daily_digest: Dict[str, Any] = Field(
+        default_factory=lambda: {"enabled": True, "time": "20:00", "timezone": "UTC"},
+        description="Настройки ежедневного дайджеста",
+    )
+
+
 # --- Основная модель конфигурации ---
 class Settings(BaseModel):
 
@@ -431,3 +505,4 @@ class Settings(BaseModel):
 
     web_dashboard: WebSettings = Field(default_factory=WebSettings)
     auto_retraining: AutoRetrainingSettings = Field(default_factory=AutoRetrainingSettings)
+    alerting: AlertingSettings = Field(default_factory=AlertingSettings, description="Настройки системы уведомлений")

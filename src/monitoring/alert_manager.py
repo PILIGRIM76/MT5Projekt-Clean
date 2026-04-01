@@ -98,17 +98,30 @@ class AlertManager:
         self.trading_system = trading_system_ref
 
         # Конфигурация из settings
-        alert_config = getattr(config, "alerting", {})
-        self.enabled = alert_config.get("enabled", True)
+        alert_config = getattr(config, "alerting", None)
+
+        # Преобразуем Pydantic модель в dict или используем dict по умолчанию
+        if alert_config is None:
+            alert_dict = {}
+        elif isinstance(alert_config, dict):
+            alert_dict = alert_config
+        else:
+            # Pydantic модель - преобразуем в dict
+            try:
+                alert_dict = alert_config.model_dump() if hasattr(alert_config, "model_dump") else dict(alert_config)
+            except Exception:
+                alert_dict = {}
+
+        self.enabled = alert_dict.get("enabled", True)
 
         # Telegram конфигурация
-        telegram_config = alert_config.get("telegram", {})
+        telegram_config = alert_dict.get("telegram", {})
         self.telegram_enabled = telegram_config.get("enabled", False)
         self.telegram_bot_token = self._get_secret(telegram_config.get("bot_token_env", "TELEGRAM_BOT_TOKEN"))
         self.telegram_chat_id = self._get_secret(telegram_config.get("chat_id_env", "TELEGRAM_CHAT_ID"))
 
         # Email конфигурация
-        email_config = alert_config.get("email", {})
+        email_config = alert_dict.get("email", {})
         self.email_enabled = email_config.get("enabled", False)
         self.smtp_server = email_config.get("smtp_server", "smtp.gmail.com")
         self.smtp_port = email_config.get("smtp_port", 587)
@@ -118,25 +131,25 @@ class AlertManager:
         self.email_recipients = self._get_secret(email_config.get("recipients_env", "ALERT_EMAIL_RECIPIENTS")).split(",")
 
         # Push конфигурация
-        push_config = alert_config.get("push", {})
+        push_config = alert_dict.get("push", {})
         self.push_enabled = push_config.get("enabled", False)
         self.pushover_user_key = self._get_secret(push_config.get("user_key_env", "PUSHOVER_USER_KEY"))
         self.pushover_api_token = self._get_secret(push_config.get("api_token_env", "PUSHOVER_API_TOKEN"))
 
         # Rate limiting
-        rate_limit_config = alert_config.get("rate_limit", {})
+        rate_limit_config = alert_dict.get("rate_limit", {})
         self.max_alerts_per_minute = rate_limit_config.get("max_per_minute", 10)
         self.cooldown_seconds = rate_limit_config.get("cooldown_seconds", 60)
 
         # Quiet hours
-        quiet_hours_config = alert_config.get("quiet_hours", {})
+        quiet_hours_config = alert_dict.get("quiet_hours", {})
         self.quiet_hours_enabled = quiet_hours_config.get("enabled", False)
         self.quiet_hours_start = dt_time.fromisoformat(quiet_hours_config.get("start", "22:00"))
         self.quiet_hours_end = dt_time.fromisoformat(quiet_hours_config.get("end", "08:00"))
         self.quiet_hours_timezone = quiet_hours_config.get("timezone", "UTC")
 
         # Daily digest
-        digest_config = alert_config.get("daily_digest", {})
+        digest_config = alert_dict.get("daily_digest", {})
         self.daily_digest_enabled = digest_config.get("enabled", True)
         self.daily_digest_time = dt_time.fromisoformat(digest_config.get("time", "20:00"))
 

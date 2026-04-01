@@ -40,7 +40,8 @@
       "Bash(pytest *)",
       "Read(F:/Enjen/database/**)",
       "Bash(sqlite3 *)",
-      "Bash(set *)"
+      "Bash(set *)",
+      "Bash(get-date *)"
     ]
   },
   "$version": 3
