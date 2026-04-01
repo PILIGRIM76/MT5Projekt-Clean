@@ -120,13 +120,13 @@ class TrainingScheduler:
             return
 
         logger.info(f"🕐 [{datetime.now().strftime('%H:%M:%S')}] Запланированное переобучение моделей...")
-        self.training_callback(self.max_symbols, self.max_workers)
+
+        # Запускаем обучение в отдельном потоке
+        self.training_in_progress = True
         self.last_training_time = datetime.now()
 
-        # Запуск по времени (например, в 02:00)
-        schedule.every().day.at(self.schedule_time).do(self._run_training_job)
-
-        logger.info(f"Расписание настроено: обучение каждый день в {self.schedule_time}")
+        training_thread = threading.Thread(target=self._execute_training, name="ScheduledTraining", daemon=True)
+        training_thread.start()
 
     def _scheduler_loop(self):
         """Основной цикл планировщика."""
