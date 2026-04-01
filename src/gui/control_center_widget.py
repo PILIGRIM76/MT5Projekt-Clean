@@ -169,43 +169,108 @@ class ControlCenterWidget(QWidget):
         layout = QVBoxLayout(parent_widget)
         layout.setAlignment(Qt.AlignTop)
 
-        # Риски
-        risk_group = self._create_risk_management_group()
-        layout.addWidget(risk_group)
+        # === ИНФОРМАЦИОННОЕ СООБЩЕНИЕ ===
+        info_box = QGroupBox("ℹ️ Управление Настройками Торговли")
+        info_layout = QVBoxLayout(info_box)
+
+        info_label = QLabel(
+            "⚙️ <b>Настройки торговли и риск-менеджмента находятся в окне настроек.</b>\n\n"
+            "Для изменения параметров торговли:\n"
+            "1. Откройте <b>Настройки</b> (меню или кнопка на панели)\n"
+            "2. Перейдите на вкладку <b>'Торговля'</b>\n"
+            "3. Выберите режим торговли или настройте параметры вручную\n\n"
+            "📊 <b>Режимы торговли:</b>\n"
+            "• 🟢 Консервативный - минимальный риск\n"
+            "• 🟡 Стандартный - баланс риск/доходность\n"
+            "• 🔴 Агрессивный - высокий риск\n"
+            "• ⚫ YOLO - максимальный риск\n"
+            "• 🔧 Кастомный - ручная настройка"
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("""
+            QLabel {
+                color: #f8f8f2;
+                padding: 10px;
+                background-color: #282a36;
+                border-radius: 5px;
+            }
+        """)
+        info_layout.addWidget(info_label)
+
+        # Кнопка открытия настроек
+        open_settings_btn = QPushButton("⚙️ Открыть Настройки Торговли")
+        open_settings_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #bd93f9;
+                color: #282a36;
+                padding: 12px 24px;
+                border-radius: 5px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #a37df5;
+            }
+        """)
+        # Сигнал будет подключён в MainWindow
+        open_settings_btn.clicked.connect(self._open_settings_requested)
+        info_layout.addWidget(open_settings_btn)
+
+        layout.addWidget(info_box)
+
+        # === ТЕКУЩИЕ ПАРАМЕТРЫ (только для просмотра) ===
+        summary_group = QGroupBox("📈 Текущие Параметры (только просмотр)")
+        summary_group.setToolTip("Эти параметры применяются из настроек. Для изменения откройте Настройки.")
+        summary_layout = QGridLayout(summary_group)
+
+        # Риск на сделку
+        summary_layout.addWidget(QLabel("🎯 Риск на сделку:"), 0, 0)
+        self.current_risk_label = QLabel("0.50%")
+        self.current_risk_label.setFont(self.font())
+        self.current_risk_label.setStyleSheet("color: #50fa7b; font-weight: bold; font-size: 14px;")
+        self.current_risk_label.setAlignment(Qt.AlignRight)
+        summary_layout.addWidget(self.current_risk_label, 0, 1)
+
+        # Max позиций
+        summary_layout.addWidget(QLabel("📊 Max позиций:"), 1, 0)
+        self.current_positions_label = QLabel("5")
+        self.current_positions_label.setStyleSheet("color: #8be9fd; font-weight: bold; font-size: 14px;")
+        self.current_positions_label.setAlignment(Qt.AlignRight)
+        summary_layout.addWidget(self.current_positions_label, 1, 1)
+
+        # Max дневная просадка
+        summary_layout.addWidget(QLabel("📉 Max дневная просадка:"), 2, 0)
+        self.current_drawdown_label = QLabel("5.00%")
+        self.current_drawdown_label.setStyleSheet("color: #ff5555; font-weight: bold; font-size: 14px;")
+        self.current_drawdown_label.setAlignment(Qt.AlignRight)
+        summary_layout.addWidget(self.current_drawdown_label, 2, 1)
+
+        # Режим торговли
+        summary_layout.addWidget(QLabel("🏷️ Активный режим:"), 3, 0)
+        self.current_mode_label = QLabel("🟡 Стандартный")
+        self.current_mode_label.setStyleSheet("color: #f1fa8c; font-weight: bold; font-size: 14px;")
+        self.current_mode_label.setAlignment(Qt.AlignRight)
+        summary_layout.addWidget(self.current_mode_label, 3, 1)
+
+        summary_layout.setColumnStretch(0, 1)
+        summary_layout.setColumnStretch(1, 1)
+        layout.addWidget(summary_group)
 
         # Стратегии
         strategy_group = self._create_strategy_config_group()
         layout.addWidget(strategy_group)
 
-        # Кнопки
-        btn_layout = QHBoxLayout()
-        self.save_button = QPushButton("Применить настройки")
-        self.save_button.clicked.connect(self._save_and_apply_settings)
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.save_button)
-        layout.addLayout(btn_layout)
+        layout.addStretch()
 
-        self.load_initial_settings()
-
-    def _create_risk_management_group(self) -> QGroupBox:
-        group_box = QGroupBox("Панель Управления Рисками")
-        layout = QGridLayout(group_box)
-
-        layout.addWidget(QLabel("Общая Агрессивность:"), 0, 0)
-        self.aggressiveness_slider = QSlider(Qt.Horizontal)
-        self.aggressiveness_slider.setRange(0, 100)
-        self.aggressiveness_slider.valueChanged.connect(self._update_risk_labels)
-        layout.addWidget(self.aggressiveness_slider, 0, 1)
-        self.aggressiveness_label = QLabel("1.0% | 5 поз.")
-        layout.addWidget(self.aggressiveness_label, 0, 2)
-
-        layout.addWidget(QLabel("Макс. Дневная Просадка (%):"), 1, 0)
-        self.daily_drawdown_spinbox = QDoubleSpinBox()
-        self.daily_drawdown_spinbox.setRange(1.0, 20.0)
-        self.daily_drawdown_spinbox.setSingleStep(0.5)
-        layout.addWidget(self.daily_drawdown_spinbox, 1, 1)
-
-        return group_box
+    def _open_settings_requested(self):
+        """Сигнал для открытия окна настроек."""
+        # Ищем родительское окно и вызываем открытие настроек
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, "open_settings_window"):
+                parent.open_settings_window()
+                return
+            parent = parent.parent()
 
     def _create_strategy_config_group(self) -> QGroupBox:
         group_box = QGroupBox("Конфигуратор Стратегий")
@@ -418,14 +483,32 @@ class ControlCenterWidget(QWidget):
 
     # --- Методы Настроек ---
     def load_initial_settings(self):
+        """Загружает текущие настройки для отображения в панели параметров."""
         if not self.config:
             return
-        max_pos = self.config.MAX_OPEN_POSITIONS
-        agg_value = int(((max_pos - 1) / 17.0) * 100) if max_pos < 18 else 100
-        self.aggressiveness_slider.setValue(agg_value)
-        self._update_risk_labels(agg_value)
-        self.daily_drawdown_spinbox.setValue(self.config.MAX_DAILY_DRAWDOWN_PERCENT)
 
+        # Обновляем метки текущих параметров
+        self.current_risk_label.setText(f"{self.config.RISK_PERCENTAGE:.2f}%")
+        self.current_positions_label.setText(str(self.config.MAX_OPEN_POSITIONS))
+        self.current_drawdown_label.setText(f"{self.config.MAX_DAILY_DRAWDOWN_PERCENT:.2f}%")
+
+        # Загрузка режима торговли
+        if hasattr(self.config, "trading_mode"):
+            trading_mode = self.config.trading_mode
+            current_mode = trading_mode.get("current_mode", "standard")
+            modes_enabled = trading_mode.get("enabled", False)
+
+            if modes_enabled and current_mode in TRADING_MODES:
+                mode_data = TRADING_MODES[current_mode]
+                self.current_mode_label.setText(f"{mode_data['icon']} {mode_data['name']}")
+                self.current_mode_label.setStyleSheet(f"color: {mode_data['color']}; font-weight: bold; font-size: 14px;")
+            else:
+                self.current_mode_label.setText("⚙️ Ручной режим")
+                self.current_mode_label.setStyleSheet("color: #6272a4; font-weight: bold; font-size: 14px;")
+        else:
+            self.current_mode_label.setText("🟡 Стандартный")
+
+        # Загрузка конфигурации стратегий
         regime_mapping = self.config.STRATEGY_REGIME_MAPPING
         available_strategies = ["AI_Model"]
 
@@ -452,32 +535,35 @@ class ControlCenterWidget(QWidget):
             self.regime_table.setCellWidget(i, 1, combo)
             self.regime_table.item(i, 0).setFlags(Qt.ItemIsEnabled)
 
-    def _update_risk_labels(self, value):
-        risk_percent = 0.5 + (value / 100.0) * 4.5
-        max_pos = int(1 + (value / 100.0) * 17)
-        self.aggressiveness_label.setText(f"{risk_percent:.1f}% | {max_pos} поз.")
-
-    def _save_and_apply_settings(self):
-        new_settings = {}
-        agg_value = self.aggressiveness_slider.value()
-        new_settings["RISK_PERCENTAGE"] = 0.5 + (agg_value / 100.0) * 4.5
-        new_settings["MAX_OPEN_POSITIONS"] = int(1 + (agg_value / 100.0) * 17)
-        new_settings["MAX_DAILY_DRAWDOWN_PERCENT"] = self.daily_drawdown_spinbox.value()
-
-        new_regime_mapping = {}
-        for i in range(self.regime_table.rowCount()):
-            regime = self.regime_table.item(i, 0).text()
-            combo = self.regime_table.cellWidget(i, 1)
-            strategy = combo.currentText()
-            new_regime_mapping[regime] = strategy
-        new_settings["STRATEGY_REGIME_MAPPING"] = new_regime_mapping
-
-        self.settings_changed.emit(new_settings)
-        QMessageBox.information(self, "Успех", "Настройки применены!")
-
     def refresh_strategies(self):
         """
         Обновляет список доступных стратегий в выпадающих списках.
         Вызывается из главного окна после завершения инициализации.
         """
         self.load_initial_settings()
+
+    def update_trading_settings_display(self, settings: dict):
+        """
+        Обновляет отображение текущих настроек торговли.
+
+        Args:
+            settings: Dict с настройками (RISK_PERCENTAGE, MAX_OPEN_POSITIONS, etc.)
+        """
+        if "RISK_PERCENTAGE" in settings:
+            self.current_risk_label.setText(f"{settings['RISK_PERCENTAGE']:.2f}%")
+        if "MAX_OPEN_POSITIONS" in settings:
+            self.current_positions_label.setText(str(settings["MAX_OPEN_POSITIONS"]))
+        if "MAX_DAILY_DRAWDOWN_PERCENT" in settings:
+            self.current_drawdown_label.setText(f"{settings['MAX_DAILY_DRAWDOWN_PERCENT']:.2f}%")
+        if "trading_mode" in settings:
+            mode = settings["trading_mode"]
+            current_mode = mode.get("current_mode", "standard")
+            modes_enabled = mode.get("enabled", False)
+
+            if modes_enabled and current_mode in TRADING_MODES:
+                mode_data = TRADING_MODES[current_mode]
+                self.current_mode_label.setText(f"{mode_data['icon']} {mode_data['name']}")
+                self.current_mode_label.setStyleSheet(f"color: {mode_data['color']}; font-weight: bold; font-size: 14px;")
+            else:
+                self.current_mode_label.setText("⚙️ Ручной режим")
+                self.current_mode_label.setStyleSheet("color: #6272a4; font-weight: bold; font-size: 14px;")

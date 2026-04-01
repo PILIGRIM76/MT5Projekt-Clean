@@ -1134,12 +1134,29 @@ class MainWindow(QMainWindow):
         """
         logger.info("Обнаружено сохранение настроек. Применение изменений на лету...")
         try:
+            # 1. Загружаем новую конфигурацию
             new_config = load_config()
+
+            # 2. Применяем к торговой системе
             self.trading_system.update_configuration(new_config)
+
+            # 3. Обновляем отображение в ControlCenterWidget
+            if hasattr(self, "control_center_tab"):
+                trading_settings = {
+                    "RISK_PERCENTAGE": new_config.RISK_PERCENTAGE,
+                    "MAX_OPEN_POSITIONS": new_config.MAX_OPEN_POSITIONS,
+                    "MAX_DAILY_DRAWDOWN_PERCENT": new_config.MAX_DAILY_DRAWDOWN_PERCENT,
+                    "trading_mode": getattr(new_config, "trading_mode", {"current_mode": "standard", "enabled": False}),
+                }
+                self.control_center_tab.update_trading_settings_display(trading_settings)
+                logger.info("[GUI] ControlCenterWidget обновлён после сохранения настроек")
+
+            # 4. Обновляем статус бар и планировщик
             self.update_status("Настройки успешно применены.", is_error=False)
             self.update_scheduler_status_display()
+
         except Exception as e:
-            logger.error(f"Ошибка при применении новых настроек: {e}")
+            logger.error(f"Ошибка при применении новых настроек: {e}", exc_info=True)
             self.update_status("Ошибка при применении настроек. См. логи.", is_error=True)
 
     def update_thread_status(self, thread_name: str, status: str):
@@ -1607,6 +1624,9 @@ class MainWindow(QMainWindow):
         self.control_center_tab = ControlCenterWidget(
             bridge=self.bridge, config=self.config, trading_system_adapter=self.trading_system
         )
+        # Загружаем начальные настройки для отображения
+        self.control_center_tab.load_initial_settings()
+        logger.info("[GUI] ControlCenterWidget инициализирован с настройками")
         right_widget.addTab(self.control_center_tab, "Центр Управления")
 
         # --- ВКЛАДКА "АНАЛИТИКА" ---
@@ -3287,7 +3307,24 @@ class MainWindow(QMainWindow):
             logger.error(f"Ошибка принудительного обновления графа: {e}")
 
     def on_runtime_settings_changed(self, new_settings: dict):
+        """
+        Обработка изменений настроек в реальном времени.
+
+        Args:
+            new_settings: Dict с новыми настройками
+        """
+        logger.info(f"[GUI] Применение настроек в реальном времени: {list(new_settings.keys())}")
+
+        # 1. Применяем настройки к торговой системе
         self.trading_system.core_system.update_runtime_settings(new_settings)
+
+        # 2. Обновляем отображение настроек в ControlCenterWidget
+        if hasattr(self, "control_center_tab"):
+            self.control_center_tab.update_trading_settings_display(new_settings)
+            logger.info("[GUI] ControlCenterWidget обновлён")
+
+        # 3. Обновляем статус бар
+        self.update_status("Настройки применены", is_error=False)
 
     @Slot()
     def on_heavy_initialization_finished(self):

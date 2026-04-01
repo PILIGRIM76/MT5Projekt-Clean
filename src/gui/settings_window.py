@@ -46,6 +46,7 @@ from src.utils.scheduler_manager import SchedulerManager
 
 from .api_tester import ApiTester
 from .trading_modes_widget import TRADING_MODES, TradingModesWidget
+from .unified_trading_settings import UnifiedTradingSettingsWidget
 
 logger = logging.getLogger(__name__)
 
