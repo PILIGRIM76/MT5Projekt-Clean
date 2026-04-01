@@ -96,10 +96,13 @@ from src.core.trading_system import TradingSystem
 from src.data.data_provider import DataProvider
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
 from src.gui.control_center_widget import ControlCenterWidget
+from src.gui.dialogs import DirectiveDialog
 from src.gui.log_utils import ColorFormatter, QtLogHandler, setup_qt_logging
+from src.gui.models import DictTableModel, GenericTableModel, RDTableModel
 from src.gui.settings_window import SettingsWindow
 from src.gui.sound_manager import SoundManager
 from src.gui.styles import DARK_STYLE, LIGHT_STYLE
+from src.gui.widgets import Bridge, CustomCandlestickItem, GraphBackend, GUIBridge
 from src.strategies.strategy_loader import StrategyLoader
 
 # ===================================================================
@@ -303,24 +306,6 @@ app_config_for_path = load_config()
 logger = logging.getLogger(__name__)
 
 
-class GraphBackend(QObject):
-    graphDataUpdated = Signal(dict)
-
-    # ---  СЛОТ ДЛЯ ПРИЕМА ЗАПРОСА ИЗ JS ---
-    @Slot(str, str)
-    def requestFilteredGraph(self, filter_type: str, filter_value: str):
-        """Принимает запрос на фильтрацию из JS и перенаправляет его в ядро."""
-        self.parent().on_filter_request(filter_type, filter_value)
-
-    @Slot()
-    def jsReady(self):
-        """Вызывается из JS, когда страница полностью загружена."""
-        # Получаем доступ к родительскому окну (MainWindow)
-        # Важно: parent() должен быть установлен при создании
-        if self.parent():
-            self.parent().on_js_ready()
-
-
 def run_backtest_process(
     results_queue,
     config_dict: dict,
@@ -475,141 +460,6 @@ def run_backtest_process(
         mt5.shutdown()
 
 
-class DictTableModel(QAbstractTableModel):
-    def __init__(self, data: list[dict], headers: list[str], key_map: list[str]):
-        super().__init__()
-        self._data = data
-        self._headers = headers
-        self._key_map = key_map
-
-    def rowCount(self, index):
-        return len(self._data)
-
-    def columnCount(self, index):
-        return len(self._headers)
-
-    def headerData(self, section, orientation, role):
-        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
-            if 0 <= section < len(self._headers):
-                return self._headers[section]
-        return None
-
-
-class CustomCandlestickItem(pg.GraphicsObject):
-    def __init__(self):
-        pg.GraphicsObject.__init__(self)
-        self.data = None
-
-    def setData(self, data):
-        self.data = data
-        self.prepareGeometryChange()
-        self.informViewBoundsChanged()
-        self.update()
-
-    def paint(self, p, *args):
-        if self.data is None or len(self.data) < 2:
-            return
-
-        # Вычисляем ширину свечи адаптивно (фиксированный процент от шага)
-        if len(self.data) > 1:
-            step = float(self.data[1][0] - self.data[0][0])
-            if step <= 0:
-                step = 1
-            # Используем только 25% от шага, мин 2 пикселя, макс 8 пикселей
-            w = max(min(step * 0.25, 8.0), 2.0)
-        else:
-            w = 2.0
-
-        for t, o, h, l, c in self.data:
-            # Определяем цвет свечи
-            if c >= o:  # Зеленая свеча (рост)
-                pen = pg.mkPen("g", width=1)
-                brush = pg.mkBrush("g")
-            else:  # Красная свеча (падение)
-                pen = pg.mkPen("r", width=1)
-                brush = pg.mkBrush("r")
-
-            p.setPen(pen)
-            p.setBrush(brush)
-
-            body_top = max(o, c)
-            body_bottom = min(o, c)
-            body_height = body_top - body_bottom
-
-            # Рисуем верхнюю тень (от high до верха тела)
-            p.drawLine(QPointF(t, h), QPointF(t, body_top))
-            # Рисуем нижнюю тень (от low до низа тела)
-            p.drawLine(QPointF(t, l), QPointF(t, body_bottom))
-
-            # Рисуем тело с ограниченной шириной
-            if body_height > 0:
-                p.drawRect(QRectF(t - w, body_bottom, w * 2, body_height))
-            else:
-                # Если open == close, рисуем горизонтальную линию
-                p.drawLine(QPointF(t - w, o), QPointF(t + w, o))
-
-    def boundingRect(self):
-        if self.data is None or len(self.data) == 0:
-            return QRectF()
-
-        # Находим границы данных
-        times = [d[0] for d in self.data]
-        highs = [d[2] for d in self.data]
-        lows = [d[3] for d in self.data]
-
-        min_time = min(times)
-        max_time = max(times)
-        min_price = min(lows)
-        max_price = max(highs)
-
-        # Добавляем небольшой отступ (согласовано с paint методом)
-        step = (self.data[1][0] - self.data[0][0]) if len(self.data) > 1 else 1
-        w = max(min(step * 0.25, 8.0), 2.0)
-
-        return QRectF(min_time - w, min_price, max_time - min_time + 2 * w, max_price - min_price)
-
-
-class Bridge(QObject):
-    status_updated = Signal(str, bool)
-    balance_updated = Signal(float, float)
-    log_message_added = Signal(str, QColor)
-    positions_updated = Signal(list)
-    history_updated = Signal(list)
-    training_history_updated = Signal(object)
-    candle_chart_updated = Signal(pd.DataFrame, str)
-    pnl_updated = Signal(list)
-    market_scan_updated = Signal(list)
-    # Отдельный сигнал для торговых сигналов
-    trading_signals_updated = Signal(list)
-    uptime_updated = Signal(str)
-    rd_progress_updated = Signal(dict)
-    xai_data_ready = Signal(object, int)
-    all_positions_closed = Signal()
-    backtest_finished = Signal(dict, pd.DataFrame)
-    market_regime_updated = Signal(str)
-    update_status_changed = Signal(str, bool)
-    initialization_successful = Signal(list)
-    initialization_failed = Signal()
-    directives_updated = Signal(list)
-    times_updated = Signal(str, str)
-    model_list_updated = Signal(list)
-    orchestrator_allocation_updated = Signal(dict)
-    knowledge_graph_updated = Signal(str)
-    observer_pnl_updated = Signal(list)
-    vector_db_search_results = Signal(list)
-
-    thread_status_updated = Signal(str, str)
-    # task_id, message, is_finished
-    long_task_status_updated = Signal(str, str, bool)
-    heavy_initialization_finished = Signal()
-    drift_data_updated = Signal(float, str, float, bool)
-    pnl_kpis_updated = Signal(dict)
-
-    # НОВЫЕ: Сигналы для визуализации переобучения
-    model_accuracy_updated = Signal(dict)  # {symbol: accuracy}
-    retrain_progress_updated = Signal(dict)  # {symbol: hours_since_training}
-
-
 class PySideTradingSystem(QObject):
     def __init__(self, config: Settings, bridge: Bridge, sound_manager: SoundManager):
         super().__init__()
@@ -754,147 +604,6 @@ class PySideTradingSystem(QObject):
                 signal.emit(*signal_args)
         except Exception as e:
             logger.error(f"Ошибка при отправке сигнала GUI '{method_name}': {e}")
-
-
-class GenericTableModel(QAbstractTableModel):
-    def __init__(self, data, headers):
-        super().__init__()
-        self._data = data
-        self._headers = headers
-
-    def data(self, index, role):
-        # --- Блок для отображения текста в ячейке (остается без изменений) ---
-        if role == Qt.DisplayRole:
-            if 0 <= index.row() < len(self._data) and 0 <= index.column() < len(self._data[index.row()]):
-                return str(self._data[index.row()][index.column()])
-            return None
-
-        if role == Qt.ToolTipRole:
-            if 0 <= index.row() < len(self._data):
-                row_data = self._data[index.row()]
-                headers = self._headers
-
-                # Формируем красивую подсказку с использованием HTML
-                tooltip_lines = []
-                for header, value in zip(headers, row_data):
-                    # Убираем переносы строк из заголовков для красивого отображения
-                    clean_header = header.replace("\n", " ")
-                    tooltip_lines.append(f"<b>{clean_header}:</b> {value}")
-
-                # Соединяем все строки в одну с помощью HTML-переноса строки
-                return "<br>".join(tooltip_lines)
-
-        return None
-
-    def rowCount(self, index):
-        return len(self._data)
-
-    def update_data(self, new_data):
-        """
-        Обновляет данные модели
-        :param new_data: новые данные для таблицы
-        """
-        # ОТЛАДКА: Логируем каждое обновление
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.info(f"[GenericTableModel] update_data вызван с {len(new_data)} строками")
-
-        self.layoutAboutToBeChanged.emit()
-        self._data = new_data
-        self.layoutChanged.emit()
-
-    def columnCount(self, index):
-        return len(self._headers)
-
-    def headerData(self, section, orientation, role):
-        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
-            if 0 <= section < len(self._headers):
-                return self._headers[section]
-        return None
-
-
-class RDTableModel(GenericTableModel):
-    def __init__(self, headers):
-        super().__init__([], headers)
-
-    def update_data(self, new_row_dict: dict):
-        self.beginInsertRows(self.index(len(self._data), 0), len(self._data), len(self._data))
-        row_data = [
-            new_row_dict.get("generation", "N/A"),
-            f"{new_row_dict.get('best_fitness', 0.0):.4f}",
-            new_row_dict.get("config", new_row_dict.get("strategy_str", "N/A")),  # Поддержка обоих ключей
-        ]
-        self._data.append(row_data)
-        self.endInsertRows()
-
-
-class DirectiveDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Создать новую директиву")
-        layout = QGridLayout(self)
-
-        layout.addWidget(QLabel("Тип директивы:"), 0, 0)
-        self.type_combo = QComboBox()
-        self.type_combo.addItems(["BLOCK_TRADING", "RISK_OFF_MODE", "SET_MAX_WEEKLY_DRAWDOWN"])
-        self.type_combo.currentIndexChanged.connect(self.on_type_changed)
-        layout.addWidget(self.type_combo, 0, 1)
-
-        self.value_label = QLabel("Значение (%):")
-        self.value_spinbox = QDoubleSpinBox()
-        self.value_spinbox.setRange(1.0, 20.0)
-        self.value_spinbox.setValue(3.0)
-        self.value_spinbox.setSingleStep(0.5)
-        layout.addWidget(self.value_label, 1, 0)
-        layout.addWidget(self.value_spinbox, 1, 1)
-
-        layout.addWidget(QLabel("Причина:"), 2, 0)
-        self.reason_edit = QLineEdit("Manual override from GUI")
-        layout.addWidget(self.reason_edit, 2, 1)
-
-        layout.addWidget(QLabel("Срок действия (часы):"), 3, 0)
-        self.duration_spin = QSpinBox()
-        self.duration_spin.setRange(1, 720)
-        self.duration_spin.setValue(168)
-        layout.addWidget(self.duration_spin, 3, 1)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons, 4, 0, 1, 2)
-
-        self.on_type_changed(0)
-
-    def on_type_changed(self, index):
-        directive_type = self.type_combo.currentText()
-        is_value_needed = "DRAWDOWN" in directive_type
-        self.value_label.setVisible(is_value_needed)
-        self.value_spinbox.setVisible(is_value_needed)
-
-    def get_data(self):
-        return {
-            "type": self.type_combo.currentText(),
-            "reason": self.reason_edit.text(),
-            "duration_hours": self.duration_spin.value(),
-            "value": self.value_spinbox.value(),
-        }
-
-
-class GUIBridge(QObject):
-    """
-    Мост для передачи сигналов из фоновых потоков (TradingSystem) в GUI.
-    Определен здесь, чтобы быть доступным при инициализации.
-    """
-
-    log_message = Signal(object)  # Сообщение лога (строка или dict)
-    # Текст статуса, Важность (True=Красный)
-    update_status_changed = Signal(str, bool)
-    # Данные для таблицы сканера (list of dicts)
-    market_data_updated = Signal(object)
-    # Данные о позициях (list of dicts)
-    positions_updated = Signal(object)
-    graph_data_updated = Signal(object)  # Данные для графа (nodes, edges)
 
 
 class MainWindow(QMainWindow):
