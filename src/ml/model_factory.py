@@ -1,5 +1,6 @@
 # src/ml/model_factory.py
 import logging
+import multiprocessing
 import os
 from typing import Any, Dict, Optional
 
@@ -96,12 +97,13 @@ class ModelFactory:
         final_params.update(params)
 
         # =================================================================
-        # === ИСПРАВЛЕНИЕ: ПРИНУДИТЕЛЬНОЕ ИСПОЛЬЗОВАНИЕ CPU С ОГРАНИЧЕНИЕМ ===
+        # === ИСПОЛЬЗОВАНИЕ ВСЕХ ЯДЕР CPU ДЛЯ LIGHTGBM ===
         # =================================================================
-        # LightGBM будет использовать OMP_NUM_THREADS, установленный в .bat (4 ядра).
+        # LightGBM использует OMP_NUM_THREADS из переменной окружения
         final_params["device"] = "cpu"
-        final_params["n_jobs"] = int(os.environ.get("OMP_NUM_THREADS", 4))  # Берем из переменной окружения
-        logger.info(f"LightGBM принудительно использует CPU с n_jobs={final_params['n_jobs']}.")
+        n_jobs = int(os.environ.get("OMP_NUM_THREADS", multiprocessing.cpu_count()))
+        final_params["n_jobs"] = n_jobs
+        logger.info(f"LightGBM использует CPU с n_jobs={n_jobs} (все доступные ядра).")
         # =================================================================
 
         final_params.pop("input_dim", None)

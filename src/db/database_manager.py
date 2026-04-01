@@ -238,17 +238,17 @@ class CandleData(Base):
     id = Column(Integer, primary_key=True)
     symbol = Column(String, nullable=False, index=True, comment="Торговый инструмент (например, EURUSD)")
     timeframe = Column(String, nullable=False, index=True, comment="Таймфрейм (например, H1, M15)")
-    time = Column(DateTime, nullable=False, index=True, comment="Время свечи")
+    timestamp = Column(DateTime, nullable=False, index=True, comment="Время свечи")
     open = Column(Float, nullable=False, comment="Цена открытия")
     high = Column(Float, nullable=False, comment="Максимум")
     low = Column(Float, nullable=False, comment="Минимум")
     close = Column(Float, nullable=False, comment="Цена закрытия")
     tick_volume = Column(Integer, nullable=True, comment="Тиковый объём")
 
-    __table_args__ = (UniqueConstraint("symbol", "timeframe", "time", name="_candle_data_uc"),)
+    __table_args__ = (UniqueConstraint("symbol", "timeframe", "timestamp", name="_candle_data_uc"),)
 
     def __repr__(self):
-        return f"<CandleData(symbol='{self.symbol}', timeframe='{self.timeframe}', time={self.time})>"
+        return f"<CandleData(symbol='{self.symbol}', timeframe='{self.timeframe}', timestamp={self.timestamp})>"
 
 
 class DatabaseManager:
@@ -508,7 +508,7 @@ class DatabaseManager:
             symbol: Торговый инструмент (например, EURUSD)
             timeframe: Таймфрейм (например, H1, M15)
             candles: Список словарей с данными свечей [
-                {'time': datetime, 'open': float, 'high': float, 'low': float,
+                {'timestamp': datetime, 'open': float, 'high': float, 'low': float,
                  'close': float, 'tick_volume': int}, ...
             ]
 
@@ -520,7 +520,11 @@ class DatabaseManager:
             saved_count = 0
             for candle in candles:
                 # Проверяем существование записи
-                existing = session.query(CandleData).filter_by(symbol=symbol, timeframe=timeframe, time=candle["time"]).first()
+                existing = (
+                    session.query(CandleData)
+                    .filter_by(symbol=symbol, timeframe=timeframe, timestamp=candle["timestamp"])
+                    .first()
+                )
 
                 if existing:
                     # Обновляем существующую запись
@@ -534,7 +538,7 @@ class DatabaseManager:
                     new_candle = CandleData(
                         symbol=symbol,
                         timeframe=timeframe,
-                        time=candle["time"],
+                        timestamp=candle["timestamp"],
                         open=candle["open"],
                         high=candle["high"],
                         low=candle["low"],
@@ -572,7 +576,7 @@ class DatabaseManager:
             candles = (
                 session.query(CandleData)
                 .filter_by(symbol=symbol, timeframe=timeframe)
-                .order_by(CandleData.time.desc())
+                .order_by(CandleData.timestamp.desc())
                 .limit(limit)
                 .all()
             )
@@ -582,7 +586,7 @@ class DatabaseManager:
 
             # Преобразуем в DataFrame
             data = {
-                "time": [c.time for c in candles],
+                "time": [c.timestamp for c in candles],
                 "open": [c.open for c in candles],
                 "high": [c.high for c in candles],
                 "low": [c.low for c in candles],
@@ -622,7 +626,7 @@ class DatabaseManager:
 
             deleted_count = (
                 session.query(CandleData)
-                .filter(CandleData.symbol == symbol, CandleData.timeframe == timeframe, CandleData.time < cutoff_date)
+                .filter(CandleData.symbol == symbol, CandleData.timeframe == timeframe, CandleData.timestamp < cutoff_date)
                 .delete()
             )
 
@@ -678,6 +682,35 @@ class DatabaseManager:
                         # Создаём таблицу, если она не существует
                         CandleData.__table__.create(connection)
                         logger.info(f"Таблица '{candle_table_name}' успешно создана.")
+                    else:
+                        # Миграция: переименование колонки time -> timestamp (если нужно)
+                        columns = [col["name"] for col in inspector.get_columns(candle_table_name)]
+                        if "time" in columns and "timestamp" not in columns:
+                            # SQLite не поддерживает переименование колонок напрямую до версии 3.35.0
+                            # Используем подход с созданием новой таблицы
+                            logger.info("Обнаружена старая колонка 'time', переименовываем в 'timestamp'...")
+                            connection.execute(text("""
+                                CREATE TABLE IF NOT EXISTS candle_data_new (
+                                    id INTEGER NOT NULL,
+                                    symbol VARCHAR NOT NULL,
+                                    timeframe VARCHAR NOT NULL,
+                                    timestamp DATETIME NOT NULL,
+                                    open FLOAT NOT NULL,
+                                    high FLOAT NOT NULL,
+                                    low FLOAT NOT NULL,
+                                    close FLOAT NOT NULL,
+                                    tick_volume INTEGER,
+                                    PRIMARY KEY (id),
+                                    UNIQUE (symbol, timeframe, timestamp)
+                                )
+                            """))
+                            connection.execute(text("""
+                                INSERT INTO candle_data_new (id, symbol, timeframe, timestamp, open, high, low, close, tick_volume)
+                                SELECT id, symbol, timeframe, time, open, high, low, close, tick_volume FROM candle_data
+                            """))
+                            connection.execute(text("DROP TABLE candle_data"))
+                            connection.execute(text("ALTER TABLE candle_data_new RENAME TO candle_data"))
+                            logger.info("Миграция колонки time -> timestamp завершена.")
 
                     # Проверка таблицы trained_models
                     table_name = TrainedModel.__tablename__
@@ -1532,7 +1565,25 @@ class DatabaseManager:
             session.close()
 
     def save_model_and_scalers(self, **kwargs):
+        """
+        Сохраняет модель и скалеры в БД (асинхронно через очередь).
+        Возвращает None, так как операция асинхронная.
+        Для синхронного сохранения с возвратом ID используйте save_model_and_scalers_sync.
+        """
         self.write_queue.put(("save_model_and_scalers", kwargs))
+
+    def save_model_and_scalers_sync(self, **kwargs) -> Optional[int]:
+        """
+        Синхронное сохранение модели и скалеров в БД с возвратом ID.
+        Используется в auto_trainer для получения ID сохранённой модели.
+
+        Args:
+            **kwargs: Аргументы для _save_model_and_scalers_internal
+
+        Returns:
+            ID сохранённой модели или None при ошибке
+        """
+        return self._save_model_and_scalers_internal(**kwargs)
 
     def promote_challenger_to_champion(self, **kwargs):
         self.write_queue.put(("promote_challenger_to_champion", kwargs))

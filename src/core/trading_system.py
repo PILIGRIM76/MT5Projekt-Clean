@@ -169,6 +169,10 @@ class TradingSystem(QObject):
         # Блокировка для безопасности доступа к кэшу
         self._cache_lock = threading.RLock()
 
+        # --- Отслеживание активных обучений ---
+        self._training_symbols = set()  # Символы, которые сейчас обучаются
+        self._training_lock = threading.Lock()  # Блокировка для _training_symbols
+
         # --- Логирование производительности ---
         self.performance_metrics = {}
         self._perf_lock = threading.Lock()
@@ -470,6 +474,9 @@ class TradingSystem(QObject):
         self.symbol_monitor_thread = threading.Thread(
             target=self._symbol_performance_monitor_loop, daemon=True, name="SymbolMonitorThread"
         )
+        self.training_status_thread = threading.Thread(
+            target=self._periodic_training_status_update_loop, daemon=True, name="TrainingStatusThread"
+        )
 
         threads_to_start = {
             "History Sync": self.history_sync_thread,
@@ -482,6 +489,7 @@ class TradingSystem(QObject):
             "Training": self.training_thread,
             "VectorDB Cleanup": self.vector_db_cleanup_thread,
             "Symbol Monitor": self.symbol_monitor_thread,
+            "Training Status": self.training_status_thread,  # НОВЫЙ
         }
 
         for name, thread in threads_to_start.items():
@@ -1295,6 +1303,9 @@ class TradingSystem(QObject):
                 {"generation": 0, "best_fitness": 0.0, "config": f"Начало R&D цикла (Batch: {training_batch_id[:8]})"},
             )
 
+        # ПРОВЕРКА: Инициализирован ли bridge для отправки данных обучения
+        logger.info(f"[R&D] self.bridge = {self.bridge is not None}, self.gui = {self.gui is not None}")
+
         symbol_to_train = None
         ranked_symbols = []
         try:
@@ -1367,17 +1378,34 @@ class TradingSystem(QObject):
                         },
                     )
 
-            # === ИСПРАВЛЕНИЕ: Быстро загрузим данные и ОСВОБОДИМ LOCK перед обучением ===
+            # === ИСПРАВЛЕНИЕ: Загружаем данные для обучения БЕЗ БЛОКИРОВКИ ===
             timeframe = mt5.TIMEFRAME_H1
             data_load_start = standard_time.time()
-            df_full = self.data_provider.get_historical_data(
-                symbol_to_train,
-                timeframe,
-                datetime.now() - timedelta(days=self.config.TRAINING_DATA_POINTS / 12),
-                datetime.now(),
-            )
+
+            # Загружаем данные НАПРЯМУЮ через MT5 без использования data_provider
+            # Это позволяет избежать блокировки mt5_lock
+            logger.info(f"[R&D] Прямая загрузка данных из MT5 для {symbol_to_train}...")
+
+            # Инициализируем отдельное подключение для обучения
+            if not mt5.initialize(path=self.config.MT5_PATH):
+                logger.error(f"[R&D] Не удалось подключиться к MT5 для загрузки данных")
+                df_full = None
+            else:
+                # Загружаем данные
+                rates = mt5.copy_rates_from_pos(symbol_to_train, timeframe, 0, self.config.TRAINING_DATA_POINTS)
+                mt5.shutdown()
+
+                if rates is not None and len(rates) > 0:
+                    df_full = pd.DataFrame(rates)
+                    df_full["time"] = pd.to_datetime(df_full["time"], unit="s")
+                    df_full.set_index("time", inplace=True)
+                    logger.info(f"[R&D] Загружено {len(df_full)} баров напрямую из MT5")
+                else:
+                    logger.warning(f"[R&D] MT5 вернул пустые данные")
+                    df_full = None
+
             data_load_time = standard_time.time() - data_load_start
-            logger.info(f"[R&D] Загрузка данных заняла {data_load_time:.2f} сек (MT5 Lock освобожден)")
+            logger.info(f"[R&D] Загрузка данных заняла {data_load_time:.2f} сек")
             if df_full is None or len(df_full) < 1000:
                 logger.warning(
                     f"[R&D] Недостаточно данных ({len(df_full) if df_full is not None else 0} баров) для {symbol_to_train}. Пропуск."
@@ -1765,9 +1793,12 @@ class TradingSystem(QObject):
                 if hasattr(self.db_manager, internal_method_name):
                     method_to_call = getattr(self.db_manager, internal_method_name)
                     if task == "save_model_and_scalers":
-                        model_id = method_to_call(**kwargs)
+                        # Для асинхронного вызова используем синхронную версию с возвратом ID
+                        model_id = self.db_manager.save_model_and_scalers_sync(**kwargs)
                         if model_id:
                             logger.info(f"Поток записи: модель успешно сохранена с ID {model_id}.")
+                        else:
+                            logger.warning(f"Поток записи: модель НЕ сохранена в БД (ID=None)")
                     else:
                         method_to_call(**kwargs)
                 else:
@@ -2612,12 +2643,16 @@ class TradingSystem(QObject):
         features_to_use: List[str],
         custom_hyperparams=None,
     ):
+        logger.info(f"[TRAIN] Начало _train_candidate_model: {model_type} для {symbol}")
+        logger.info(f"[TRAIN] self.bridge = {self.bridge is not None}, self.gui = {self.gui is not None}")
         target_col = "close"
 
         # Проверка на пустые датафреймы
         if train_df.empty or val_df.empty:
             logger.error(f"[R&D] Ошибка: Обучающий или валидационный набор данных пуст. Пропуск обучения.")
             return None
+
+        logger.info(f"[TRAIN] Данные проверены, train={len(train_df)}, val={len(val_df)}")
 
         # Удаление дубликатов колонок
         train_df = train_df.loc[:, ~train_df.columns.duplicated()]
@@ -2629,6 +2664,8 @@ class TradingSystem(QObject):
             logger.error(f"[R&D] Ошибка: Ни один из требуемых признаков не найден в обучающем датафрейме.")
             return None
 
+        logger.info(f"[TRAIN] Признаки проверены: {len(features_to_use)} колонок")
+
         # Проверка целевой переменной
         if target_col not in train_df.columns:
             logger.error(f"[R&D] Ошибка: Целевая переменная '{target_col}' отсутствует в обучающем датафрейме.")
@@ -2637,6 +2674,8 @@ class TradingSystem(QObject):
         if target_col not in val_df.columns:
             logger.error(f"[R&D] Ошибка: Целевая переменная '{target_col}' отсутствует в валидационном датафрейме.")
             return None
+
+        logger.info(f"[TRAIN] Скалирование данных...")
         x_scaler = StandardScaler()
         y_scaler = StandardScaler()
         train_df_features_np = train_df[features_to_use].values
@@ -2683,6 +2722,7 @@ class TradingSystem(QObject):
             model.to(self.device)
             loss_history = []
             # ОПТИМИЗАЦИЯ: Уменьшено с 50 до 20 эпох для ускорения R&D цикла
+            logger.info(f"[LSTM] Начало обучения: 20 эпох, input_dim={input_dim}")
             for epoch in range(20):
                 for X_batch, y_batch in train_loader:
                     X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
@@ -2692,12 +2732,20 @@ class TradingSystem(QObject):
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                     optimizer.step()
-                if epoch % 5 == 0:
-                    loss_history.append(loss.item())
-                    if self.gui:
-                        history_obj = type("History", (), {"history": {"loss": loss_history}})()
-                        logger.debug(f"[R&D] Epoch {epoch}: loss={loss.item():.4f}, отправляем в GUI")
+                loss_history.append(loss.item())
+                # Отправляем прогресс каждые 2 эпохи и всегда последнюю эпоху
+                if epoch % 2 == 0 or epoch == 19:
+                    logger.info(f"[LSTM] Epoch {epoch}/19: loss={loss.item():.6f}")
+                    # Отправляем в GUI даже если self.gui=None (используем bridge напрямую)
+                    history_obj = type("History", (), {"history": {"loss": loss_history}})()
+                    logger.info(f"[LSTM] Отправляем в GUI loss_history: {len(loss_history)} значений")
+                    if self.bridge:
+                        self.bridge.training_history_updated.emit(history_obj)
+                        logger.info(f"[LSTM] ✅ Сигнал отправлен через bridge")
+                    elif self.gui:
                         self._safe_gui_update("update_visualization", history_obj)
+                    else:
+                        logger.warning("[LSTM] self.gui и self.bridge = None, пропускаем обновление GUI")
         elif model_type.upper() == "LIGHTGBM":
             X_train = train_df_scaled[features_to_use]
             y_train = train_df_scaled[target_col]
@@ -2711,11 +2759,17 @@ class TradingSystem(QObject):
                 eval_metric="rmse",
                 callbacks=[lgb.early_stopping(10, verbose=False), lgb.record_evaluation(evals_result)],
             )
-            if "valid_0" in evals_result and "rmse" in evals_result["valid_0"] and self.gui:
+            if "valid_0" in evals_result and "rmse" in evals_result["valid_0"]:
                 loss_history = evals_result["valid_0"]["rmse"]
                 history_obj = type("History", (), {"history": {"loss": loss_history}})()
-                self._safe_gui_update("update_visualization", history_obj)
-        return self.db_manager._save_model_and_scalers_internal(
+                logger.info(f"[LightGBM] Отправляем в GUI loss_history: {len(loss_history)} значений")
+                if self.bridge:
+                    self.bridge.training_history_updated.emit(history_obj)
+                    logger.info(f"[LightGBM] ✅ Сигнал отправлен через bridge")
+                elif self.gui:
+                    self._safe_gui_update("update_visualization", history_obj)
+
+        model_id = self.db_manager._save_model_and_scalers_internal(
             symbol=symbol,
             timeframe=timeframe,
             model=model,
@@ -2726,6 +2780,8 @@ class TradingSystem(QObject):
             training_batch_id=training_batch_id,
             hyperparameters=model_params if model_type.upper() == "LSTM_PYTORCH" else None,
         )
+        logger.info(f"[TRAIN] Модель {model_type} для {symbol} сохранена с ID={model_id}")
+        return model_id
 
     def _run_champion_contest(self, candidate_ids: list, holdout_df: pd.DataFrame):
         logger.warning(f"--- НАЧАЛО ЧЕМПИОНСКОГО КОНКУРСА ДЛЯ {len(candidate_ids)} МОДЕЛЕЙ ---")
@@ -2904,6 +2960,10 @@ class TradingSystem(QObject):
         if not hasattr(self, "_last_gui_updates"):
             self._last_gui_updates = {}
 
+        # Логирование для отладки обучения
+        if method_name == "update_visualization":
+            logger.info(f"[Throttle] Вызван _safe_gui_update для {method_name}")
+
         import time as standard_time
 
         current_time = standard_time.time()
@@ -2945,10 +3005,13 @@ class TradingSystem(QObject):
                 }
                 if method_name in signal_map:
                     signal, signal_args = signal_map[method_name]
+                    logger.info(
+                        f"[GUI] Отправка сигнала {method_name} с аргументами: {type(signal_args[0]) if signal_args else 'none'}"
+                    )
                     signal.emit(*signal_args)
                     # Логирование для отладки прогресса обучения
                     if method_name == "update_visualization":
-                        logger.debug(
+                        logger.info(
                             f"[GUI] Отправлен сигнал update_visualization с {len(args[0].history.get('loss', []))} значениями loss"
                         )
             except Exception as e:
@@ -3367,12 +3430,233 @@ class TradingSystem(QObject):
         return data
 
     def force_training_cycle(self):
+        """
+        Принудительный запуск цикла обучения из GUI.
+        Запускается в отдельном потоке без блокировки основного цикла.
+        """
         if not self.running:
             logger.warning("Нельзя запустить обучение, так как система остановлена.")
             return
         logger.info("Принудительный запуск цикла обучения из GUI...")
-        thread = threading.Thread(target=self._continuous_training_cycle, daemon=True)
+        # Запускаем в отдельном потоке с высоким приоритетом
+        thread = threading.Thread(target=self._force_training_cycle_async, daemon=True, name="ForceTrainingThread")
         thread.start()
+        logger.info("[Force Training] Поток обучения запущен")
+
+    def _force_training_cycle_async(self):
+        """
+        Асинхронное принудительное обучение (в отдельном потоке).
+        """
+        import time as standard_time
+        import uuid
+
+        training_batch_id = f"batch-{uuid.uuid4()}"
+        cycle_start_time = standard_time.time()
+        logger.warning(f"--- НАЧАЛО ПРИНУДИТЕЛЬНОГО R&D ЦИКЛА (BATCH ID: {training_batch_id}) ---")
+
+        try:
+            symbol_to_train = None
+
+            # Пробуем получить символы из рейтинга, но не ждем долго
+            wait_count = 0
+            while not self.latest_full_ranked_list and wait_count < 5:  # Ждем максимум 10 сек
+                if wait_count % 2 == 0:
+                    logger.info(f"[Force Training] Ожидание данных... ({wait_count}/5)")
+                standard_time.sleep(2)
+                wait_count += 1
+
+            ranked_symbols = []
+            if self.latest_full_ranked_list:
+                ranked_symbols = [item["symbol"] for item in self.latest_full_ranked_list[: self.config.TOP_N_SYMBOLS]]
+                logger.info(f"[Force Training] Доступно {len(ranked_symbols)} символов из рейтинга")
+            else:
+                logger.warning("[Force Training] Рейтинг пуст, используем whitelist")
+
+            # Проверяем символы без моделей (быстро)
+            logger.info("[Force Training] Проверка символов без моделей...")
+            all_symbols = self.config.SYMBOLS_WHITELIST if hasattr(self.config, "SYMBOLS_WHITELIST") else ranked_symbols
+            if not all_symbols:
+                logger.error("[Force Training] Нет символов для обучения")
+                return
+
+            symbols_without_models = []
+            session = self.db_manager.Session()
+            try:
+                from src.db.database_manager import TrainedModel
+
+                for symbol in all_symbols[:5]:  # Только первые 5 для скорости
+                    models_count = session.query(TrainedModel).filter_by(symbol=symbol).count()
+                    if models_count == 0:
+                        symbols_without_models.append(symbol)
+                        logger.info(f"[Force Training] Символ {symbol} не имеет моделей")
+            finally:
+                session.close()
+
+            if symbols_without_models:
+                symbol_to_train = symbols_without_models[0]
+                logger.warning(f"[Force Training] ПРИОРИТЕТ: Выбран символ БЕЗ МОДЕЛЕЙ: {symbol_to_train}")
+            elif ranked_symbols:
+                symbol_to_train = ranked_symbols[0]
+                logger.info(f"[Force Training] Выбран топ-1 символ: {symbol_to_train}")
+            elif all_symbols:
+                symbol_to_train = all_symbols[0]  # Берем первый из whitelist
+                logger.warning(f"[Force Training] Выбран первый символ из whitelist: {symbol_to_train}")
+            else:
+                logger.error("[Force Training] Нет символов для обучения")
+                return
+
+            if symbol_to_train:
+                # Запускаем обучение БЕЗ блокировки training_lock
+                timeframe = mt5.TIMEFRAME_H1
+                logger.info(f"[Force Training] Начало обучения для {symbol_to_train}...")
+                self._run_training_for_symbol_async(symbol_to_train, timeframe, training_batch_id)
+
+        except Exception as e:
+            logger.error(f"Критическая ошибка в принудительном цикле обучения: {e}", exc_info=True)
+
+        total_time = standard_time.time() - cycle_start_time
+        logger.warning(f"--- ПРИНУДИТЕЛЬНЫЙ R&D ЦИКЛ ЗАВЕРШЕН за {total_time:.2f} сек ---")
+
+    def _run_training_for_symbol_async(self, symbol: str, timeframe, training_batch_id: str):
+        """
+        Асинхронное обучение для конкретного символа (без блокировки training_lock).
+        """
+        import time as standard_time
+
+        from sklearn.model_selection import train_test_split
+
+        from src.ml.feature_engineer import FeatureEngineer
+        from src.ml.model_factory import ModelFactory
+
+        # ПРОВЕРКА: Не обучается ли уже этот символ
+        with self._training_lock:
+            if symbol in self._training_symbols:
+                logger.warning(f"[Async Training] Символ {symbol} УЖЕ обучается. Пропуск.")
+                return
+            # Добавляем символ в множество обучаемых
+            self._training_symbols.add(symbol)
+            logger.info(f"[Async Training] Символ {symbol} добавлен в _training_symbols")
+
+        logger.info(f"[Async Training] Начало обучения для {symbol}...")
+
+        try:
+            # Загрузка данных (не блокирует)
+            logger.info(f"[Async Training] Шаг 1: Загрузка данных для {symbol}...")
+            data_load_start = standard_time.time()
+            df_full = self.data_provider.get_historical_data(
+                symbol,
+                timeframe,
+                datetime.now() - timedelta(days=self.config.TRAINING_DATA_POINTS / 12),
+                datetime.now(),
+            )
+            data_load_time = standard_time.time() - data_load_start
+            logger.info(
+                f"[Async Training] Загрузка данных заняла {data_load_time:.2f} сек, баров: {len(df_full) if df_full is not None else 0}"
+            )
+
+            if df_full is None or len(df_full) < 1000:
+                logger.warning(f"[Async Training] Недостаточно данных для {symbol}. Пропуск.")
+                return
+
+            # Генерация признаков
+            logger.info(f"[Async Training] Шаг 2: Генерация признаков...")
+            fe = FeatureEngineer(self.config, self.knowledge_graph_querier)
+            df_featured = fe.generate_features(df_full, symbol=symbol)
+            logger.info(
+                f"[Async Training] Признаки сгенерированы: {len(df_featured)} баров, колонок: {len(df_featured.columns)}"
+            )
+
+            # Подготовка признаков
+            unique_features = list(dict.fromkeys(self.config.FEATURES_TO_USE))
+            actual_features_to_use = [f for f in unique_features if f in df_featured.columns]
+            logger.info(f"[Async Training] Используется {len(actual_features_to_use)} признаков")
+
+            if len(actual_features_to_use) > 20:
+                actual_features_to_use = actual_features_to_use[:20]
+                logger.warning(f"Ограничено количество признаков до 20")
+
+            # Разделение на train/val/holdout
+            logger.info(f"[Async Training] Шаг 3: Разделение данных...")
+            train_val_df, holdout_df = train_test_split(df_featured, test_size=0.15, shuffle=False)
+            train_df, val_df = train_test_split(train_val_df, test_size=0.176, shuffle=False)
+            logger.info(f"[Async Training] Train: {len(train_df)}, Val: {len(val_df)}, Holdout: {len(holdout_df)}")
+
+            model_factory = ModelFactory(self.config)
+            trained_candidate_ids = []
+            training_start = standard_time.time()
+
+            # Инициализируем loss_history для отслеживания
+            all_loss_history = []
+
+            logger.info(
+                f"[Async Training] Шаг 4: Начало обучения {len(self.config.rd_cycle_config.model_candidates)} моделей..."
+            )
+
+            for idx, candidate_config in enumerate(self.config.rd_cycle_config.model_candidates, 1):
+                logger.info(
+                    f"[Async Training] Обучение модели {idx}/{len(self.config.rd_cycle_config.model_candidates)}: {candidate_config.type}"
+                )
+
+                # Отправка прогресса в GUI
+                if self.gui:
+                    self._safe_gui_update(
+                        "update_rd_log",
+                        {
+                            "generation": idx + 1,
+                            "best_fitness": 0.0,
+                            "config": f"Обучение модели {candidate_config.type} для {symbol}",
+                        },
+                    )
+
+                model_id = self._train_candidate_model(
+                    model_type=candidate_config.type,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    train_df=train_df.copy(),
+                    val_df=val_df.copy(),
+                    model_factory=model_factory,
+                    training_batch_id=training_batch_id,
+                    features_to_use=actual_features_to_use,
+                )
+                if model_id:
+                    trained_candidate_ids.append(model_id)
+                    logger.info(f"[Async Training] Модель {candidate_config.type} обучена (ID: {model_id})")
+
+                    if self.gui:
+                        self._safe_gui_update(
+                            "update_rd_log",
+                            {
+                                "generation": idx + 1,
+                                "best_fitness": 1.0,
+                                "config": f"✓ Модель {candidate_config.type} обучена (ID: {model_id})",
+                            },
+                        )
+
+                    standard_time.sleep(0.5)
+                else:
+                    logger.warning(f"[Async Training] Модель {candidate_config.type} НЕ обучена (model_id=None)")
+
+            training_time = standard_time.time() - training_start
+            logger.info(f"[Async Training] Обучение всех моделей заняло {training_time:.2f} сек")
+
+            if trained_candidate_ids:
+                contest_start = standard_time.time()
+                logger.info(f"[Async Training] Шаг 5: Конкурс моделей...")
+                self._run_champion_contest(trained_candidate_ids, holdout_df)
+                contest_time = standard_time.time() - contest_start
+                logger.info(f"[Async Training] Конкурс моделей занял {contest_time:.2f} сек")
+
+            logger.info(f"[Async Training] ✅ Обучение для {symbol} завершено успешно")
+
+        except Exception as e:
+            logger.error(f"[Async Training] Ошибка обучения: {e}", exc_info=True)
+
+        finally:
+            # Удаляем символ из множества обучаемых (освобождаем блокировку)
+            with self._training_lock:
+                if symbol in self._training_symbols:
+                    self._training_symbols.remove(symbol)
+                    logger.info(f"[Async Training] Символ {symbol} удалён из _training_symbols")
 
     # === ИНТЕГРАЦИЯ: Методы для управления сервисами ===
 
@@ -3487,8 +3771,103 @@ class TradingSystem(QObject):
 
             logger.info("✅ Автоматическое переобучение завершено")
 
+            # ОТПРАВКА ДАННЫХ В GUI ПОСЛЕ ОБУЧЕНИЯ
+            if self.bridge:
+                self._send_model_accuracy_to_gui()
+                self._send_retrain_progress_to_gui()
+
         except Exception as e:
             logger.error(f"❌ Ошибка при автоматическом переобучении: {e}", exc_info=True)
+
+    def _send_model_accuracy_to_gui(self):
+        """
+        Собирает и отправляет в GUI данные о точности моделей.
+        """
+        try:
+            import json
+            from pathlib import Path
+
+            accuracy_data = {}
+            models_path = Path(self.config.DATABASE_FOLDER) / "ai_models"
+
+            for symbol in self.config.SYMBOLS_WHITELIST:
+                metadata_file = models_path / f"{symbol}_metadata.json"
+                if metadata_file.exists():
+                    with open(metadata_file, "r", encoding="utf-8") as f:
+                        metadata = json.load(f)
+                        accuracy = metadata.get("val_accuracy", 0)
+                        # Если точность 0 или None, ставим дефолтное значение
+                        if not accuracy or accuracy == 0:
+                            accuracy = 0.5  # Показываем жёлтый цвет пока нет данных
+                        accuracy_data[symbol] = accuracy
+                else:
+                    accuracy_data[symbol] = 0.0  # Модели нет - красный
+
+            if accuracy_data and self.bridge:
+                self.bridge.model_accuracy_updated.emit(accuracy_data)
+                logger.info(f"📊 Отправлены данные точности для {len(accuracy_data)} символов: {accuracy_data}")
+
+        except Exception as e:
+            logger.error(f"Ошибка при отправке точности моделей в GUI: {e}", exc_info=True)
+
+    def _send_retrain_progress_to_gui(self):
+        """
+        Собирает и отправляет в GUI данные о прогрессе переобучения.
+        """
+        try:
+            import json
+            from pathlib import Path
+
+            progress_data = {}
+            models_path = Path(self.config.DATABASE_FOLDER) / "ai_models"
+
+            for symbol in self.config.SYMBOLS_WHITELIST:
+                metadata_file = models_path / f"{symbol}_metadata.json"
+                if metadata_file.exists():
+                    with open(metadata_file, "r", encoding="utf-8") as f:
+                        metadata = json.load(f)
+                        trained_at = datetime.fromisoformat(metadata["trained_at"])
+                        hours_since = (datetime.now() - trained_at).total_seconds() / 3600
+                        progress_data[symbol] = hours_since
+                else:
+                    progress_data[symbol] = 999.0  # Модели нет - требует обучения
+
+            if progress_data and self.bridge:
+                self.bridge.retrain_progress_updated.emit(progress_data)
+                # Считаем сколько символов требуют переобучения (> 1 часа)
+                symbols_to_retrain = sum(1 for h in progress_data.values() if h >= 1.0)
+                logger.info(
+                    f"⏰ Отправлены данные прогресса для {len(progress_data)} символов, требуют переобучения: {symbols_to_retrain}"
+                )
+
+        except Exception as e:
+            logger.error(f"Ошибка при отправке прогресса переобучения в GUI: {e}", exc_info=True)
+
+    def _periodic_training_status_update_loop(self):
+        """
+        Фоновый цикл для периодического обновления статусов переобучения в GUI.
+        Запускается каждые 5 минут.
+        """
+        logger.info("⏰ Запуск цикла обновления статусов переобучения...")
+        update_interval = 300  # 5 минут
+
+        # Первая задержка 30 секунд для стабильности
+        self.stop_event.wait(30)
+
+        while not self.stop_event.is_set():
+            try:
+                # Обновляем только прогресс (точность меняется реже)
+                if self.bridge:
+                    self._send_retrain_progress_to_gui()
+
+                # Ждём следующий интервал
+                self.stop_event.wait(update_interval)
+
+            except Exception as e:
+                logger.error(f"Ошибка в цикле обновления статусов: {e}", exc_info=True)
+                self.stop_event.wait(60)  # Пауза при ошибке
+
+        logger.info("⏰ Цикл обновления статусов остановлен")
 
     def stop_training_scheduler(self):
         """Останавливает планировщик автоматического переобучения."""

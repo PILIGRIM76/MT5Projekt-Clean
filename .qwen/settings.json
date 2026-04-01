@@ -37,7 +37,9 @@
       "Bash(netstat *)",
       "Bash(curl *)",
       "Bash(pre-commit *)",
-      "Bash(pytest *)"
+      "Bash(pytest *)",
+      "Read(F:/Enjen/database/**)",
+      "Bash(sqlite3 *)"
     ]
   },
   "$version": 3

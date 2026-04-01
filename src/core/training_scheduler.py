@@ -99,6 +99,30 @@ class TrainingScheduler:
         """Настраивает расписание запуска обучения."""
         schedule.clear()
 
+        # Парсим время из строки "HH:MM"
+        try:
+            hour, minute = map(int, self.schedule_time.split(":"))
+            schedule_time = dt_time(hour, minute)
+        except ValueError:
+            logger.error(f"Неверный формат времени переобучения: {self.schedule_time}. Используем 02:00")
+            schedule_time = dt_time(2, 0)
+
+        # Настраиваем расписание
+        schedule.every(self.interval_hours).hours.do(self._scheduled_training_job)
+        schedule.every().day.at(schedule_time.strftime("%H:%M")).do(self._scheduled_training_job)
+
+        logger.info(f"Расписание настроено: переобучение каждые {self.interval_hours} ч + ежедневное в {self.schedule_time}")
+
+    def _scheduled_training_job(self):
+        """Задача планировщика для запуска обучения."""
+        if self.training_in_progress:
+            logger.warning("Обучение уже запущено, пропускаем запланированный запуск")
+            return
+
+        logger.info(f"🕐 [{datetime.now().strftime('%H:%M:%S')}] Запланированное переобучение моделей...")
+        self.training_callback(self.max_symbols, self.max_workers)
+        self.last_training_time = datetime.now()
+
         # Запуск по времени (например, в 02:00)
         schedule.every().day.at(self.schedule_time).do(self._run_training_job)
 

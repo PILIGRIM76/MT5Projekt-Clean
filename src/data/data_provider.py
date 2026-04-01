@@ -469,18 +469,29 @@ class DataProvider:
             logger.debug(f"Кэш HIT для {symbol} {timeframe}")
             return cached_data.copy()
 
-        logger.debug(f"Кэш MISS для {symbol} {timeframe}, загрузка из MT5...")
+        logger.info(f"[DATA] Загрузка {symbol} {timeframe}...")
 
         try:
-            with self.mt5_lock:
+            # Пытаемся захватить mt5_lock с увеличенным таймаутом для обучения (60 сек)
+            acquired = self.mt5_lock.acquire(timeout=60)  # Ждем максимум 60 сек для обучения
+            if not acquired:
+                logger.error(f"[DATA] Таймаут захвата mt5_lock для {symbol} (60 сек). Пропуск.")
+                return None
+
+            try:
                 if not mt5.initialize(path=self.config.MT5_PATH):
                     logger.error(f"get_historical_data: initialize() failed, error code = {mt5.last_error()}")
                     mt5.shutdown()
                     return None
+                logger.info(f"[DATA] Загрузка MT5 copy_rates_range для {symbol}...")
                 rates = mt5.copy_rates_range(symbol, timeframe, start_date, end_date)
+                logger.info(f"[DATA] Получено {len(rates) if rates is not None else 0} баров")
                 mt5.shutdown()
+            finally:
+                self.mt5_lock.release()
 
             if rates is None or len(rates) == 0:
+                logger.warning(f"[DATA] Пустые данные для {symbol}")
                 return None
 
             df = pd.DataFrame(rates)
@@ -498,6 +509,7 @@ class DataProvider:
 
             # Сохраняем в кэш
             self._data_cache.put(cache_key, df_with_features)
+            logger.info(f"[DATA] Завершено для {symbol}, баров: {len(df_with_features)}")
 
             return df_with_features
 

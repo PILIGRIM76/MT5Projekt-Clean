@@ -206,20 +206,26 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 matplotlib.use("Agg")
 
 # ===================================================================
-# === УНИВЕРСАЛЬНОЕ ОГРАНИЧЕНИЕ ЯДЕР CPU (для разгрузки) ===
+# === НАСТРОЙКА КОЛИЧЕСТВА ЯДЕР CPU ===
 # ===================================================================
-# Устанавливаем 1 ядро для всех многопоточных библиотек.
+# Устанавливаем количество ядер для всех многопоточных библиотек.
 # Это должно быть сделано ДО импорта NumPy, PyTorch, LightGBM и т.д.
 # Если переменная уже установлена (например, в .bat), мы ее не перезаписываем.
+#
+# РЕКОМЕНДАЦИЯ: Выделите 4 ядра для системы, остальные оставьте ОС.
+# Это обеспечит баланс между производительностью ML и отзывчивостью GUI.
+
+cpu_count = 4  # Выделяем 4 ядра для ML-задач
+logger.info(f"Используем {cpu_count} ядер CPU для обучения моделей (из 12 доступных)")
 
 if "OMP_NUM_THREADS" not in os.environ:
-    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["OMP_NUM_THREADS"] = str(cpu_count)
 if "MKL_NUM_THREADS" not in os.environ:
-    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = str(cpu_count)
 if "NUMBA_NUM_THREADS" not in os.environ:
-    os.environ["NUMBA_NUM_THREADS"] = "1"
+    os.environ["NUMBA_NUM_THREADS"] = str(cpu_count)
 if "TORCH_NUM_THREADS" not in os.environ:
-    os.environ["TORCH_NUM_THREADS"] = "1"
+    os.environ["TORCH_NUM_THREADS"] = str(cpu_count)
 
 # 1. Numba JIT включён для производительности (по умолчанию disabled=False)
 # Если возникают сбои, установите в "1" для отладки
@@ -598,6 +604,10 @@ class Bridge(QObject):
     heavy_initialization_finished = Signal()
     drift_data_updated = Signal(float, str, float, bool)
     pnl_kpis_updated = Signal(dict)
+
+    # НОВЫЕ: Сигналы для визуализации переобучения
+    model_accuracy_updated = Signal(dict)  # {symbol: accuracy}
+    retrain_progress_updated = Signal(dict)  # {symbol: hours_since_training}
 
 
 class PySideTradingSystem(QObject):
@@ -1893,52 +1903,51 @@ class MainWindow(QMainWindow):
         # --- ВКЛАДКА "АНАЛИТИКА" ---
         analytics_tab_widget = QWidget()
         analytics_layout = QVBoxLayout(analytics_tab_widget)
-        analytics_controls_layout = QHBoxLayout()
-        analytics_controls_layout.addStretch()
-        analytics_graph_widget = pg.GraphicsLayoutWidget()
-        self.loss_plot = analytics_graph_widget.addPlot(row=0, col=0, title="Прогресс обучения (Loss)")
-        # График P&L для реальных сделок (существующий)
-        self.pnl_plot = analytics_graph_widget.addPlot(row=1, col=0, title="Кривая доходности (P&L)")
-
-        self.loss_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.loss_plot.getAxis("bottom").setLabel("Эпоха обучения")
-        self.loss_plot.getAxis("left").setLabel("Значение ошибки (Loss)")
-        self.loss_curve = self.loss_plot.plot(pen="y", symbol="o", symbolBrush="y", symbolSize=5)
-        self.pnl_plot = analytics_graph_widget.addPlot(row=1, col=0, title="Кривая доходности (P&L)")
-        self.pnl_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.pnl_plot.getAxis("left").setLabel("Баланс", units="USD")
-        self.pnl_plot.setAxisItems({"bottom": pg.DateAxisItem()})
-        self.pnl_curve = self.pnl_plot.plot(pen="g")
-
-        # +++  Новый график для режима наблюдателя +++
-        analytics_graph_widget.nextRow()  # Переходим на новую строку в layout
-        self.observer_pnl_plot = analytics_graph_widget.addPlot(row=2, col=0, title="Доходность (Режим Наблюдателя)")
-        self.observer_pnl_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.observer_pnl_plot.getAxis("left").setLabel("Баланс (симуляция)", units="USD")
-        self.observer_pnl_plot.getAxis("bottom").setLabel("Количество виртуальных сделок")
-        self.observer_pnl_curve = self.observer_pnl_plot.plot(pen=pg.mkPen("c", width=2))  # Голубой цвет для графика
-        analytics_layout.addLayout(analytics_controls_layout)
-        # --- ВКЛАДКА "АНАЛИТИКА" ---
-        analytics_tab_widget = QWidget()
-        # Используем QVBoxLayout для всей вкладки
-        analytics_layout = QVBoxLayout(analytics_tab_widget)
-
-        analytics_controls_layout = QHBoxLayout()
-        self.force_train_button = QPushButton("Запустить цикл обучения сейчас")
-
-        analytics_controls_layout.addWidget(self.force_train_button)
-        analytics_controls_layout.addStretch()
-        analytics_layout.addLayout(analytics_controls_layout)
-
-        # +++ НАЧАЛО ГЛАВНОГО ИСПРАВЛЕНИЯ +++
 
         # 1. Создаем ОТДЕЛЬНЫЙ виджет для графика обучения
-        self.loss_plot_widget = pg.PlotWidget(title="Прогресс обучения (Loss)")
+        self.loss_plot_widget = pg.PlotWidget(title="🔄 Прогресс обучения (Loss)")
         self.loss_plot = self.loss_plot_widget.getPlotItem()  # Получаем сам объект графика
         self.loss_plot.showGrid(x=True, y=True, alpha=0.3)
         self.loss_plot.getAxis("bottom").setLabel("Эпоха обучения")
-        self.loss_plot.getAxis("left").setLabel("Значение ошибки (Loss)")
-        self.loss_curve = self.loss_plot.plot(pen="y", symbol="o", symbolBrush="y", symbolSize=5)
+        self.loss_plot.getAxis("left").setLabel("Loss")
+        self.loss_curve = self.loss_plot.plot(pen="y", symbol="o", symbolBrush="y", symbolSize=3)
+
+        # Инициализируем график пустыми данными для видимости
+        self.loss_curve.setData(x=[], y=[])
+        logger.info("[GUI-Analytics] График обучения инициализирован")
+
+        # 1.1 НОВЫЙ: Компактная панель с двумя графиками в одной строке
+        compact_charts_widget = QWidget()
+        compact_charts_layout = QHBoxLayout(compact_charts_widget)
+        compact_charts_layout.setContentsMargins(0, 0, 0, 0)
+        compact_charts_layout.setSpacing(5)
+
+        # График точности моделей
+        self.model_accuracy_plot_widget = pg.PlotWidget(title="📊 Точность")
+        self.model_accuracy_plot = self.model_accuracy_plot_widget.getPlotItem()
+        self.model_accuracy_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.model_accuracy_plot.getAxis("bottom").setLabel("Символ")
+        self.model_accuracy_plot.getAxis("left").setRange(0, 1)
+        self.model_accuracy_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="g")
+        self.model_accuracy_plot.addItem(self.model_accuracy_bars)
+        self.model_accuracy_plot.addItem(pg.InfiniteLine(angle=0, pos=0.5, pen=pg.mkPen("r", style=Qt.DashLine)))
+        self.model_accuracy_data = {}
+        logger.info("[GUI-Analytics] График точности инициализирован")
+
+        # График прогресса переобучения
+        self.retrain_progress_widget = pg.PlotWidget(title="⏰ До переобучения (ч)")
+        self.retrain_progress_plot = self.retrain_progress_widget.getPlotItem()
+        self.retrain_progress_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.retrain_progress_plot.getAxis("bottom").setLabel("Символ")
+        self.retrain_progress_plot.getAxis("left").setRange(0, 3)
+        self.retrain_progress_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="b")
+        self.retrain_progress_plot.addItem(self.retrain_progress_bars)
+        self.retrain_progress_plot.addItem(pg.InfiniteLine(angle=0, pos=1.0, pen=pg.mkPen("y", style=Qt.DashLine)))
+        self.retrain_progress_data = {}
+        logger.info("[GUI-Analytics] График прогресса инициализирован")
+
+        compact_charts_layout.addWidget(self.model_accuracy_plot_widget, 1)
+        compact_charts_layout.addWidget(self.retrain_progress_widget, 1)
 
         # 2. Создаем ОТДЕЛЬНЫЙ виджет для графика P&L
         self.pnl_plot_widget = pg.PlotWidget(title="Кривая доходности (P&L)")
@@ -1956,7 +1965,7 @@ class MainWindow(QMainWindow):
         self.observer_pnl_plot.getAxis("bottom").setLabel("Количество виртуальных сделок")
         self.observer_pnl_curve = self.observer_pnl_plot.plot(pen=pg.mkPen("c", width=2))
 
-        #  Ошибка предсказаний (Drift) +++
+        # Ошибка предсказаний (Drift)
         self.drift_plot_widget = pg.PlotWidget(title="Ошибка предсказаний AI (Concept Drift)")
         self.drift_plot = self.drift_plot_widget.getPlotItem()
         self.drift_plot.showGrid(x=True, y=True, alpha=0.3)
@@ -1978,12 +1987,46 @@ class MainWindow(QMainWindow):
         self.drift_data_points = []
         self.drift_alert_points = []
 
-        # 4. Добавляем все три виджета в вертикальный компоновщик
+        # 4. Добавляем все виджеты в вертикальный компоновщик
         analytics_layout.addWidget(self.loss_plot_widget)
+        analytics_layout.addWidget(compact_charts_widget)  # Компактная панель (2 графика в строку)
         analytics_layout.addWidget(self.pnl_plot_widget)
         analytics_layout.addWidget(self.observer_pnl_plot_widget)
         analytics_layout.addWidget(self.drift_plot_widget)
-        right_widget.addTab(analytics_tab_widget, "Аналитика")
+
+        # Задаем минимальную высоту для видимости графиков
+        self.loss_plot_widget.setMinimumHeight(180)
+        compact_charts_widget.setMinimumHeight(150)
+        self.pnl_plot_widget.setMinimumHeight(150)
+        self.observer_pnl_plot_widget.setMinimumHeight(150)
+        self.drift_plot_widget.setMinimumHeight(150)
+
+        # Создаем подвкладки для аналитики
+        analytics_subtabs = QTabWidget()
+
+        # Подвкладка 1: Графики обучения
+        training_charts_widget = QWidget()
+        training_charts_layout = QVBoxLayout(training_charts_widget)
+        training_charts_layout.addWidget(self.loss_plot_widget)
+        training_charts_layout.addWidget(compact_charts_widget)
+        analytics_subtabs.addTab(training_charts_widget, "📈 Обучение")
+
+        # Подвкладка 2: Производительность
+        performance_charts_widget = QWidget()
+        performance_charts_layout = QVBoxLayout(performance_charts_widget)
+        performance_charts_layout.addWidget(self.pnl_plot_widget)
+        performance_charts_layout.addWidget(self.observer_pnl_plot_widget)
+        analytics_subtabs.addTab(performance_charts_widget, "💰 Производительность")
+
+        # Подвкладка 3: Дрейф и аномалии
+        drift_charts_widget = QWidget()
+        drift_charts_layout = QVBoxLayout(drift_charts_widget)
+        drift_charts_layout.addWidget(self.drift_plot_widget)
+        analytics_subtabs.addTab(drift_charts_widget, "🔍 Дрейф")
+
+        analytics_layout.addWidget(analytics_subtabs)
+
+        right_widget.addTab(analytics_tab_widget, "📈 Аналитика")
 
         # --- ВКЛАДКА "СКАНЕР РЫНКА" ---
         scanner_widget = QWidget()
@@ -2294,7 +2337,7 @@ class MainWindow(QMainWindow):
         self.bridge.log_message_added.connect(self.add_log_message, Qt.QueuedConnection)
         self.bridge.positions_updated.connect(self.update_positions_table)
         self.bridge.history_updated.connect(self.update_history_table)
-        self.bridge.training_history_updated.connect(self.update_training_chart)
+        self.bridge.training_history_updated.connect(self.update_training_chart, Qt.QueuedConnection)
         self.bridge.candle_chart_updated.connect(self.update_candle_chart)
         self.bridge.pnl_updated.connect(self.update_pnl_chart)
         self.bridge.market_scan_updated.connect(self.update_market_scanner_view)
@@ -2306,12 +2349,17 @@ class MainWindow(QMainWindow):
         self.close_pos_button.clicked.connect(self.close_selected_position)
         self.close_all_pos_button.clicked.connect(self.close_all_positions)
         self.bridge.all_positions_closed.connect(self.on_all_positions_closed)
-        self.force_train_button.clicked.connect(self.force_training)
+        # self.force_train_button.clicked.connect(self.force_training)  # УДАЛЕНО - кнопка перенесена в Центр Управления
         self.force_rd_button.clicked.connect(self.force_rd)
         self.bridge.market_regime_updated.connect(self.update_market_regime_viz)
         self.bt_run_button.clicked.connect(self.run_backtest)
         self.bt_test_type_combo.currentIndexChanged.connect(self._on_backtest_type_changed)
         self.bridge.backtest_finished.connect(self.display_backtest_results)
+
+        # НОВЫЕ: Подключение сигналов для визуализации переобучения
+        self.bridge.model_accuracy_updated.connect(self.update_model_accuracy_chart, Qt.QueuedConnection)
+        self.bridge.retrain_progress_updated.connect(self.update_retrain_progress_chart, Qt.QueuedConnection)
+        logger.info("[GUI] Сигналы model_accuracy_updated и retrain_progress_updated подключены")
 
         #  Указываем правильный метод on_initialization_successful +++
         self.bridge.initialization_failed.connect(self.on_initialization_failed)
@@ -2753,11 +2801,22 @@ class MainWindow(QMainWindow):
             self.stop_button.setEnabled(True)
 
             self.trading_system.start_all_threads()
+
+            # ОТПРАВКА ДАННЫХ ДЛЯ ГРАФИКОВ ЧЕРЕЗ 5 СЕКУНД ПОСЛЕ ЗАПУСКА
+            QTimer.singleShot(5000, self._send_initial_training_data)
         else:
             error_msg = f"Ошибка подключения к MT5: {message}"
             self.bridge.status_updated.emit(error_msg, True)
             self.sound_manager.play("error")
             self.bridge.initialization_failed.emit()
+
+    def _send_initial_training_data(self):
+        """Отправляет начальные данные для графиков обучения после запуска."""
+        logger.info("[GUI] Отправка начальных данных для графиков переобучения...")
+        if hasattr(self.trading_system.core_system, "_send_model_accuracy_to_gui"):
+            self.trading_system.core_system._send_model_accuracy_to_gui()
+        if hasattr(self.trading_system.core_system, "_send_retrain_progress_to_gui"):
+            self.trading_system.core_system._send_retrain_progress_to_gui()
 
     def stop_trading(self):
         logger.info("[GUI-Action] Пользователь нажал кнопку 'Остановить торговлю'")
@@ -3067,27 +3126,34 @@ class MainWindow(QMainWindow):
             logger.error(f"[GUI-PnL] Ошибка при построении графика P&L: {e}", exc_info=True)
 
     def update_training_chart(self, history_object):
-        logger.info(f"[GUI-Training] Обновление графика обучения")
+        logger.info(f"[GUI-Training] Обновление графика обучения: type={type(history_object)}")
         try:
+            # Проверяем, что виджет существует и виден
+            if not hasattr(self, "loss_curve") or self.loss_curve is None:
+                logger.warning("[GUI-Training] loss_curve не инициализирован")
+                return
+
             if not hasattr(history_object, "history") or not history_object.history:
                 logger.warning("[GUI-Training] История обучения пуста")
                 self.loss_curve.setData(x=[], y=[])
                 return
 
             history_dict = history_object.history
+            logger.info(f"[GUI-Training] history_dict keys: {history_dict.keys()}")
+
             if "loss" in history_dict and history_dict["loss"]:
                 loss_values = history_dict["loss"]
+                logger.info(f"[GUI-Training] Получено {len(loss_values)} значений loss")
 
                 # Проверяем, что loss_values это список/массив с данными
                 if len(loss_values) > 0:
                     x_values = list(range(len(loss_values)))
                     # Преобразуем в float для совместимости с pyqtgraph
                     y_values = [float(v) for v in loss_values]
+                    logger.info(f"[GUI-Training] Обновление графика: {len(loss_values)} эпох, loss={loss_values[-1]:.4f}")
                     self.loss_curve.setData(x=x_values, y=y_values)
                     self.loss_plot.setTitle(f"Прогресс обучения (Loss: {loss_values[-1]:.4f})")
-                    logger.debug(
-                        f"[GUI-Training] График обновлен, эпох: {len(loss_values)}, финальный loss: {loss_values[-1]:.4f}"
-                    )
+                    logger.info(f"[GUI-Training] График обновлен успешно")
                 else:
                     logger.warning("[GUI-Training] Список loss пуст")
                     self.loss_curve.setData(x=[], y=[])
@@ -3096,6 +3162,102 @@ class MainWindow(QMainWindow):
                 self.loss_curve.setData(x=[], y=[])
         except Exception as e:
             logger.error(f"[GUI-Training] Ошибка при обновлении графика обучения: {e}", exc_info=True)
+
+    def update_model_accuracy_chart(self, accuracy_data: dict):
+        """
+        Обновляет график точности моделей по символам.
+
+        Args:
+            accuracy_data: Словарь {symbol: accuracy} где accuracy от 0 до 1
+        """
+        try:
+            if not hasattr(self, "model_accuracy_bars") or self.model_accuracy_bars is None:
+                logger.warning("[GUI-ModelAccuracy] Виджет не инициализирован")
+                return
+
+            if not accuracy_data:
+                logger.debug("[GUI-ModelAccuracy] Нет данных для отображения")
+                self.model_accuracy_bars.setOpts(x=[], height=[])
+                return
+
+            # Преобразуем данные для графика
+            symbols = list(accuracy_data.keys())
+            accuracies = [accuracy_data[s] for s in symbols]
+
+            # Цветовое кодирование: зелёный > 0.5, жёлтый 0.4-0.5, красный < 0.4
+            colors = []
+            for acc in accuracies:
+                if acc >= 0.5:
+                    colors.append("#50fa7b")  # Зелёный
+                elif acc >= 0.4:
+                    colors.append("#f1fa8c")  # Жёлтый
+                else:
+                    colors.append("#ff5555")  # Красный
+
+            # Обновляем график
+            x_positions = list(range(len(symbols)))
+            self.model_accuracy_bars.setOpts(x=x_positions, height=accuracies, brushes=[pg.mkBrush(c) for c in colors])
+
+            # Обновляем заголовок с средней точностью
+            avg_accuracy = sum(accuracies) / len(accuracies) if accuracies else 0
+            self.model_accuracy_plot_widget.setTitle(f"📊 Точность (средняя: {avg_accuracy:.1%})")
+
+            # Сохраняем данные
+            self.model_accuracy_data = accuracy_data
+
+            logger.info(f"[GUI-ModelAccuracy] График обновлён: {len(symbols)} символов, средняя точность: {avg_accuracy:.1%}")
+
+        except Exception as e:
+            logger.error(f"[GUI-ModelAccuracy] Ошибка при обновлении графика: {e}", exc_info=True)
+
+    def update_retrain_progress_chart(self, progress_data: dict):
+        """
+        Обновляет график прогресса переобучения.
+
+        Args:
+            progress_data: Словарь {symbol: hours_since_training}
+        """
+        try:
+            if not hasattr(self, "retrain_progress_bars") or self.retrain_progress_bars is None:
+                logger.warning("[GUI-RetrainProgress] Виджет не инициализирован")
+                return
+
+            if not progress_data:
+                logger.debug("[GUI-RetrainProgress] Нет данных для отображения")
+                self.retrain_progress_bars.setOpts(x=[], height=[])
+                return
+
+            # Преобразуем данные для графика
+            symbols = list(progress_data.keys())
+            hours = [progress_data[s] for s in symbols]
+
+            # Цветовое кодирование: красный > 1ч (пора переобучать), жёлтый 0.5-1ч, зелёный < 0.5ч
+            colors = []
+            for h in hours:
+                if h >= 1.0:
+                    colors.append("#ff5555")  # Красный - пора переобучать!
+                elif h >= 0.5:
+                    colors.append("#ffb86c")  # Оранжевый - скоро пора
+                else:
+                    colors.append("#50fa7b")  # Зелёный - ещё рано
+
+            # Обновляем график
+            x_positions = list(range(len(symbols)))
+            self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
+
+            # Обновляем заголовок
+            symbols_to_retrain = sum(1 for h in hours if h >= 1.0)
+            self.retrain_progress_widget.setTitle(f"⏰ Прогресс переобучения (требуют: {symbols_to_retrain})")
+
+            # Сохраняем данные
+            self.retrain_progress_data = progress_data
+
+            logger.info(
+                f"[GUI-RetrainProgress] График обновлён: {len(symbols)} символов, требуют переобучения: {symbols_to_retrain}"
+            )
+
+        except Exception as e:
+            logger.error(f"[GUI-RetrainProgress] Ошибка при обновлении графика: {e}", exc_info=True)
 
     def update_candle_chart(self, df: pd.DataFrame, symbol: str):
         logger.info(

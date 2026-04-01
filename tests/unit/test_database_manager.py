@@ -739,7 +739,7 @@ class TestDatabaseManagerCandleData:
 
         candles = [
             {
-                "time": datetime.utcnow(),
+                "timestamp": datetime.utcnow(),
                 "open": 100.0,
                 "high": 105.0,
                 "low": 99.0,
@@ -747,7 +747,7 @@ class TestDatabaseManagerCandleData:
                 "tick_volume": 1000,
             },
             {
-                "time": datetime.utcnow() + timedelta(minutes=1),
+                "timestamp": datetime.utcnow() + timedelta(minutes=1),
                 "open": 102.0,
                 "high": 106.0,
                 "low": 101.0,
@@ -778,7 +778,7 @@ class TestDatabaseManagerCandleData:
 
         candles = [
             {
-                "time": datetime.utcnow(),
+                "timestamp": datetime.utcnow(),
                 "open": 100.0,
                 "high": 105.0,
                 "low": 99.0,
@@ -801,7 +801,7 @@ class TestDatabaseManagerCandleData:
 
         class MockCandle:
             def __init__(self, close):
-                self.time = datetime.utcnow()
+                self.timestamp = datetime.utcnow()
                 self.open = 100.0
                 self.high = 105.0
                 self.low = 99.0

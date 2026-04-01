@@ -165,14 +165,14 @@ class FeatureEngineer:
         nan_count = df.isnull().sum().sum()
         if nan_count > 0:
             logger.warning(f"Обнаружено {nan_count} NaN в исходных данных, заполняем forward-fill")
-            df = df.fillna(method="ffill").fillna(method="bfill")
+            df = df.ffill().bfill()
 
         # Проверка на inf
         inf_count = np.isinf(df.select_dtypes(include=[np.number])).sum().sum()
         if inf_count > 0:
             logger.warning(f"Обнаружено {inf_count} inf в исходных данных, заменяем на NaN")
             df = df.replace([np.inf, -np.inf], np.nan)
-            df = df.fillna(method="ffill").fillna(method="bfill")
+            df = df.ffill().bfill()
         # ================================
 
         df_out = df.copy()
