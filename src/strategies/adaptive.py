@@ -127,6 +127,15 @@ class AdaptiveStrategy(BaseStrategy):
                     f"MeanRev: {reversion_signal.confidence:.2f}"
                 )
 
+                # Вычисляем среднее predicted_price из обоих сигналов
+                predicted_price = None
+                if breakout_signal.predicted_price and reversion_signal.predicted_price:
+                    predicted_price = (breakout_signal.predicted_price + reversion_signal.predicted_price) / 2
+                elif breakout_signal.predicted_price:
+                    predicted_price = breakout_signal.predicted_price
+                elif reversion_signal.predicted_price:
+                    predicted_price = reversion_signal.predicted_price
+
                 return TradeSignal(
                     type=breakout_signal.type,
                     confidence=round(enhanced_confidence, 3),
@@ -135,6 +144,7 @@ class AdaptiveStrategy(BaseStrategy):
                     entry_price=breakout_signal.entry_price or reversion_signal.entry_price,
                     stop_loss=breakout_signal.stop_loss or reversion_signal.stop_loss,
                     take_profit=breakout_signal.take_profit or reversion_signal.take_profit,
+                    predicted_price=predicted_price,
                 )
             else:
                 # Противоположные сигналы - логирование конфликта

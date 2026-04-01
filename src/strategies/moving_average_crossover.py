@@ -69,8 +69,28 @@ class MovingAverageCrossoverStrategy(BaseStrategy):
             logger.warning(f"Не удалось определить символ для MA Crossover стратегии")
             return None
 
+        # Простое предсказание: цена + небольшой процент в направлении сигнала
+        current_price = df_copy["close"].iloc[current_index]
+        predicted_price = None
+
         if short_ma > long_ma and prev_short_ma <= prev_long_ma:
-            return TradeSignal(type=SignalType.BUY, confidence=0.6, symbol=symbol, strategy_name=self.__class__.__name__)
+            # BUY сигнал - предсказываем рост на 0.5%
+            predicted_price = current_price * 1.005
+            return TradeSignal(
+                type=SignalType.BUY,
+                confidence=0.6,
+                symbol=symbol,
+                strategy_name=self.__class__.__name__,
+                predicted_price=predicted_price,
+            )
         elif short_ma < long_ma and prev_short_ma >= prev_long_ma:
-            return TradeSignal(type=SignalType.SELL, confidence=0.6, symbol=symbol, strategy_name=self.__class__.__name__)
+            # SELL сигнал - предсказываем падение на 0.5%
+            predicted_price = current_price * 0.995
+            return TradeSignal(
+                type=SignalType.SELL,
+                confidence=0.6,
+                symbol=symbol,
+                strategy_name=self.__class__.__name__,
+                predicted_price=predicted_price,
+            )
         return None

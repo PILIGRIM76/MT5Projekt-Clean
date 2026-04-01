@@ -233,17 +233,20 @@ class TelegramTester(QThread):
 
 
 class EmailTester(QThread):
-    """Поток для тестирования Email подключения."""
+    """Поток для тестирования Email подключения с поддержкой прокси."""
 
     result_ready = Signal(bool, str)
 
-    def __init__(self, smtp_server: str, smtp_port: int, email_from: str, email_password: str, recipients: str):
+    def __init__(
+        self, smtp_server: str, smtp_port: int, email_from: str, email_password: str, recipients: str, use_proxy: bool = True
+    ):
         super().__init__()
         self.smtp_server = smtp_server
         self.smtp_port = smtp_port
         self.email_from = email_from
         self.email_password = email_password
         self.recipients = recipients
+        self.use_proxy = use_proxy
 
     def run(self):
         try:
@@ -266,7 +269,57 @@ Email уведомления работают корректно!
 """
             msg.attach(MIMEText(body, "plain", "utf-8"))
 
-            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            # Попытка подключения с прокси
+            if self.use_proxy:
+                try:
+                    import socket
+
+                    import socks
+
+                    # Список прокси
+                    proxy_list = [
+                        None,  # Прямое
+                        (socks.HTTP, "185.162.228.73", 80),
+                        (socks.HTTP, "103.155.217.156", 41476),
+                        (socks.HTTP, "51.159.115.23", 3128),
+                        (socks.SOCKS5, "176.115.126.216", 14568),
+                        (socks.SOCKS5, "195.154.220.171", 1080),
+                    ]
+
+                    for i, proxy in enumerate(proxy_list):
+                        try:
+                            if proxy:
+                                socks.set_default_proxy(*proxy)
+                                socket.socket = socks.socksocket
+
+                            server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10)
+                            server.starttls()
+                            server.login(self.email_from, self.email_password)
+                            server.send_message(msg)
+                            server.quit()
+
+                            socks.set_default_proxy()
+                            socket.socket = socket._socketobject if hasattr(socket, "_socketobject") else socket.socket
+
+                            self.result_ready.emit(
+                                True, f"✅ Успех! Email отправлен через {'прокси' if i > 0 else 'прямое подключение'}"
+                            )
+                            return
+
+                        except Exception as e:
+                            if proxy:
+                                socks.set_default_proxy()
+                                socket.socket = socket._socketobject if hasattr(socket, "_socketobject") else socket.socket
+                            continue
+
+                    self.result_ready.emit(False, "❌ Все прокси недоступны. Попробуйте VPN.")
+                    return
+
+                except ImportError:
+                    pass  # PySocks не установлен, пробуем без прокси
+
+            # Прямое подключение
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10)
             server.starttls()
             server.login(self.email_from, self.email_password)
             server.send_message(msg)
@@ -274,9 +327,12 @@ Email уведомления работают корректно!
 
             self.result_ready.emit(True, "Успех! Проверьте Email.")
         except smtplib.SMTPAuthenticationError:
-            self.result_ready.emit(False, "Ошибка аутентификации. Проверьте логин/пароль.")
-        except smtplib.SMTPConnectError:
-            self.result_ready.emit(False, "Ошибка подключения к SMTP серверу.")
+            self.result_ready.emit(False, "Ошибка аутентификации. Проверьте логин/пароль приложения.")
+        except smtplib.SMTPConnectError as e:
+            self.result_ready.emit(
+                False,
+                f"Ошибка подключения: {e}\n\n💡 Попробуйте:\n• Включить VPN\n• Использовать другой SMTP (Yandex, Mail.ru)\n• Установить PySocks: pip install PySocks",
+            )
         except Exception as e:
             self.result_ready.emit(False, f"Ошибка: {str(e)}")
 
@@ -837,7 +893,11 @@ class SettingsWindow(QDialog):
             self.email_enabled_checkbox.setChecked(email_enabled_saved)
 
             if isinstance(email_config, dict):
-                self.email_smtp_edit.setText(email_config.get("smtp_server", "smtp.gmail.com"))
+                # Исправление: если smtp_server пустой, используем значение по умолчанию
+                smtp_server = email_config.get("smtp_server", "smtp.gmail.com")
+                if not smtp_server:  # Пустая строка = None
+                    smtp_server = "smtp.gmail.com"
+                self.email_smtp_edit.setText(smtp_server)
                 self.email_port_edit.setValue(email_config.get("smtp_port", 587))
             else:
                 self.email_smtp_edit.setText("smtp.gmail.com")
@@ -1966,7 +2026,7 @@ class SettingsWindow(QDialog):
 
         # Создаём и запускаем тестер
         logger.info("Запуск EmailTester")
-        self.email_tester = EmailTester(smtp_server, smtp_port, email_from, email_password, recipients)
+        self.email_tester = EmailTester(smtp_server, smtp_port, email_from, email_password, recipients, use_proxy=True)
         self.email_tester.result_ready.connect(self._on_email_test_complete)
         self.email_tester.finished.connect(self._on_email_tester_finished)
         self.email_tester.start()

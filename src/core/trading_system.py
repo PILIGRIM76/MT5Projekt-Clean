@@ -3175,13 +3175,29 @@ class TradingSystem(QObject):
                 predicted_price = entry_data.get("predicted_price_at_entry")
                 strategy_name = entry_data.get("strategy", "Unknown")
                 symbol = entry_deal.symbol
-                if predicted_price is not None and "AI" in strategy_name:
+
+                # === ГРАФИК ОШИБОК ПРЕДСКАЗАНИЙ (ДРЕЙФ) ===
+                # Работает для ВСЕХ стратегий в режиме наблюдателя
+                # Для AI стратегий также работает в режиме торговли
+                is_ai_strategy = any(
+                    keyword in strategy_name.upper() for keyword in ["AI", "LSTM", "LIGHTGBM", "ML", "NEURAL"]
+                )
+
+                # Отправляем данные для графика если:
+                # 1. Есть predicted_price (модель что-то предсказала)
+                # 2. Режим наблюдателя ИЛИ AI стратегия
+                if predicted_price is not None and (self.observer_mode or is_ai_strategy):
                     actual_price = exit_deal.price
                     is_drifting, error_val = self.drift_manager.update(
                         symbol=symbol, timeframe=timeframe_str, predicted_price=predicted_price, actual_price=actual_price
                     )
+                    logger.info(
+                        f"[Drift] Отправка сигнала: time={exit_deal.time}, sym={symbol}, error={error_val:.4f}, drift={is_drifting}, strategy={strategy_name}, observer={self.observer_mode}"
+                    )
                     self.drift_data_updated.emit(exit_deal.time, symbol, error_val, is_drifting)
-                    if is_drifting:
+
+                    # Дрейф и переобучение работают ТОЛЬКО для AI стратегий в режиме торговли
+                    if is_drifting and is_ai_strategy and not self.observer_mode:
                         logger.critical(
                             f"[Drift] 🚨 ОБНАРУЖЕН ДРЕЙФ КОНЦЕПЦИИ для {symbol} ({strategy_name})! Прогноз: {predicted_price:.5f}, Факт: {actual_price:.5f}"
                         )

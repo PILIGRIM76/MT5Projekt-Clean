@@ -113,3 +113,4 @@ System Volume Information/
 *.crt
 *.p12
 secrets/
+".vs/"

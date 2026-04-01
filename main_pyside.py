@@ -3071,12 +3071,10 @@ class MainWindow(QMainWindow):
         Обновляет график ошибок предсказания.
         Принимает timestamp (секунды), символ, ошибку (0.0 - 1.0) и флаг дрейфа.
         """
-        import logging
-
-        # Логируем входящие данные, чтобы видеть, приходят ли они вообще
-        logging.info(f"[GUI Drift] Получены данные: Time={timestamp}, Sym={symbol}, Err={error:.4f}, Drift={is_drift}")
-
         try:
+            # Логируем входящие данные, чтобы видеть, приходят ли они вообще
+            logger.info(f"[GUI Drift] Получены данные: Time={timestamp}, Sym={symbol}, Err={error:.4f}, Drift={is_drift}")
+
             # Формируем точку как словарь с x, y и метаданными
             point = {
                 "x": float(timestamp),
@@ -3088,9 +3086,11 @@ class MainWindow(QMainWindow):
             if is_drift:
                 # Для дрейфа используем отдельный список
                 self.drift_alert_points.append(point)
+                logger.debug(f"[GUI Drift] Добавлена точка дрейфа: {symbol}, error={error:.4f}")
             else:
                 # Для нормальных точек используем основной список
                 self.drift_data_points.append(point)
+                logger.debug(f"[GUI Drift] Добавлена нормальная точка: {symbol}, error={error:.4f}")
 
             # Ограничиваем количество точек на графике (последние 200 сделок)
             if len(self.drift_data_points) > 200:
@@ -3100,10 +3100,13 @@ class MainWindow(QMainWindow):
                 self.drift_alert_points.pop(0)
 
             # --- ИСПРАВЛЕНИЕ: Обновление двух ScatterPlotItem с проверкой ---
-
             # 1. Обновляем нормальные точки (зеленые круги)
             x_data = [p["x"] for p in self.drift_data_points] if self.drift_data_points else []
             y_data = [p["y"] for p in self.drift_data_points] if self.drift_data_points else []
+
+            logger.debug(
+                f"[GUI Drift] Нормальные точки: {len(x_data)} шт, x_range=[{min(x_data) if x_data else 0:.0f}, {max(x_data) if x_data else 0:.0f}]"
+            )
 
             # Проверяем, что данные не пустые и имеют правильный тип
             if x_data and y_data:
@@ -3115,6 +3118,8 @@ class MainWindow(QMainWindow):
             alert_x = [p["x"] for p in self.drift_alert_points] if self.drift_alert_points else []
             alert_y = [p["y"] for p in self.drift_alert_points] if self.drift_alert_points else []
 
+            logger.debug(f"[GUI Drift] Точки дрейфа: {len(alert_x)} шт")
+
             if alert_x and alert_y:
                 self.drift_alert_scatter.setData(x=alert_x, y=alert_y)
             else:
@@ -3123,8 +3128,10 @@ class MainWindow(QMainWindow):
             # Принудительно обновляем виджет
             self.drift_plot_widget.update()
 
+            logger.debug(f"[GUI Drift] График обновлён успешно")
+
         except Exception as e:
-            logging.error(f"[GUI Error] Ошибка отрисовки Drift Chart: {e}", exc_info=True)
+            logger.error(f"[GUI Error] Ошибка отрисовки Drift Chart: {e}", exc_info=True)
 
     def closeEvent(self, event):
         logger.info("Получена команда на закрытие окна GUI.")

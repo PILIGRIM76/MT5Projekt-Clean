@@ -164,6 +164,7 @@ class TradeExecutor:
         strategy_name: str,
         df: pd.DataFrame,
         entry_price_for_learning: float,
+        predicted_price: Optional[float] = None,
     ) -> Optional[int]:
         """
         [TZ 1.3] Имитация исполнения TWAP: разбивает ордер на части.
@@ -298,6 +299,7 @@ class TradeExecutor:
                             df.index[-1],
                             timeframe,
                             df,
+                            predicted_price,  # ← Добавлен predicted_price
                         )
                     else:
                         logger.error(f"TWAP PART {i + 1}/{num_parts} ОШИБКА: {result.comment if result else 'None'}")
@@ -326,6 +328,7 @@ class TradeExecutor:
         strategy_name: str,
         df: pd.DataFrame,
         entry_price_for_learning: float,
+        predicted_price: Optional[float] = None,
     ) -> Optional[int]:
         """
         Выполняет Market Execution (рыночный ордер).
@@ -445,6 +448,7 @@ class TradeExecutor:
                         df.index[-1],
                         timeframe,
                         df,
+                        predicted_price,  # ← Добавлен predicted_price
                     )
                     return position_ticket
                 else:
@@ -594,7 +598,15 @@ class TradeExecutor:
         # --- TZ 1.3: TWAP/VWAP для Крупных Лотов ---
         if lot_size >= self.min_lot_for_twap:
             return await self._execute_twap(
-                symbol, signal.type, lot_size, stop_loss_in_price, timeframe, strategy_name, df, entry_price_for_learning
+                symbol,
+                signal.type,
+                lot_size,
+                stop_loss_in_price,
+                timeframe,
+                strategy_name,
+                df,
+                entry_price_for_learning,
+                signal.predicted_price,
             )
         # ----------------------------------------------
 
@@ -642,7 +654,15 @@ class TradeExecutor:
         # --- 6. Market Order (Taker) - Fallback ---
         logger.info(f"[{symbol}] Адаптивный вход: Taker (Market Order).")
         return await self._execute_market_order(
-            symbol, signal.type, lot_size, stop_loss_in_price, timeframe, strategy_name, df, entry_price_for_learning
+            symbol,
+            signal.type,
+            lot_size,
+            stop_loss_in_price,
+            timeframe,
+            strategy_name,
+            df,
+            entry_price_for_learning,
+            signal.predicted_price,
         )
 
     async def _try_limit_entry_async(

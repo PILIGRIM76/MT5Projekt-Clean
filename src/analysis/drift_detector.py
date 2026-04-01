@@ -94,6 +94,8 @@ class ConceptDriftManager:
         # Вычисляем APE (Absolute Percentage Error)
         error = abs((predicted_price - actual_price) / actual_price)
 
+        logger.debug(f"[DriftDetector] {key}: predicted={predicted_price:.5f}, actual={actual_price:.5f}, error={error:.4f}")
+
         is_drift = self.detectors[key].update(error)
 
         if is_drift:

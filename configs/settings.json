@@ -119,17 +119,18 @@
     "INFLATION"
   ],
   "STRATEGY_REGIME_MAPPING": {
-    "Default": "MovingAverageCrossoverStrategy",
+    "Default": "AI_LightGBM_Strategy",
     "High Volatility Range": "BreakoutStrategy",
     "Low Volatility Range": "MeanReversionStrategy",
     "Strong Trend": "MovingAverageCrossoverStrategy",
-    "Weak Trend": "MovingAverageCrossoverStrategy"
+    "Weak Trend": "AI_LightGBM_Strategy"
   },
   "STRATEGY_WEIGHTS": {
-    "BreakoutStrategy": 1.0,
-    "MovingAverageCrossoverStrategy": 1.0,
-    "MeanReversionStrategy": 1.0,
-    "AdaptiveStrategy": 1.0
+    "AI_LightGBM_Strategy": 1.0,
+    "BreakoutStrategy": 0.8,
+    "MovingAverageCrossoverStrategy": 0.8,
+    "MeanReversionStrategy": 0.8,
+    "AdaptiveStrategy": 0.9
   },
   "strategies": {
     "breakout": {
@@ -414,7 +415,7 @@
     "cooldown_minutes": 15
   },
   "alerting": {
-    "enabled": false,
+    "enabled": true,
     "channels": {
       "telegram": {
         "enabled": false,
@@ -422,8 +423,8 @@
         "chat_id_env": "TELEGRAM_CHAT_ID"
       },
       "email": {
-        "enabled": false,
-        "smtp_server": "",
+        "enabled": true,
+        "smtp_server": "smtp.gmail.com",
         "smtp_port": 587,
         "use_tls": true,
         "from_email_env": "ALERT_EMAIL_FROM",
