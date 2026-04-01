@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """Диалоговые окна для GUI."""
 
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -16,7 +20,7 @@ from PySide6.QtWidgets import (
 class DirectiveDialog(QDialog):
     """Диалог для создания новой директивы."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Создать новую директиву")
         layout = QGridLayout(self)
@@ -52,13 +56,13 @@ class DirectiveDialog(QDialog):
 
         self.on_type_changed(0)
 
-    def on_type_changed(self, index):
+    def on_type_changed(self, index: int) -> None:
         directive_type = self.type_combo.currentText()
         is_value_needed = "DRAWDOWN" in directive_type
         self.value_label.setVisible(is_value_needed)
         self.value_spinbox.setVisible(is_value_needed)
 
-    def get_data(self) -> dict:
+    def get_data(self) -> Dict[str, Any]:
         """Возвращает данные директивы."""
         return {
             "type": self.type_combo.currentText(),

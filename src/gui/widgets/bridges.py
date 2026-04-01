@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Сигналы для связи между потоками GUI."""
 
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
+
+from typing import Any, Dict, List
 
 import pandas as pd
 from PySide6.QtCore import QObject, Signal
@@ -23,7 +25,6 @@ class Bridge(QObject):
     candle_chart_updated = Signal(pd.DataFrame, str)
     pnl_updated = Signal(list)
     market_scan_updated = Signal(list)
-    # Отдельный сигнал для торговых сигналов
     trading_signals_updated = Signal(list)
     uptime_updated = Signal(str)
     rd_progress_updated = Signal(dict)
@@ -41,30 +42,22 @@ class Bridge(QObject):
     knowledge_graph_updated = Signal(str)
     observer_pnl_updated = Signal(list)
     vector_db_search_results = Signal(list)
-
     thread_status_updated = Signal(str, str)
-    # task_id, message, is_finished
     long_task_status_updated = Signal(str, str, bool)
     heavy_initialization_finished = Signal()
     drift_data_updated = Signal(float, str, float, bool)
     pnl_kpis_updated = Signal(dict)
-
-    # НОВЫЕ: Сигналы для визуализации переобучения
-    model_accuracy_updated = Signal(dict)  # {symbol: accuracy}
-    retrain_progress_updated = Signal(dict)  # {symbol: hours_since_training}
+    model_accuracy_updated = Signal(dict)
+    retrain_progress_updated = Signal(dict)
 
 
 class GUIBridge(QObject):
     """
     Мост для передачи сигналов из фоновых потоков (TradingSystem) в GUI.
-    Определен здесь, чтобы быть доступным при инициализации.
     """
 
-    log_message = Signal(object)  # Сообщение лога (строка или dict)
-    # Текст статуса, Важность (True=Красный)
+    log_message = Signal(object)
     update_status_changed = Signal(str, bool)
-    # Данные для таблицы сканера (list of dicts)
     market_data_updated = Signal(object)
-    # Данные о позициях (list of dicts)
     positions_updated = Signal(object)
-    graph_data_updated = Signal(object)  # Данные для графа (nodes, edges)
+    graph_data_updated = Signal(object)
