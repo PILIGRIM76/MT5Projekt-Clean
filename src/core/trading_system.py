@@ -2049,9 +2049,12 @@ class TradingSystem(QObject):
                     try:
                         account_info = mt5.account_info()
                         if account_info:
+                            logger.debug(f"[Monitoring] Баланс: {account_info.balance}, Эквити: {account_info.equity}")
                             self._safe_gui_update("update_balance", account_info.balance, account_info.equity)
                             self._last_known_balance = account_info.balance
                             self._last_known_equity = account_info.equity
+                        else:
+                            logger.warning("[Monitoring] account_info вернул None")
                         pc_time = datetime.now().strftime("%H:%M:%S")
                         server_time_dt = None
                         if self.config.SYMBOLS_WHITELIST:
@@ -2905,8 +2908,12 @@ class TradingSystem(QObject):
             "month_pnl": month_pnl,
             "month_dd": month_dd,
         }
+        logger.debug(f"[PnL-KPI] day_pnl={day_pnl:.2f}, week_pnl={week_pnl:.2f}, month_pnl={month_pnl:.2f}")
         if self.gui and self.gui.bridge:
             self.gui.bridge.pnl_kpis_updated.emit(kpis)
+            logger.debug(f"[PnL-KPI] Сигнал отправлен в GUI")
+        else:
+            logger.warning(f"[PnL-KPI] GUI или bridge не доступны")
 
     def _uptime_updater_loop(self):
         logger.info("=== Запуск цикла обновления времени работы ===")
