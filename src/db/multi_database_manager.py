@@ -398,7 +398,7 @@ class MultiDatabaseManager:
             questdb_host=os.getenv("QUESTDB_HOST", "questdb"),
             questdb_port=int(os.getenv("QUESTDB_PORT", "9000")),
             # Qdrant
-            qdrant_host=os.getenv("QDRANT_HOST", "qdrant"),
+            qdrant_host=os.getenv("QDRANT_HOST", "localhost"),
             qdrant_port=int(os.getenv("QDRANT_PORT", "6333")),
             # Redis
             redis_host=os.getenv("REDIS_HOST", "redis"),
