@@ -52,7 +52,11 @@
       "Bash(venv\\scripts\\python.exe *)",
       "Bash(venv\\scripts\\pip *)",
       "Bash(cd *)",
-      "WebFetch(voiceofchain.com)"
+      "WebFetch(voiceofchain.com)",
+      "WebFetch(www.macrotrends.net)",
+      "WebFetch(shillerdata.com)",
+      "WebFetch(www.kaggle.com)",
+      "WebFetch(stooq.com)"
     ]
   },
   "$version": 3
