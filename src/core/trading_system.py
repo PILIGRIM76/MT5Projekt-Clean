@@ -748,8 +748,21 @@ class TradingSystem(QObject):
 
             # 3. Сбор рыночных данных (Асинхронно)
             self.start_performance_timer("get_market_data")
-            available_symbols = self.config.SYMBOLS_WHITELIST
-            timeframes_to_check = list(self.config.optimizer.timeframes_to_check.values())
+
+            # ОПТИМИЗАЦИЯ: Используем только TOP_N_SYMBOLS из сканера, а не все символы
+            if hasattr(self, "latest_ranked_list") and self.latest_ranked_list:
+                # Берем топ символов из сканера
+                top_n = self.config.TOP_N_SYMBOLS
+                available_symbols = [item["symbol"] for item in self.latest_ranked_list[:top_n]]
+                logger.info(f"[run_cycle] Используем топ-{len(available_symbols)} символов из сканера: {available_symbols}")
+            else:
+                # Fallback: используем все символы из whitelist
+                available_symbols = self.config.SYMBOLS_WHITELIST
+                logger.warning(f"[run_cycle] Сканер еще не работал, используем все {len(available_symbols)} символов")
+
+            # ОПТИМИЗАЦИЯ: Загружаем только H1 для основного цикла (не все таймфреймы!)
+            # Остальные таймфреймы нужны только для обучения/оптимизации
+            timeframes_to_check = [mt5.TIMEFRAME_H1]  # Только H1 для торговли
 
             if not available_symbols:
                 logger.warning("run_cycle: список доступных символов пуст. Нечего торговать.")
@@ -758,8 +771,8 @@ class TradingSystem(QObject):
                 return
 
             # Попробовать получить данные из кэша
-            cache_key = f"market_data_{'_'.join(available_symbols)}_{len(timeframes_to_check)}"
-            data_dict_raw = self.get_cached_data(cache_key, ttl_seconds=60)  # Возвращаем TTL к 60 секундам
+            cache_key = f"market_data_{'_'.join(sorted(available_symbols))}_H1"
+            data_dict_raw = self.get_cached_data(cache_key, ttl_seconds=300)  # 5 минут кэш
             logger.info(f"[run_cycle] Данные из кэша: {data_dict_raw is not None}")
 
             if data_dict_raw is None:
