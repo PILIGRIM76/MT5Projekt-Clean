@@ -10,7 +10,7 @@ import MetaTrader5 as mt5
 from dotenv import dotenv_values, set_key
 from pydantic import BaseModel
 from PySide6.QtCore import Qt, QThread, QTime, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -392,14 +392,43 @@ class SettingsWindow(QDialog):
         self.connection_tester = None
         self.api_testers = {}
         self.scheduler_manager = scheduler_manager
+        self._icon_pixmap_cache = {}
 
         self.full_config = config
 
         main_layout = QVBoxLayout(self)
+
+        # Инициализация вкладок
+        self._init_tabs()
+
+        # Останавливаем любые активные тестеры от предыдущего экземпляра окна
+        self._stop_all_testers()
+
+        self.load_settings()
+
+    def create_icon(self, emoji: str, size: int = 28) -> QIcon:
+        """Создаёт QIcon из эмодзи с кэшированием."""
+        if emoji in self._icon_pixmap_cache:
+            return QIcon(self._icon_pixmap_cache[emoji])
+
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        font = painter.font()
+        font.setPixelSize(int(size * 0.75))
+        painter.setFont(font)
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, emoji)
+        painter.end()
+
+        self._icon_pixmap_cache[emoji] = pixmap
+        return QIcon(pixmap)
+
+    def _init_tabs(self):
         self.tab_widget = QTabWidget()  # Сохраняем ссылку для переключения вкладок
         # Прокрутка вкладок при нехватке места
         self.tab_widget.setUsesScrollButtons(True)
-        main_layout.addWidget(self.tab_widget)
+        self.layout().addWidget(self.tab_widget)
 
         mt5_tab = self._create_mt5_tab()
         api_tab = self._create_api_tab()
@@ -409,24 +438,19 @@ class SettingsWindow(QDialog):
         gp_tab = self._create_gp_tab()
         # P0: Notifications (Telegram/Email)
         notifications_tab = self._create_notifications_tab()
-        self.tab_widget.addTab(gp_tab, "R&D (AI)")
+        self.tab_widget.addTab(gp_tab, self.create_icon("🧪"), "R&D (AI)")
 
-        self.tab_widget.addTab(mt5_tab, "Подключение MT5")
-        self.tab_widget.addTab(api_tab, "API Ключи")
-        self.tab_widget.addTab(trading_tab, "Торговля")
-        self.tab_widget.addTab(paths_tab, "Пути к данным")
-        self.tab_widget.addTab(scheduler_tab, "Планировщик")
-        self.tab_widget.addTab(notifications_tab, "Уведомления")
+        self.tab_widget.addTab(mt5_tab, self.create_icon("🔌"), "Подключение MT5")
+        self.tab_widget.addTab(api_tab, self.create_icon("🔑"), "API Ключи")
+        self.tab_widget.addTab(trading_tab, self.create_icon("💹"), "Торговля")
+        self.tab_widget.addTab(paths_tab, self.create_icon("📁"), "Пути к данным")
+        self.tab_widget.addTab(scheduler_tab, self.create_icon("⏰"), "Планировщик")
+        self.tab_widget.addTab(notifications_tab, self.create_icon("🔔"), "Уведомления")
 
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-        main_layout.addWidget(button_box)
-
-        # Останавливаем любые активные тестеры от предыдущего экземпляра окна
-        self._stop_all_testers()
-
-        self.load_settings()
+        self.layout().addWidget(button_box)
 
     def _create_scrollable_widget(self, content_widget: QWidget) -> QWidget:
         """Создаёт прокручиваемый контейнер для вкладки."""
