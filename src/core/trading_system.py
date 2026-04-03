@@ -3995,10 +3995,10 @@ class TradingSystem(QObject):
 
             if progress_data and self.bridge:
                 self.bridge.retrain_progress_updated.emit(progress_data)
-                # Считаем сколько символов требуют переобучения (> 1 часа)
-                symbols_to_retrain = sum(1 for h in progress_data.values() if h >= 1.0)
+                # Считаем сколько символов требуют переобучения (> 24 часа)
+                symbols_to_retrain = sum(1 for h in progress_data.values() if h >= 24.0)
                 logger.info(
-                    f"⏰ Отправлены данные прогресса для {len(progress_data)} символов, требуют переобучения: {symbols_to_retrain}"
+                    f"⏰ Отправлены данные прогресса для {len(progress_data)} символов, требуют переобучения (>24ч): {symbols_to_retrain}"
                 )
 
         except Exception as e:

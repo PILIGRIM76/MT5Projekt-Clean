@@ -2975,22 +2975,23 @@ class MainWindow(QMainWindow):
             symbols = list(progress_data.keys())
             hours = [progress_data[s] for s in symbols]
 
-            # Цветовое кодирование: красный > 1ч (пора переобучать), жёлтый 0.5-1ч, зелёный < 0.5ч
+            # Цветовое кодирование: красный > 24ч (сильно просрочено), жёлтый 12-24ч, зелёный < 12ч
+            # Порог 24ч соответствует интервалу переобучения из конфигурации
             colors = []
             for h in hours:
-                if h >= 1.0:
-                    colors.append("#ff5555")  # Красный - пора переобучать!
-                elif h >= 0.5:
-                    colors.append("#ffb86c")  # Оранжевый - скоро пора
+                if h >= 24.0:
+                    colors.append("#ff5555")  # Красный - пора переобучать! (> 24ч)
+                elif h >= 12.0:
+                    colors.append("#ffb86c")  # Оранжевый - скоро пора (12-24ч)
                 else:
-                    colors.append("#50fa7b")  # Зелёный - ещё рано
+                    colors.append("#50fa7b")  # Зелёный - ещё рано (< 12ч)
 
             # Обновляем график
             x_positions = list(range(len(symbols)))
             self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
 
-            # Обновляем заголовок
-            symbols_to_retrain = sum(1 for h in hours if h >= 1.0)
+            # Обновляем заголовок - считаем символы которые старше 24ч
+            symbols_to_retrain = sum(1 for h in hours if h >= 24.0)
             self.retrain_progress_widget.setTitle(f"⏰ Прогресс переобучения (требуют: {symbols_to_retrain})")
 
             # Сохраняем данные
