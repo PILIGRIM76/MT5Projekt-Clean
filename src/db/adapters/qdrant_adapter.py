@@ -22,7 +22,6 @@ try:
         Distance,
         FieldCondition,
         Filter,
-        MatchRange,
         MatchValue,
         PointStruct,
         Range,
@@ -30,9 +29,9 @@ try:
     )
 
     QDRANT_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     QDRANT_AVAILABLE = False
-    logger.warning("qdrant-client не установлен. Qdrant адаптер отключен.")
+    logger.warning(f"qdrant-client не установлен или ошибка импорта: {e}. Qdrant адаптер отключен.")
 
 
 class QdrantAdapter:
