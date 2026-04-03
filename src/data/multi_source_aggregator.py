@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import random  # <-- Добавлен для рандомизации User-Agent
+import time  # <-- Добавлен для пауз между попытками
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -284,50 +285,72 @@ class MultiSourceDataAggregator:
         # --- КОНЕЦ ВРЕМЕННОЙ ЗАГЛУШКИ ---
 
         for url in self.rss_feeds:
-            try:
-                # ИСПРАВЛЕНИЕ: Добавляем таймаут и случайные заголовки для RSS-запросов
-                import requests
+            max_retries = 2  # Максимум 2 попытки
+            for attempt in range(max_retries):
+                try:
+                    # ИСПРАВЛЕНИЕ: Увеличиваем таймаут до 30 секунд для медленных лент
+                    import requests
 
-                headers = get_headers()  # <-- Случайные заголовки для каждого запроса
-                logger.debug(f"RSS запрос к {url} с User-Agent: {headers['User-Agent'][:50]}...")
+                    headers = get_headers()  # <-- Случайные заголовки для каждого запроса
+                    logger.debug(f"RSS запрос к {url} (попытка {attempt + 1}/{max_retries})")
 
-                response = requests.get(url, timeout=10, headers=headers)  # 10 секунд таймаут
-                response.raise_for_status()
+                    # Увеличиваем таймаут: 30 секунд на подключение + 30 секунд на чтение
+                    response = requests.get(url, timeout=(30, 30), headers=headers)
+                    response.raise_for_status()
 
-                # Парсим полученный XML
-                feed = feedparser.parse(response.content)
+                    # Парсим полученный XML
+                    feed = feedparser.parse(response.content)
 
-                # --- ИСПРАВЛЕНИЕ: Используем .get() для безопасного доступа к title ---
-                feed_title = feed.feed.get("title", "Unknown RSS Feed")
+                    # --- ИСПРАВЛЕНИЕ: Используем .get() для безопасного доступа к title ---
+                    feed_title = feed.feed.get("title", "Unknown RSS Feed")
 
-                for entry in feed.entries[:15]:
-                    # Используем .get() для безопасного доступа к полям entry
-                    entry_title = entry.get("title", "No Title")
-                    entry_summary = entry.get("summary", entry_title)  # Используем title как fallback для summary
+                    for entry in feed.entries[:15]:
+                        # Используем .get() для безопасного доступа к полям entry
+                        entry_title = entry.get("title", "No Title")
+                        entry_summary = entry.get("summary", entry_title)  # Используем title как fallback для summary
 
-                    # Безопасное получение времени
-                    published_time = datetime.now(timezone.utc)
-                    if hasattr(entry, "published_parsed") and entry.published_parsed:
-                        published_time = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                        # Безопасное получение времени
+                        published_time = datetime.now(timezone.utc)
+                        if hasattr(entry, "published_parsed") and entry.published_parsed:
+                            published_time = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
 
-                    items.append(
-                        NewsItem(
-                            source=f"rss_{feed_title}",  # <-- Используем безопасный feed_title
-                            text=f"{entry_title}. {entry_summary}",
-                            timestamp=published_time,
+                        items.append(
+                            NewsItem(
+                                source=f"rss_{feed_title}",  # <-- Используем безопасный feed_title
+                                text=f"{entry_title}. {entry_summary}",
+                                timestamp=published_time,
+                            )
                         )
-                    )
-            except requests.Timeout:
-                logger.error(f"Таймаут при загрузке RSS-ленты {url}")
-            except requests.HTTPError as e:
-                # Логируем ошибку, но продолжаем обработку других лент
-                logger.warning(f"HTTP {e.response.status_code} при загрузке RSS-ленты {url} - пропускаем")
-            except requests.RequestException as e:
-                # Логируем ошибку, но продолжаем обработку других лент
-                logger.error(f"Ошибка HTTP при обработке RSS-ленты {url}: {e}")
-            except Exception as e:
-                # Логируем ошибку, но продолжаем обработку других лент
-                logger.error(f"Ошибка при обработке RSS-ленты {url}: {e}")
+
+                    # Если успешно - выходим из цикла повторных попыток
+                    break
+
+                except requests.Timeout:
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            f"Таймаут при загрузке RSS-ленты {url} (попытка {attempt + 1}/{max_retries}). Повторная попыка..."
+                        )
+                        time.sleep(2)  # Пауза перед повторной попыткой
+                    else:
+                        logger.error(f"Таймаут при загрузке RSS-ленты {url} после {max_retries} попыток - пропускаем")
+                except requests.HTTPError as e:
+                    # Логируем ошибку, но продолжаем обработку других лент
+                    logger.warning(f"HTTP {e.response.status_code} при загрузке RSS-ленты {url} - пропускаем")
+                    break  # Не повторяем при HTTP ошибке
+                except requests.ConnectionError as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Ошибка соединения {url} (попытка {attempt + 1}/{max_retries}). Повторная попыка...")
+                        time.sleep(3)  # Более длительная пауза при проблемах соединения
+                    else:
+                        logger.error(f"Ошибка соединения с {url} после {max_retries} попыток - пропускаем")
+                except requests.RequestException as e:
+                    # Логируем ошибку, но продолжаем обработку других лент
+                    logger.error(f"Ошибка HTTP при обработке RSS-ленты {url}: {e}")
+                    break  # Не повторяем при других ошибках requests
+                except Exception as e:
+                    # Логируем ошибку, но продолжаем обработку других лент
+                    logger.error(f"Ошибка при обработке RSS-ленты {url}: {e}")
+                    break  # Не повторяем при других ошибках
 
         logger.info(f"Получено {len(items)} новостей из RSS-лент.")
         return items
