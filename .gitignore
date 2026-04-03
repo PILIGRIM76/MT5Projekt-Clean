@@ -113,6 +113,25 @@ System Volume Information/
 *.crt
 *.p12
 secrets/
-".vs/"
--e ".vs/\n$null"
--e "database/qdrant_db/\n.qdrant/"
+.vs/
+database/qdrant_db/
+.qdrant/
+
+# --- Тестовые файлы ---
+$null
+*.csv
+!requirements*.txt
+test_*.py
+test_*.bat
+check_*.py
+demo_*.py
+final_*.py
+final_*.txt
+test_results.txt
+logs_monitor_report.json
+
+# --- IDE директории ---
+.kilocode/
+.kiro/
+.qoder/
+.qwen/
