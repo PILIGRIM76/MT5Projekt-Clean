@@ -176,13 +176,18 @@ class MultiDatabaseManager:
         # ========== Qdrant ==========
         if self.config.enable_qdrant:
             try:
+                # Используем локальный режим Qdrant (без сервера)
+                qdrant_path = self.config.qdrant_path or str(
+                    Path(self.config.sqlite_path).parent / "qdrant_db" if self.config.sqlite_path else "database/qdrant_db"
+                )
+
                 qdrant_adapter = QdrantAdapter(
                     host=self.config.qdrant_host,
                     port=self.config.qdrant_port,
                     grpc_port=self.config.qdrant_grpc_port,
                     collection_name=self.config.qdrant_collection,
                     vector_size=self.config.qdrant_vector_size,
-                    db_path=self.config.qdrant_path,
+                    db_path=qdrant_path,  # Локальный режим
                     enabled=True,
                 )
 
@@ -190,7 +195,7 @@ class MultiDatabaseManager:
                     # Создаем коллекцию если не существует
                     qdrant_adapter.create_collection()
                     self._adapters["qdrant"] = qdrant_adapter
-                    logger.info(f"✓ Qdrant подключен: {self.config.qdrant_host}:{self.config.qdrant_port}")
+                    logger.info(f"✓ Qdrant подключен (локальный режим): {qdrant_path}")
                 else:
                     logger.warning("Qdrant не доступен, будет использован локальный FAISS")
 
