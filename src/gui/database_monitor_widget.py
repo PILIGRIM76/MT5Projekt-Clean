@@ -96,9 +96,10 @@ class DatabaseStatsWorker(QThread):
 
                     for table in [
                         "trade_history",
+                        "candle_data",
+                        "market_data",  # Исторические рыночные данные (70+ лет)
                         "trained_models",
                         "news_articles",
-                        "candle_data",
                         "strategy_performance",
                         "active_directives",
                     ]:
