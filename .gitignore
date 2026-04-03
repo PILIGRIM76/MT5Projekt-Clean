@@ -115,3 +115,4 @@ System Volume Information/
 secrets/
 ".vs/"
 -e ".vs/\n$null"
+-e "database/qdrant_db/\n.qdrant/"

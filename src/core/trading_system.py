@@ -46,6 +46,7 @@ from src.analysis.strategy_optimizer import StrategyOptimizer
 from src.core.auto_updater import AutoUpdater
 from src.core.config_models import Settings
 from src.core.config_writer import write_config
+from src.core.hot_reload_manager import HotReloadManager
 from src.core.interfaces import ITerminalConnector
 from src.core.orchestrator import Orchestrator
 from src.core.paper_trading_engine import PaperTradingEngine
@@ -209,6 +210,7 @@ class TradingSystem(QObject):
         self.orchestrator = None
         self.web_server: Optional[WebServer] = None
         self.training_scheduler = None  # Планировщик автоматического переобучения
+        self.hot_reload_manager = None  # Менеджер горячего обновления
         self.safety_monitor = None  # CRITICAL: Safety Monitor для защиты капитала
         self.circuit_breaker = None  # P0: Circuit Breaker для аварийной остановки
         self.alert_manager = None  # P0: Alert Manager для уведомлений
@@ -417,6 +419,19 @@ class TradingSystem(QObject):
         from src.core.training_scheduler import TrainingScheduler
 
         self.training_scheduler = TrainingScheduler(self.config, self._auto_retrain_callback)
+
+        # Инициализация HotReloadManager
+        import os
+
+        repo_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.hot_reload_manager = HotReloadManager(
+            repo_path=repo_path,
+            branch="main",
+            on_update_available=self._on_update_available,
+            on_update_complete=self._on_update_complete,
+            on_error=self._on_update_error,
+        )
+        logger.info("✅ HotReloadManager инициализирован")
 
         logger.critical("INIT STEP 7/8: Core Services initialized.")
 
@@ -3939,6 +3954,40 @@ class TradingSystem(QObject):
 
         except Exception as e:
             logger.error(f"❌ Ошибка при автоматическом переобучении: {e}", exc_info=True)
+
+    # ========== HotReloadManager Callbacks ==========
+
+    def _on_update_available(self, new_commit: str):
+        """Callback при обнаружении обновления."""
+        logger.info(f"🔔 Доступно обновление: {new_commit[:8]}")
+        if self.bridge:
+            try:
+                self.bridge.update_status.emit(f"🔔 Доступна новая версия: {new_commit[:8]}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления об обновлении: {e}")
+
+    def _on_update_complete(self, commit: str):
+        """Callback после успешного применения обновления."""
+        logger.info(f"✅ Система обновлена: {commit[:8]}")
+        if self.bridge:
+            try:
+                self.bridge.update_status.emit(f"✅ Система обновлена: {commit[:8]}")
+                # Перезагружаем GUI данные
+                if hasattr(self, "_send_model_accuracy_to_gui"):
+                    self._send_model_accuracy_to_gui()
+                if hasattr(self, "_send_retrain_progress_to_gui"):
+                    self._send_retrain_progress_to_gui()
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления о завершении обновления: {e}")
+
+    def _on_update_error(self, error: str):
+        """Callback при ошибке обновления."""
+        logger.error(f"❌ Ошибка обновления: {error}")
+        if self.bridge:
+            try:
+                self.bridge.update_status.emit(f"❌ Ошибка обновления: {error}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления об ошибке обновления: {e}")
 
     def _send_model_accuracy_to_gui(self):
         """

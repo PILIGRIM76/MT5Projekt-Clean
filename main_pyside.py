@@ -2051,6 +2051,19 @@ class MainWindow(QMainWindow):
         self.database_monitor_widget = database_monitor_tab  # Сохраняем ссылку для обновления
         right_widget.addTab(database_monitor_tab, self.create_icon("🗄️"), "Базы Данных")
 
+        # --- ВКЛАДКА "МЕНЕДЖЕР ОБНОВЛЕНИЙ" ---
+        from src.gui.update_manager_widget import UpdateManagerWidget
+
+        update_manager_tab = UpdateManagerWidget(trading_system=self.trading_system)
+        self.update_manager_widget = update_manager_tab  # Сохраняем ссылку
+
+        # Подключаем сигналы
+        update_manager_tab.check_updates_requested.connect(self._on_check_updates)
+        update_manager_tab.apply_update_requested.connect(self._on_apply_update)
+        update_manager_tab.toggle_monitoring_requested.connect(self._on_toggle_update_monitoring)
+
+        right_widget.addTab(update_manager_tab, self.create_icon("🔄"), "Обновления")
+
         return right_widget
 
     def on_tab_changed(self, index):
@@ -2974,6 +2987,60 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"[GUI-ModelAccuracy] Ошибка при обновлении графика: {e}", exc_info=True)
+
+    # ========== Hot Reload Manager Handlers ==========
+
+    def _on_check_updates(self):
+        """Проверка наличия обновлений."""
+        logger.info("🔍 Проверка наличия обновлений...")
+        if hasattr(self.trading_system, "hot_reload_manager") and self.trading_system.hot_reload_manager:
+            manager = self.trading_system.hot_reload_manager
+            has_updates = manager.check_for_updates()
+
+            if has_updates:
+                self.update_manager_widget.set_update_status("🔔 Доступна новая версия!", "#ffb86c")
+            else:
+                self.update_manager_widget.set_update_status("✅ Нет обновлений", "#50fa7b")
+
+    def _on_apply_update(self):
+        """Применение обновления."""
+        logger.info("⬇️ Применение обновления...")
+        if hasattr(self.trading_system, "hot_reload_manager") and self.trading_system.hot_reload_manager:
+            manager = self.trading_system.hot_reload_manager
+            success = manager.apply_update()
+
+            if success:
+                self.update_manager_widget.set_update_status("✅ Обновление применено!", "#50fa7b")
+                QMessageBox.information(
+                    self,
+                    "Обновление завершено",
+                    "✅ Система успешно обновлена!\n\n"
+                    "• Модули перезагружены\n"
+                    "• GUI обновлён\n"
+                    "• Активные позиции сохранены",
+                    QMessageBox.Ok,
+                )
+            else:
+                self.update_manager_widget.set_update_status("❌ Ошибка обновления", "#ff5555")
+                QMessageBox.critical(
+                    self,
+                    "Ошибка обновления",
+                    "❌ Не удалось применить обновление.\n\n" "Проверьте логи для получения подробностей.",
+                    QMessageBox.Ok,
+                )
+
+    def _on_toggle_update_monitoring(self):
+        """Переключение мониторинга обновлений."""
+        logger.info("🔄 Переключение мониторинга обновлений...")
+        if hasattr(self.trading_system, "hot_reload_manager") and self.trading_system.hot_reload_manager:
+            manager = self.trading_system.hot_reload_manager
+
+            if manager._monitoring:
+                manager.stop_monitoring()
+                self.update_manager_widget.set_update_status("👁️ Мониторинг остановлен", "#ff5555")
+            else:
+                manager.start_monitoring(interval=60)  # Проверка каждые 60 секунд
+                self.update_manager_widget.set_update_status("👁️ Мониторинг запущен", "#50fa7b")
 
     def update_retrain_progress_chart(self, progress_data: dict):
         """
