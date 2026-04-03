@@ -139,7 +139,26 @@ class DatabaseStatsWorker(QThread):
 
         # Qdrant статистика
         try:
-            if self.trading_system and hasattr(self.trading_system, "vector_db_manager"):
+            # Проверяем MultiDatabaseManager
+            if self.trading_system and hasattr(self.trading_system, "multi_db_manager"):
+                qdrant = self.trading_system.multi_db_manager.get_qdrant()
+                if qdrant and qdrant.enabled:
+                    result["qdrant"]["connected"] = True
+                    # Получаем количество документов из коллекции
+                    try:
+                        collection_info = qdrant._client.get_collection(qdrant.collection_name)
+                        doc_count = collection_info.vectors_count if hasattr(collection_info, "vectors_count") else 0
+                        result["qdrant"]["stats"] = {
+                            "rows": doc_count,
+                            "size": f"{doc_count} vectors",
+                        }
+                    except:
+                        result["qdrant"]["stats"] = {
+                            "rows": 0,
+                            "size": "Коллекция не создана",
+                        }
+            # Fallback на vector_db_manager
+            elif self.trading_system and hasattr(self.trading_system, "vector_db_manager"):
                 if self.trading_system.vector_db_manager.is_ready():
                     doc_count = len(self.trading_system.vector_db_manager.documents)
                     result["qdrant"]["connected"] = True

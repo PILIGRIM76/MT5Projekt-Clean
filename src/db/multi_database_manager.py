@@ -73,7 +73,7 @@ class DatabaseConfig:
     enable_postgres: bool = False  # Отключено по умолчанию (требует Docker)
     enable_timescaledb: bool = False  # Отключено по умолчанию (требует Docker)
     enable_questdb: bool = False  # Альтернатива TimescaleDB
-    enable_qdrant: bool = False  # Отключено по умолчанию (требует установку)
+    enable_qdrant: bool = True  # Включено (Qdrant сервер доступен)
     enable_redis: bool = False  # Отключено по умолчанию (требует установку)
     enable_neo4j: bool = False  # Отключено по умолчанию (требует установку)
     enable_sqlite: bool = True  # Основной режим
