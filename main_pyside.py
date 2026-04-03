@@ -52,7 +52,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QAction, QColor, QIcon, QPainterPath, QTextCharFormat
+from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPainterPath, QTextCharFormat
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
@@ -1447,7 +1447,7 @@ class MainWindow(QMainWindow):
         header_pos.setSectionResizeMode(2, QHeaderView.Stretch)
         positions_tab_layout.addLayout(positions_control_layout)
         positions_tab_layout.addWidget(self.positions_table)
-        tab_widget.addTab(positions_tab_widget, "Открытые Позиции")
+        tab_widget.addTab(positions_tab_widget, create_icon("💼"), "Открытые Позиции")
 
         # --- ВКЛАДКА "ИСТОРИЯ СДЕЛОК" (с исправлениями) ---
         self.history_table = QTableView()
@@ -1474,7 +1474,7 @@ class MainWindow(QMainWindow):
         header_hist.setSectionResizeMode(6, QHeaderView.Stretch)  # Время закр.
         header_hist.setSectionResizeMode(7, QHeaderView.Stretch)  # Стратегия
 
-        tab_widget.addTab(self.history_table, "История Сделок")
+        tab_widget.addTab(self.history_table, create_icon("📜"), "История Сделок")
 
         # --- ОБЩИЙ ЛЕЙАУТ ---
         left_layout.addWidget(tab_widget)
@@ -1544,9 +1544,28 @@ class MainWindow(QMainWindow):
     def _create_right_panel(self, vector_db_tab=None):
         right_widget = QTabWidget()
 
+        # Вспомогательный метод для создания иконки из эмодзи
+        def create_icon(emoji: str, size: int = 32) -> QIcon:
+            """Создаёт QIcon из эмодзи"""
+            pixmap = pixmap_cache.get(emoji)
+            if pixmap is None:
+                pixmap = QPixmap(size, size)
+                pixmap.fill(Qt.transparent)
+                painter = QPainter(pixmap)
+                painter.setRenderHint(QPainter.TextAntialiasing)
+                font = painter.font()
+                font.setPixelSize(int(size * 0.75))
+                painter.setFont(font)
+                painter.drawText(pixmap.rect(), Qt.AlignCenter, emoji)
+                painter.end()
+                pixmap_cache[emoji] = pixmap
+            return QIcon(pixmap)
+
+        pixmap_cache = {}
+
         # --- ВКЛАДКА "ОСНОВНОЙ ГРАФИК" ---
         self.chart_layout_widget = pg.GraphicsLayoutWidget()
-        right_widget.addTab(self.chart_layout_widget, "Основной График")
+        right_widget.addTab(self.chart_layout_widget, create_icon("📊"), "Основной График")
         self.price_plot = self.chart_layout_widget.addPlot(row=0, col=0)
 
         # Используем форматирование дат на нижней оси
@@ -1627,7 +1646,7 @@ class MainWindow(QMainWindow):
         # Загружаем начальные настройки для отображения
         self.control_center_tab.load_initial_settings()
         logger.info("[GUI] ControlCenterWidget инициализирован с настройками")
-        right_widget.addTab(self.control_center_tab, "Центр Управления")
+        right_widget.addTab(self.control_center_tab, create_icon("🎛️"), "Центр Управления")
 
         # --- ВКЛАДКА "АНАЛИТИКА" ---
         analytics_tab_widget = QWidget()
@@ -1738,24 +1757,24 @@ class MainWindow(QMainWindow):
         training_charts_layout = QVBoxLayout(training_charts_widget)
         training_charts_layout.addWidget(self.loss_plot_widget)
         training_charts_layout.addWidget(compact_charts_widget)
-        analytics_subtabs.addTab(training_charts_widget, "📈 Обучение")
+        analytics_subtabs.addTab(training_charts_widget, create_icon("📈"), "Обучение")
 
         # Подвкладка 2: Производительность
         performance_charts_widget = QWidget()
         performance_charts_layout = QVBoxLayout(performance_charts_widget)
         performance_charts_layout.addWidget(self.pnl_plot_widget)
         performance_charts_layout.addWidget(self.observer_pnl_plot_widget)
-        analytics_subtabs.addTab(performance_charts_widget, "💰 Производительность")
+        analytics_subtabs.addTab(performance_charts_widget, create_icon("💰"), "Производительность")
 
         # Подвкладка 3: Дрейф и аномалии
         drift_charts_widget = QWidget()
         drift_charts_layout = QVBoxLayout(drift_charts_widget)
         drift_charts_layout.addWidget(self.drift_plot_widget)
-        analytics_subtabs.addTab(drift_charts_widget, "🔍 Дрейф")
+        analytics_subtabs.addTab(drift_charts_widget, create_icon("🔍"), "Дрейф")
 
         analytics_layout.addWidget(analytics_subtabs)
 
-        right_widget.addTab(analytics_tab_widget, "📈 Аналитика")
+        right_widget.addTab(analytics_tab_widget, create_icon("📊"), "Аналитика")
 
         # --- ВКЛАДКА "СКАНЕР РЫНКА" ---
         scanner_widget = QWidget()
@@ -1791,7 +1810,7 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
 
-        right_widget.addTab(scanner_widget, "Сканер Рынка")
+        right_widget.addTab(scanner_widget, create_icon("🔎"), "Сканер Рынка")
 
         # --- ВКЛАДКА "ПАНЕЛЬ ОРКЕСТРАТОРА" ---
         orchestrator_tab = QWidget()
@@ -1804,7 +1823,7 @@ class MainWindow(QMainWindow):
         self.orchestrator_chart_widget.getAxis("left").setLabel("Доля капитала", units="%")
         self.orchestrator_chart_widget.getAxis("bottom").setTicks([[]])
         orchestrator_layout.addWidget(self.orchestrator_chart_widget)
-        right_widget.addTab(orchestrator_tab, "Панель Оркестратора")
+        right_widget.addTab(orchestrator_tab, create_icon("🧠"), "Панель Оркестратора")
 
         # --- ВКЛАДКА "R&D ЦЕНТР" ---
         rd_tab_widget = QWidget()
@@ -1821,7 +1840,7 @@ class MainWindow(QMainWindow):
         self.rd_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         rd_layout.addLayout(rd_controls_layout)
         rd_layout.addWidget(self.rd_table)
-        right_widget.addTab(rd_tab_widget, "R&D Центр")
+        right_widget.addTab(rd_tab_widget, create_icon("🔬"), "R&D Центр")
 
         # --- ВКЛАДКА "ЦЕНТР РЕФЛЕКСИИ" ---
         reflexion_tab_widget = QWidget()
@@ -1842,7 +1861,7 @@ class MainWindow(QMainWindow):
         reflexion_layout.addWidget(QLabel("<b>Активные Директивы Системы</b>"))
         reflexion_layout.addLayout(reflexion_controls_layout)
         reflexion_layout.addWidget(self.directives_table)
-        right_widget.addTab(reflexion_tab_widget, "Центр Рефлексии")
+        right_widget.addTab(reflexion_tab_widget, create_icon("🪞"), "Центр Рефлексии")
 
         # --- ВКЛАДКА "МЕНЕДЖЕР МОДЕЛЕЙ" ---
         model_manager_tab = QWidget()
@@ -1862,7 +1881,7 @@ class MainWindow(QMainWindow):
         self.models_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         model_manager_layout.addLayout(mm_controls_layout)
         model_manager_layout.addWidget(self.models_table)
-        right_widget.addTab(model_manager_tab, "Менеджер Моделей")
+        right_widget.addTab(model_manager_tab, create_icon("🤖"), "Менеджер Моделей")
 
         # --- ВКЛАДКА "ГРАФ ЗНАНИЙ" ---
         knowledge_graph_tab = QWidget()
@@ -1920,11 +1939,11 @@ class MainWindow(QMainWindow):
             logger.error(f"Не найден файл для визуализации графа: {graph_html_path}")
             self.knowledge_graph_view.setHtml(f"<h3 style='color:red'>Файл не найден: {graph_html_path}</h3>")
 
-        right_widget.addTab(knowledge_graph_tab, "Граф Знаний")
+        right_widget.addTab(knowledge_graph_tab, create_icon("🕸️"), "Граф Знаний")
 
         # --- ВКЛАДКА "ВЕКТОРНАЯ БД (RAG)" ---
         vector_db_tab = self._create_vector_db_tab()
-        right_widget.addTab(vector_db_tab, "Векторная БД (RAG)")
+        right_widget.addTab(vector_db_tab, create_icon("🗃️"), "Векторная БД (RAG)")
 
         # --- ВКЛАДКА "АНАЛИЗ СДЕЛКИ (XAI)" ---
         xai_tab_widget = QWidget()
@@ -1951,7 +1970,7 @@ class MainWindow(QMainWindow):
         xai_layout.addWidget(self.xai_label)
         xai_layout.addWidget(self.xai_web_view)
         xai_layout.addWidget(feedback_panel)
-        right_widget.addTab(xai_tab_widget, "Анализ Сделки (XAI)")
+        right_widget.addTab(xai_tab_widget, create_icon("🔮"), "Анализ Сделки (XAI)")
 
         # --- ВКЛАДКА "БЭКТЕСТЕР" ---
         backtester_tab = QWidget()
@@ -2014,7 +2033,7 @@ class MainWindow(QMainWindow):
         results_splitter.setSizes([200, 400])
         backtester_layout.addWidget(controls_frame)
         backtester_layout.addWidget(results_splitter)
-        right_widget.addTab(backtester_tab, "Бэктестер")
+        right_widget.addTab(backtester_tab, create_icon("⚙️"), "Бэктестер")
 
         # Добавляем обработчик переключения вкладок для логирования
         right_widget.currentChanged.connect(self.on_tab_changed)
@@ -2028,7 +2047,7 @@ class MainWindow(QMainWindow):
             trading_system=self.trading_system, settings_window=None  # Будет установлено позже через MainWindow
         )
         self.database_monitor_widget = database_monitor_tab  # Сохраняем ссылку для обновления
-        right_widget.addTab(database_monitor_tab, "🗄️ Базы Данных")
+        right_widget.addTab(database_monitor_tab, create_icon("🗄️"), "Базы Данных")
 
         return right_widget
 
