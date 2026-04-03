@@ -40,6 +40,11 @@ dependencies = [
     "pandas",
     "scikit-learn",
     "matplotlib",
+    "scipy>=1.11.0",
+
+    # Парсинг данных
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
 
     # Торговля и Финансы
     "MetaTrader5",
@@ -58,6 +63,7 @@ dependencies = [
 
     "accelerate",            # <-- Для GPU и квантизации
     'bitsandbytes',          # <-- Для 8-битной квантизации (оптимизация памяти)
+    "joblib>=1.3.0",         # <-- Для сохранения/загрузки моделей
 
     # NLP (с зафиксированными версиями)
     "sentence-transformers>=2.7.0",

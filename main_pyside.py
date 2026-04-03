@@ -661,7 +661,7 @@ class MainWindow(QMainWindow):
         self.is_graph_ready = False
         self.graph_data_queue = []
         self.scheduler_manager = SchedulerManager()
-        self.settings_window = SettingsWindow(self.scheduler_manager, self.config, self)
+        self.settings_window = SettingsWindow(self.scheduler_manager, self.config, self.trading_system, self)
         self.settings_window.scheduler_status_updated.connect(self.update_thread_status_widget)
 
         self.setGeometry(100, 100, 1600, 900)
@@ -682,6 +682,11 @@ class MainWindow(QMainWindow):
         self.status_update_timer = QTimer(self)
         self.status_update_timer.timeout.connect(self.update_scheduler_status_display)
         self.status_update_timer.start(60 * 1000)
+
+        # Таймер для обновления статуса обновлений (каждые 10 секунд)
+        self.update_status_bar_timer = QTimer(self)
+        self.update_status_bar_timer.timeout.connect(self._update_update_box_info)
+        self.update_status_bar_timer.start(10 * 1000)  # 10 секунд
 
         self.update_scheduler_status_display()
         # Предполагаем, что kg_enabled_checkbox существует после _init_widgets
@@ -1283,6 +1288,7 @@ class MainWindow(QMainWindow):
         main_splitter.addWidget(left_panel)
         main_splitter.addWidget(right_panel)
         main_splitter.setSizes([650, 950])
+
         self.status_label = QLabel("Система не запущена.")
         self.statusBar().addWidget(self.status_label)
 
@@ -1316,12 +1322,61 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(self.observer_checkbox)
 
         update_box = QFrame()
+        update_box.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
+        update_box.setStyleSheet("""
+            QFrame {
+                background-color: #282a36;
+                border: 1px solid #44475a;
+                border-radius: 5px;
+                padding: 8px;
+            }
+        """)
         update_layout = QVBoxLayout(update_box)
-        self.update_button = QPushButton("Обновить и Перезапустить")
-        self.update_button.setEnabled(False)
-        self.update_status_label = QLabel("Статус обновления: N/A")
-        update_layout.addWidget(self.update_button)
+        update_layout.setSpacing(5)
+
+        # Заголовок блока
+        update_title = QLabel("🔄 Статус обновлений")
+        update_title.setStyleSheet("color: #bd93f9; font-weight: bold; font-size: 12px;")
+        update_layout.addWidget(update_title)
+
+        # Версия системы
+        self.version_label = QLabel(f"📦 Версия: v{__version__}")
+        self.version_label.setStyleSheet("color: #8be9fd; font-size: 11px;")
+        self.version_label.setToolTip("Текущая версия Genesis Trading System")
+        update_layout.addWidget(self.version_label)
+
+        # Статус обновлений
+        self.update_status_label = QLabel("Статус: Загрузка...")
+        self.update_status_label.setStyleSheet("color: #f8f8f2; font-size: 11px;")
         update_layout.addWidget(self.update_status_label)
+
+        # Последняя проверка
+        self.update_last_check_label = QLabel("Последняя проверка: N/A")
+        self.update_last_check_label.setStyleSheet("color: #6272a4; font-size: 10px;")
+        update_layout.addWidget(self.update_last_check_label)
+
+        # Кнопка обновления
+        self.update_button = QPushButton("⬇️ Обновить и Перезапустить")
+        self.update_button.setEnabled(False)
+        self.update_button.setStyleSheet("""
+            QPushButton {
+                background-color: #50fa7b;
+                color: #282a36;
+                border: none;
+                padding: 8px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #69ff94;
+            }
+            QPushButton:disabled {
+                background-color: #44475a;
+                color: #6272a4;
+            }
+        """)
+        update_layout.addWidget(self.update_button)
 
         thread_status_box = self._create_thread_status_panel()
         # Для стилизации, если понадобится
@@ -2051,18 +2106,10 @@ class MainWindow(QMainWindow):
         self.database_monitor_widget = database_monitor_tab  # Сохраняем ссылку для обновления
         right_widget.addTab(database_monitor_tab, self.create_icon("🗄️"), "Базы Данных")
 
-        # --- ВКЛАДКА "МЕНЕДЖЕР ОБНОВЛЕНИЙ" ---
-        from src.gui.update_manager_widget import UpdateManagerWidget
-
-        update_manager_tab = UpdateManagerWidget(trading_system=self.trading_system)
-        self.update_manager_widget = update_manager_tab  # Сохраняем ссылку
-
-        # Подключаем сигналы
-        update_manager_tab.check_updates_requested.connect(self._on_check_updates)
-        update_manager_tab.apply_update_requested.connect(self._on_apply_update)
-        update_manager_tab.toggle_monitoring_requested.connect(self._on_toggle_update_monitoring)
-
-        right_widget.addTab(update_manager_tab, self.create_icon("🔄"), "Обновления")
+        # --- ВКЛАДКА "МЕНЕДЖЕР ОБНОВЛЕНИЙ" ПЕРЕНЕСЕНА В НАСТРОЙКИ ---
+        # Обновления теперь доступны через Настройки -> Обновления
+        # Информация о версии отображается в статус-баре на главном экране
+        # ----------------------------------------------------------------
 
         return right_widget
 
@@ -2683,6 +2730,50 @@ class MainWindow(QMainWindow):
         self.status_label.setText(message)
         self.status_label.setStyleSheet("color: red;" if is_error else "")
 
+    def _update_update_box_info(self):
+        """Обновляет информацию об обновлениях в блоке на главном экране."""
+        if not hasattr(self, "update_status_label"):
+            return
+
+        manager = None
+        if hasattr(self.trading_system, "core_system") and self.trading_system.core_system:
+            manager = self.trading_system.core_system.hot_reload_manager
+        elif hasattr(self.trading_system, "hot_reload_manager"):
+            manager = self.trading_system.hot_reload_manager
+
+        if not manager:
+            self.update_status_label.setText("Статус: Менеджер не инициализирован")
+            self.update_status_label.setStyleSheet("color: #ffb86c; font-size: 11px;")
+            return
+
+        try:
+            status = manager.get_update_status()
+
+            # Обновляем версию с commit
+            if status.get("local_commit"):
+                short_commit = status["local_commit"][:8]
+                self.version_label.setText(f"📦 Версия: v{__version__} ({short_commit})")
+                self.version_label.setToolTip(f"Commit: {status['local_commit']}")
+
+            # Обновляем время последней проверки
+            if status.get("last_check"):
+                last_check = datetime.fromtimestamp(status["last_check"])
+                self.update_last_check_label.setText(f"Последняя проверка: {last_check.strftime('%H:%M:%S')}")
+
+            # Обновляем статус обновлений
+            if status.get("has_updates"):
+                self.update_status_label.setText("🔔 Доступна новая версия!")
+                self.update_status_label.setStyleSheet("color: #ffb86c; font-size: 11px; font-weight: bold;")
+                self.update_button.setEnabled(True)
+            else:
+                self.update_status_label.setText("✅ Система актуальна")
+                self.update_status_label.setStyleSheet("color: #50fa7b; font-size: 11px;")
+                self.update_button.setEnabled(False)
+
+        except Exception as e:
+            self.update_status_label.setText(f"❌ Ошибка: {e}")
+            self.update_status_label.setStyleSheet("color: #ff5555; font-size: 11px;")
+
     def update_balance(self, balance, equity):
         # Убрано избыточное логирование (каждые 3 секунды)
         self.balance_label.setText(f"Баланс: {balance:.2f}")
@@ -2990,57 +3081,90 @@ class MainWindow(QMainWindow):
 
     # ========== Hot Reload Manager Handlers ==========
 
+    def _get_hot_reload_manager(self):
+        """Получение HotReloadManager."""
+        if hasattr(self.trading_system, "core_system") and self.trading_system.core_system:
+            return self.trading_system.core_system.hot_reload_manager
+        elif hasattr(self.trading_system, "hot_reload_manager"):
+            return self.trading_system.hot_reload_manager
+        return None
+
     def _on_check_updates(self):
         """Проверка наличия обновлений."""
         logger.info("🔍 Проверка наличия обновлений...")
-        if hasattr(self.trading_system, "hot_reload_manager") and self.trading_system.hot_reload_manager:
-            manager = self.trading_system.hot_reload_manager
-            has_updates = manager.check_for_updates()
+        manager = self._get_hot_reload_manager()
 
-            if has_updates:
-                self.update_manager_widget.set_update_status("🔔 Доступна новая версия!", "#ffb86c")
-            else:
-                self.update_manager_widget.set_update_status("✅ Нет обновлений", "#50fa7b")
+        if not manager:
+            logger.warning("⚠️ HotReloadManager не инициализирован")
+            self.update_status_label.setText("Статус: Менеджер не инициализирован")
+            self.update_status_label.setStyleSheet("color: #ffb86c; font-size: 11px;")
+            return
+
+        has_updates = manager.check_for_updates()
+        if has_updates:
+            self.update_status_label.setText("🔔 Доступна новая версия!")
+            self.update_status_label.setStyleSheet("color: #ffb86c; font-size: 11px; font-weight: bold;")
+            self.update_button.setEnabled(True)
+        else:
+            self.update_status_label.setText("✅ Система актуальна")
+            self.update_status_label.setStyleSheet("color: #50fa7b; font-size: 11px;")
+            self.update_button.setEnabled(False)
 
     def _on_apply_update(self):
         """Применение обновления."""
         logger.info("⬇️ Применение обновления...")
-        if hasattr(self.trading_system, "hot_reload_manager") and self.trading_system.hot_reload_manager:
-            manager = self.trading_system.hot_reload_manager
-            success = manager.apply_update()
+        manager = self._get_hot_reload_manager()
 
-            if success:
-                self.update_manager_widget.set_update_status("✅ Обновление применено!", "#50fa7b")
-                QMessageBox.information(
-                    self,
-                    "Обновление завершено",
-                    "✅ Система успешно обновлена!\n\n"
-                    "• Модули перезагружены\n"
-                    "• GUI обновлён\n"
-                    "• Активные позиции сохранены",
-                    QMessageBox.Ok,
-                )
-            else:
-                self.update_manager_widget.set_update_status("❌ Ошибка обновления", "#ff5555")
-                QMessageBox.critical(
-                    self,
-                    "Ошибка обновления",
-                    "❌ Не удалось применить обновление.\n\n" "Проверьте логи для получения подробностей.",
-                    QMessageBox.Ok,
-                )
+        if not manager:
+            logger.warning("⚠️ HotReloadManager не инициализирован")
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Менеджер обновлений не инициализирован.\nДождитесь полной загрузки системы.",
+                QMessageBox.Ok,
+            )
+            return
+
+        success = manager.apply_update()
+        if success:
+            self.update_status_label.setText("✅ Обновление применено!")
+            self.update_status_label.setStyleSheet("color: #50fa7b; font-size: 11px;")
+            QMessageBox.information(
+                self,
+                "Обновление завершено",
+                "✅ Система успешно обновлена!\n\n"
+                "• Модули перезагружены\n"
+                "• GUI обновлён\n"
+                "• Активные позиции сохранены",
+                QMessageBox.Ok,
+            )
+        else:
+            self.update_status_label.setText("❌ Ошибка обновления")
+            self.update_status_label.setStyleSheet("color: #ff5555; font-size: 11px;")
+            QMessageBox.critical(
+                self,
+                "Ошибка обновления",
+                "❌ Не удалось применить обновление.\n\n" "Проверьте логи для получения подробностей.",
+                QMessageBox.Ok,
+            )
 
     def _on_toggle_update_monitoring(self):
         """Переключение мониторинга обновлений."""
         logger.info("🔄 Переключение мониторинга обновлений...")
-        if hasattr(self.trading_system, "hot_reload_manager") and self.trading_system.hot_reload_manager:
-            manager = self.trading_system.hot_reload_manager
+        manager = self._get_hot_reload_manager()
 
-            if manager._monitoring:
-                manager.stop_monitoring()
-                self.update_manager_widget.set_update_status("👁️ Мониторинг остановлен", "#ff5555")
-            else:
-                manager.start_monitoring(interval=60)  # Проверка каждые 60 секунд
-                self.update_manager_widget.set_update_status("👁️ Мониторинг запущен", "#50fa7b")
+        if not manager:
+            logger.warning("⚠️ HotReloadManager не инициализирован")
+            return
+
+        if manager._monitoring:
+            manager.stop_monitoring()
+            self.update_status_label.setText("👁️ Мониторинг остановлен")
+            self.update_status_label.setStyleSheet("color: #ff5555; font-size: 11px;")
+        else:
+            manager.start_monitoring(interval=60)
+            self.update_status_label.setText("👁️ Мониторинг запущен")
+            self.update_status_label.setStyleSheet("color: #50fa7b; font-size: 11px;")
 
     def update_retrain_progress_chart(self, progress_data: dict):
         """

@@ -4,13 +4,14 @@ import logging
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import MetaTrader5 as mt5
 from dotenv import dotenv_values, set_key
 from pydantic import BaseModel
-from PySide6.QtCore import Qt, QThread, QTime, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtCore import Qt, QThread, QTime, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -380,7 +381,7 @@ class SettingsWindow(QDialog):
     scheduler_status_updated = Signal(dict)
     database_path_changed = Signal(str)  # Сигнал об изменении пути к базе данных
 
-    def __init__(self, scheduler_manager: SchedulerManager, config: Settings, parent=None):
+    def __init__(self, scheduler_manager: SchedulerManager, config: Settings, trading_system=None, parent=None):
 
         super().__init__(parent)
         self.setWindowTitle("Настройки Системы")
@@ -393,6 +394,7 @@ class SettingsWindow(QDialog):
         self.api_testers = {}
         self.scheduler_manager = scheduler_manager
         self._icon_pixmap_cache = {}
+        self.trading_system = trading_system  # Сохраняем ссылку на торговую систему
 
         self.full_config = config
 
@@ -438,6 +440,9 @@ class SettingsWindow(QDialog):
         gp_tab = self._create_gp_tab()
         # P0: Notifications (Telegram/Email)
         notifications_tab = self._create_notifications_tab()
+        # НОВОЕ: Вкладка обновлений
+        updates_tab = self._create_updates_tab()
+
         self.tab_widget.addTab(gp_tab, self.create_icon("🧪"), "R&D (AI)")
 
         self.tab_widget.addTab(mt5_tab, self.create_icon("🔌"), "Подключение MT5")
@@ -446,6 +451,7 @@ class SettingsWindow(QDialog):
         self.tab_widget.addTab(paths_tab, self.create_icon("📁"), "Пути к данным")
         self.tab_widget.addTab(scheduler_tab, self.create_icon("⏰"), "Планировщик")
         self.tab_widget.addTab(notifications_tab, self.create_icon("🔔"), "Уведомления")
+        self.tab_widget.addTab(updates_tab, self.create_icon("🔄"), "Обновления")
 
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
@@ -466,6 +472,338 @@ class SettingsWindow(QDialog):
 
         layout.addWidget(scroll)
         return container
+
+    def _create_updates_tab(self):
+        """Создает вкладку для управления обновлениями системы."""
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setAlignment(Qt.AlignTop)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Заголовок
+        title = QLabel("<h2>🔄 Управление обновлениями</h2>")
+        title.setStyleSheet("color: #f8f8f2; padding: 10px;")
+        title.setWordWrap(True)
+        layout.addWidget(title)
+
+        # Фрейм статуса
+        status_frame = QFrame()
+        status_frame.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
+        status_frame.setStyleSheet("""
+            QFrame {
+                background-color: #282a36;
+                border: 1px solid #44475a;
+                border-radius: 5px;
+                padding: 15px;
+            }
+        """)
+        status_layout = QVBoxLayout(status_frame)
+
+        # Текущая версия
+        version_layout = QHBoxLayout()
+        version_layout.addWidget(QLabel("📦 Текущая версия:"))
+        self.update_current_version_label = QLabel("Загрузка...")
+        self.update_current_version_label.setFont(QFont("Consolas", 11))
+        self.update_current_version_label.setStyleSheet("color: #50fa7b; font-weight: bold;")
+        version_layout.addWidget(self.update_current_version_label)
+        status_layout.addLayout(version_layout)
+
+        # Статус обновления
+        update_status_layout = QHBoxLayout()
+        update_status_layout.addWidget(QLabel("📢 Статус:"))
+        self.update_status_label = QLabel("Нет обновлений")
+        self.update_status_label.setFont(QFont("Arial", 10))
+        self.update_status_label.setStyleSheet("color: #f8f8f2;")
+        update_status_layout.addWidget(self.update_status_label)
+        status_layout.addLayout(update_status_layout)
+
+        # Статус мониторинга
+        monitoring_layout = QHBoxLayout()
+        monitoring_layout.addWidget(QLabel("👁️ Мониторинг:"))
+        self.update_monitoring_status_label = QLabel("Не активен")
+        self.update_monitoring_status_label.setFont(QFont("Arial", 10))
+        self.update_monitoring_status_label.setStyleSheet("color: #ffb86c;")
+        monitoring_layout.addWidget(self.update_monitoring_status_label)
+        status_layout.addLayout(monitoring_layout)
+
+        # Последняя проверка
+        last_check_layout = QHBoxLayout()
+        last_check_layout.addWidget(QLabel("⏰ Последняя проверка:"))
+        self.update_last_check_label = QLabel("Н/Д")
+        self.update_last_check_label.setFont(QFont("Arial", 9))
+        self.update_last_check_label.setStyleSheet("color: #888;")
+        last_check_layout.addWidget(self.update_last_check_label)
+        status_layout.addLayout(last_check_layout)
+
+        layout.addWidget(status_frame)
+
+        # Кнопки управления
+        buttons_group = QGroupBox("⚡ Действия")
+        buttons_layout = QVBoxLayout(buttons_group)
+
+        # Кнопка проверки обновлений
+        self.update_check_button = QPushButton("🔍 Проверить обновления")
+        self.update_check_button.clicked.connect(self._on_check_updates_clicked)
+        self.update_check_button.setStyleSheet("""
+            QPushButton {
+                background-color: #44475a;
+                color: #f8f8f2;
+                border: none;
+                padding: 12px;
+                border-radius: 5px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #6272a4;
+            }
+            QPushButton:pressed {
+                background-color: #44475a;
+            }
+        """)
+        buttons_layout.addWidget(self.update_check_button)
+
+        # Кнопка применения обновления
+        self.update_apply_button = QPushButton("⬇️ Применить обновление")
+        self.update_apply_button.clicked.connect(self._on_apply_update_clicked)
+        self.update_apply_button.setEnabled(False)
+        self.update_apply_button.setStyleSheet("""
+            QPushButton {
+                background-color: #50fa7b;
+                color: #282a36;
+                border: none;
+                padding: 12px;
+                border-radius: 5px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #69ff94;
+            }
+            QPushButton:pressed {
+                background-color: #50fa7b;
+            }
+            QPushButton:disabled {
+                background-color: #44475a;
+                color: #6272a4;
+            }
+        """)
+        buttons_layout.addWidget(self.update_apply_button)
+
+        # Кнопка включения/выключения мониторинга
+        self.update_toggle_monitoring_button = QPushButton("▶️ Включить мониторинг")
+        self.update_toggle_monitoring_button.clicked.connect(self._on_toggle_monitoring_clicked)
+        self.update_toggle_monitoring_button.setStyleSheet("""
+            QPushButton {
+                background-color: #bd93f9;
+                color: #f8f8f2;
+                border: none;
+                padding: 12px;
+                border-radius: 5px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #d6acff;
+            }
+            QPushButton:pressed {
+                background-color: #bd93f9;
+            }
+        """)
+        buttons_layout.addWidget(self.update_toggle_monitoring_button)
+
+        layout.addWidget(buttons_group)
+
+        # Информация
+        info_group = QGroupBox("ℹ️ Информация")
+        info_layout = QVBoxLayout(info_group)
+        info_label = QLabel(
+            "Система обновлений позволяет:\n\n"
+            "• Проверять наличие новых версий из репозитория\n"
+            "• Автоматически применять обновления\n"
+            "• Мониторить изменения в фоновом режиме\n\n"
+            "Обновления применяются без перезапуска приложения.\n"
+            "Активные позиции не будут затронуты."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #bdc3c7; padding: 5px;")
+        info_layout.addWidget(info_label)
+        layout.addWidget(info_group)
+
+        # Растяжка
+        layout.addStretch()
+
+        # Запуск таймера обновления статуса
+        self.update_status_timer = QTimer(self)
+        self.update_status_timer.timeout.connect(self._update_update_status)
+        self.update_status_timer.start(5000)  # Обновление каждые 5 секунд
+
+        return self._create_scrollable_widget(content_widget)
+
+    def _update_update_status(self):
+        """Обновление статуса обновлений."""
+        if not self.trading_system:
+            return
+
+        # Получаем hot_reload_manager через core_system
+        manager = self._get_hot_reload_manager()
+
+        if not manager:
+            return
+
+        try:
+            status = manager.get_update_status()
+
+            # Обновляем текущую версию
+            if status.get("local_commit"):
+                short_commit = status["local_commit"][:8]
+                self.update_current_version_label.setText(short_commit)
+
+            # Обновляем статус мониторинга
+            if status.get("monitoring"):
+                self.update_monitoring_status_label.setText("✅ Активен")
+                self.update_monitoring_status_label.setStyleSheet("color: #50fa7b;")
+                self.update_toggle_monitoring_button.setText("⏹️ Выключить мониторинг")
+            else:
+                self.update_monitoring_status_label.setText("❌ Не активен")
+                self.update_monitoring_status_label.setStyleSheet("color: #ff5555;")
+                self.update_toggle_monitoring_button.setText("▶️ Включить мониторинг")
+
+            # Обновляем время последней проверки
+            if status.get("last_check"):
+                last_check = datetime.fromtimestamp(status["last_check"])
+                self.update_last_check_label.setText(last_check.strftime("%H:%M:%S"))
+            else:
+                self.update_last_check_label.setText("Н/Д")
+
+            # Проверяем наличие обновлений
+            if status.get("has_updates"):
+                self.update_status_label.setText("🔔 Доступна новая версия!")
+                self.update_status_label.setStyleSheet("color: #ffb86c; font-weight: bold;")
+                self.update_apply_button.setEnabled(True)
+            else:
+                self.update_status_label.setText("✅ Нет обновлений")
+                self.update_status_label.setStyleSheet("color: #50fa7b;")
+                self.update_apply_button.setEnabled(False)
+
+        except Exception as e:
+            logger.error(f"[SettingsWindow Updates] Ошибка: {e}")
+
+    def _on_check_updates_clicked(self):
+        """Обработчик кнопки проверки обновлений."""
+        logger.info("🔍 Запрос проверки обновлений из настроек")
+
+        manager = self._get_hot_reload_manager()
+        if not manager:
+            QMessageBox.warning(self, "Ошибка", "Менеджер обновлений не инициализирован.")
+            return
+
+        self.update_check_button.setText("⏳ Проверка...")
+        self.update_check_button.setEnabled(False)
+
+        try:
+            has_updates = manager.check_for_updates()
+            if has_updates:
+                self.update_status_label.setText("🔔 Доступна новая версия!")
+                self.update_status_label.setStyleSheet("color: #ffb86c; font-weight: bold;")
+                self.update_apply_button.setEnabled(True)
+            else:
+                self.update_status_label.setText("✅ Нет обновлений")
+                self.update_status_label.setStyleSheet("color: #50fa7b;")
+                self.update_apply_button.setEnabled(False)
+        except Exception as e:
+            logger.error(f"Ошибка при проверке обновлений: {e}")
+            self.update_status_label.setText(f"❌ Ошибка: {e}")
+            self.update_status_label.setStyleSheet("color: #ff5555;")
+        finally:
+            self.update_check_button.setText("🔍 Проверить обновления")
+            self.update_check_button.setEnabled(True)
+
+    def _on_apply_update_clicked(self):
+        """Обработчик кнопки применения обновления."""
+        logger.info("⬇️ Запрос применения обновления из настроек")
+
+        manager = self._get_hot_reload_manager()
+        if not manager:
+            QMessageBox.warning(self, "Ошибка", "Менеджер обновлений не инициализирован.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Подтверждение обновления",
+            "Применить обновление системы?\n\n"
+            "• Будут загружены последние изменения из GitHub\n"
+            "• Модули будут перезагружены\n"
+            "• Активные позиции НЕ будут затронуты\n\n"
+            "Продолжить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+
+        if reply == QMessageBox.Yes:
+            self.update_apply_button.setText("⏳ Применение...")
+            self.update_apply_button.setEnabled(False)
+
+            try:
+                success = manager.apply_update()
+                if success:
+                    self.update_status_label.setText("✅ Обновление применено!")
+                    self.update_status_label.setStyleSheet("color: #50fa7b;")
+                    QMessageBox.information(
+                        self,
+                        "Обновление завершено",
+                        "✅ Система успешно обновлена!\n\n"
+                        "• Модули перезагружены\n"
+                        "• GUI обновлён\n"
+                        "• Активные позиции сохранены",
+                        QMessageBox.Ok,
+                    )
+                else:
+                    self.update_status_label.setText("❌ Ошибка обновления")
+                    self.update_status_label.setStyleSheet("color: #ff5555;")
+                    QMessageBox.critical(
+                        self,
+                        "Ошибка обновления",
+                        "❌ Не удалось применить обновление.\n\n" "Проверьте логи для получения подробностей.",
+                        QMessageBox.Ok,
+                    )
+            except Exception as e:
+                logger.error(f"Ошибка при применении обновления: {e}")
+                self.update_status_label.setText(f"❌ Ошибка: {e}")
+                self.update_status_label.setStyleSheet("color: #ff5555;")
+            finally:
+                self.update_apply_button.setText("⬇️ Применить обновление")
+                self.update_apply_button.setEnabled(True)
+
+    def _on_toggle_monitoring_clicked(self):
+        """Обработчик кнопки переключения мониторинга."""
+        logger.info("🔄 Запрос переключения мониторинга из настроек")
+
+        manager = self._get_hot_reload_manager()
+        if not manager:
+            QMessageBox.warning(self, "Ошибка", "Менеджер обновлений не инициализирован.")
+            return
+
+        if manager._monitoring:
+            manager.stop_monitoring()
+            self.update_monitoring_status_label.setText("❌ Не активен")
+            self.update_monitoring_status_label.setStyleSheet("color: #ff5555;")
+            self.update_toggle_monitoring_button.setText("▶️ Включить мониторинг")
+        else:
+            manager.start_monitoring(interval=60)
+            self.update_monitoring_status_label.setText("✅ Активен")
+            self.update_monitoring_status_label.setStyleSheet("color: #50fa7b;")
+            self.update_toggle_monitoring_button.setText("⏹️ Выключить мониторинг")
+
+    def _get_hot_reload_manager(self):
+        """Получение HotReloadManager."""
+        if self.trading_system:
+            if hasattr(self.trading_system, "core_system") and self.trading_system.core_system:
+                return self.trading_system.core_system.hot_reload_manager
+            elif hasattr(self.trading_system, "hot_reload_manager"):
+                return self.trading_system.hot_reload_manager
+        return None
 
     def _create_gp_tab(self):
         content_widget = QWidget()

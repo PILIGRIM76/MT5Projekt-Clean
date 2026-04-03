@@ -28,6 +28,11 @@ numpy>=1.26.0
 pandas>=2.0.0
 scikit-learn>=1.3.0
 matplotlib>=3.8.0
+scipy>=1.11.0
+
+# Парсинг данных
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
 
 # Торговля и Финансы
 MetaTrader5>=5.0.0
@@ -54,6 +59,7 @@ shap
 optuna
 optuna-integration[shap]
 accelerate
+joblib>=1.3.0
 
 # NLP
 transformers>=4.39.3

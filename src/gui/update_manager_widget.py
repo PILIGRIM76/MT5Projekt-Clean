@@ -192,41 +192,56 @@ class UpdateManagerWidget(QWidget):
 
     def _update_status(self):
         """Обновление статуса."""
-        if not self.trading_system or not hasattr(self.trading_system, "hot_reload_manager"):
+        if not self.trading_system:
             return
 
-        manager = self.trading_system.hot_reload_manager
-        status = manager.get_update_status()
+        # Получаем hot_reload_manager через core_system
+        manager = None
+        if hasattr(self.trading_system, "core_system") and self.trading_system.core_system:
+            manager = self.trading_system.core_system.hot_reload_manager
+        elif hasattr(self.trading_system, "hot_reload_manager"):
+            manager = self.trading_system.hot_reload_manager
 
-        # Обновляем текущую версию
-        if status.get("local_commit"):
-            short_commit = status["local_commit"][:8]
-            self.current_version_label.setText(short_commit)
+        if not manager:
+            return
 
-        # Обновляем статус мониторинга
-        if status.get("monitoring"):
-            self.monitoring_status_label.setText("✅ Активен")
-            self.monitoring_status_label.setStyleSheet("color: #50fa7b;")
-            self.toggle_monitoring_button.setText("⏹️ Выключить мониторинг")
-        else:
-            self.monitoring_status_label.setText("❌ Не активен")
-            self.monitoring_status_label.setStyleSheet("color: #ff5555;")
-            self.toggle_monitoring_button.setText("▶️ Включить мониторинг")
+        try:
+            status = manager.get_update_status()
 
-        # Обновляем время последней проверки
-        if status.get("last_check"):
-            last_check = datetime.fromtimestamp(status["last_check"])
-            self.last_check_label.setText(last_check.strftime("%H:%M:%S"))
+            # Обновляем текущую версию
+            if status.get("local_commit"):
+                short_commit = status["local_commit"][:8]
+                self.current_version_label.setText(short_commit)
 
-        # Проверяем наличие обновлений
-        if status.get("has_updates"):
-            self.update_status_label.setText("🔔 Доступна новая версия!")
-            self.update_status_label.setStyleSheet("color: #ffb86c; font-weight: bold;")
-            self.apply_update_button.setEnabled(True)
-        else:
-            self.update_status_label.setText("✅ Нет обновлений")
-            self.update_status_label.setStyleSheet("color: #50fa7b;")
-            self.apply_update_button.setEnabled(False)
+            # Обновляем статус мониторинга
+            if status.get("monitoring"):
+                self.monitoring_status_label.setText("✅ Активен")
+                self.monitoring_status_label.setStyleSheet("color: #50fa7b;")
+                self.toggle_monitoring_button.setText("⏹️ Выключить мониторинг")
+            else:
+                self.monitoring_status_label.setText("❌ Не активен")
+                self.monitoring_status_label.setStyleSheet("color: #ff5555;")
+                self.toggle_monitoring_button.setText("▶️ Включить мониторинг")
+
+            # Обновляем время последней проверки
+            if status.get("last_check"):
+                last_check = datetime.fromtimestamp(status["last_check"])
+                self.last_check_label.setText(last_check.strftime("%H:%M:%S"))
+            else:
+                self.last_check_label.setText("Н/Д")
+
+            # Проверяем наличие обновлений
+            if status.get("has_updates"):
+                self.update_status_label.setText("🔔 Доступна новая версия!")
+                self.update_status_label.setStyleSheet("color: #ffb86c; font-weight: bold;")
+                self.apply_update_button.setEnabled(True)
+            else:
+                self.update_status_label.setText("✅ Нет обновлений")
+                self.update_status_label.setStyleSheet("color: #50fa7b;")
+                self.apply_update_button.setEnabled(False)
+
+        except Exception as e:
+            logger.error(f"[UpdateManager] Ошибка: {e}")
 
     def _on_check_updates(self):
         """Обработчик кнопки проверки обновлений."""
