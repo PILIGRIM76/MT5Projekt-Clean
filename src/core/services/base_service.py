@@ -12,9 +12,18 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, NamedTuple, Optional
 
 from src.core.config_models import Settings
+
+
+class HealthStatus(NamedTuple):
+    """Статус здоровья сервиса."""
+
+    healthy: bool
+    message: str
+    details: Optional[Dict[str, Any]] = None
+
 
 logger = logging.getLogger(__name__)
 

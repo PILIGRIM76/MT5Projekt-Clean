@@ -41,7 +41,18 @@
       "Read(F:/Enjen/database/**)",
       "Bash(sqlite3 *)",
       "Bash(set *)",
-      "Bash(get-date *)"
+      "Bash(get-date *)",
+      "WebSearch",
+      "WebFetch(github.com)",
+      "WebFetch(www.firecrawl.dev)",
+      "WebFetch(iternal.ai)",
+      "WebFetch(blog.traderize.com)",
+      "WebFetch(docs.freqtrade.io)",
+      "Bash(docker-compose *)",
+      "Bash(venv\\scripts\\python.exe *)",
+      "Bash(venv\\scripts\\pip *)",
+      "Bash(cd *)",
+      "WebFetch(voiceofchain.com)"
     ]
   },
   "$version": 3

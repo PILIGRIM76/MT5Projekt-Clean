@@ -378,6 +378,7 @@ class AddKeyDialog(QDialog):
 class SettingsWindow(QDialog):
     settings_saved = Signal()
     scheduler_status_updated = Signal(dict)
+    database_path_changed = Signal(str)  # Сигнал об изменении пути к базе данных
 
     def __init__(self, scheduler_manager: SchedulerManager, config: Settings, parent=None):
 
@@ -1203,6 +1204,10 @@ class SettingsWindow(QDialog):
 
                 # Обновляем конфигурацию в работающей системе
                 self._update_running_system_config(current_config)
+
+                # Уведомляем об изменении пути к базе данных
+                db_folder = current_config.get("DATABASE_FOLDER", "database")
+                self.database_path_changed.emit(db_folder)
 
         except Exception as e:
             logger.error(f"Критическая ошибка при сохранении settings.json: {e}")

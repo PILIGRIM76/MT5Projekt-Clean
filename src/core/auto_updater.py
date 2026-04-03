@@ -201,6 +201,17 @@ class AutoUpdater:
 
     def apply_update_and_restart(self):
         """Применяет обновление (универсальный метод)."""
+        logger.info("🔄 Применение обновления и перезапуск...")
+
+        # Сбрасываем флаг обновления ЧЕРЕЗ 10 секунд (после применения)
+        def reset_update_flag():
+            time.sleep(10)
+            self.update_pending = False
+            self.trading_system.update_pending = False
+            logger.info("✅ Флаг update_pending сброшен")
+
+        threading.Thread(target=reset_update_flag, daemon=True).start()
+
         if self.is_dev_mode:
             self._apply_git_update()
         else:

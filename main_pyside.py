@@ -2020,6 +2020,16 @@ class MainWindow(QMainWindow):
         right_widget.currentChanged.connect(self.on_tab_changed)
         logger.info("[GUI-Init] Все вкладки правой панели инициализированы")
 
+        # --- ВКЛАДКА "МОНИТОРИНГ БАЗ ДАННЫХ" ---
+        from src.gui.database_monitor_widget import DatabaseMonitorWidget
+
+        # Передаем trading_system и settings_window для обновления пути к БД
+        database_monitor_tab = DatabaseMonitorWidget(
+            trading_system=self.trading_system, settings_window=None  # Будет установлено позже через MainWindow
+        )
+        self.database_monitor_widget = database_monitor_tab  # Сохраняем ссылку для обновления
+        right_widget.addTab(database_monitor_tab, "🗄️ Базы Данных")
+
         return right_widget
 
     def on_tab_changed(self, index):
@@ -2122,6 +2132,11 @@ class MainWindow(QMainWindow):
         # Подключаем торговые сигналы к отдельному методу в ControlCenterWidget
         if hasattr(self.bridge, "trading_signals_updated"):
             self.bridge.trading_signals_updated.connect(self.control_center_tab.update_trading_signals_table)
+
+        # Подключаем сигнал изменения пути к базе данных к виджету мониторинга
+        if hasattr(self, "database_monitor_widget") and hasattr(self, "settings_window"):
+            self.settings_window.database_path_changed.connect(self.database_monitor_widget.update_database_path)
+            logger.info("[GUI] Сигнал database_path_changed подключен к DatabaseMonitorWidget")
 
     @Slot()
     def on_observer_checkbox_clicked(self):

@@ -61,6 +61,7 @@ from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
 from src.data.multi_source_aggregator import MultiSourceDataAggregator
 from src.data_models import SignalType, TradeSignal
 from src.db.database_manager import ActiveDirective, DatabaseManager
+from src.db.multi_database_manager import MultiDatabaseManager
 from src.db.vector_db_manager import VectorDBManager
 from src.ml.ai_backtester import AIBacktester
 from src.ml.consensus_engine import ConsensusEngine
@@ -249,6 +250,18 @@ class TradingSystem(QObject):
         vector_db_full_path = SyncPath(self.config.DATABASE_FOLDER) / self.config.vector_db.path
         logger.info(f"[VectorDB] Инициализация по пути: {vector_db_full_path}")
         self.vector_db_manager = VectorDBManager(self.config.vector_db, db_root_path=vector_db_full_path)
+
+        # Инициализация MultiDatabaseManager (мульти-базовая архитектура)
+        logger.info("Инициализация MultiDatabaseManager...")
+        self.multi_db_manager = MultiDatabaseManager.from_env()
+        self.multi_db_enabled = self._check_multi_db_status()
+
+        if self.multi_db_enabled:
+            logger.info("✓ Мульти-БД режим активирован")
+            self._integrate_multi_db()
+        else:
+            logger.warning("⚠ Мульти-БД режим отключен (используется SQLite + FAISS)")
+
         logger.critical("INIT STEP 2/8: DB and VectorDB initialized.")
 
         # 3. DataProvider
@@ -2049,7 +2062,9 @@ class TradingSystem(QObject):
                     try:
                         account_info = mt5.account_info()
                         if account_info:
-                            logger.debug(f"[Monitoring] Баланс: {account_info.balance}, Эквити: {account_info.equity}")
+                            logger.info(
+                                f"[Monitoring] Баланс: ${account_info.balance:,.2f}, Эквити: ${account_info.equity:,.2f}"
+                            )
                             self._safe_gui_update("update_balance", account_info.balance, account_info.equity)
                             self._last_known_balance = account_info.balance
                             self._last_known_equity = account_info.equity
@@ -2973,6 +2988,100 @@ class TradingSystem(QObject):
             logger.info("Остановка веб-сервера...")
             self.web_server.stop()
 
+    def _check_multi_db_status(self) -> bool:
+        """
+        Проверка доступности мульти-базовой архитектуры.
+
+        Returns:
+            bool: True если хотя бы 3 БД доступны
+        """
+        if not hasattr(self, "multi_db_manager") or not self.multi_db_manager:
+            return False
+
+        try:
+            status = self.multi_db_manager.get_status()
+            available_count = sum(status.values())
+
+            logger.info(f"Статус мульти-БД: {available_count}/6 БД доступно")
+            for db_name, is_available in status.items():
+                status_icon = "✓" if is_available else "✗"
+                logger.info(f"  {status_icon} {db_name}")
+
+            # Активируем если хотя бы 3 БД доступны
+            return available_count >= 3
+
+        except Exception as e:
+            logger.error(f"Ошибка проверки статуса мульти-БД: {e}")
+            return False
+
+    def _integrate_multi_db(self):
+        """Интеграция мульти-БД с существующими компонентами."""
+        if not hasattr(self, "multi_db_manager") or not self.multi_db_manager:
+            return
+
+        try:
+            logger.info("Интеграция MultiDatabaseManager с компонентами...")
+
+            # 1. Интеграция с DatabaseManager
+            if hasattr(self, "db_manager") and self.db_manager:
+                self.db_manager.multi_db_manager = self.multi_db_manager
+                logger.info("  → DatabaseManager: мульти-БД подключен")
+
+            # 2. Интеграция с VectorDBManager (Qdrant)
+            if hasattr(self, "vector_db_manager") and self.vector_db_manager:
+                if self.multi_db_manager.is_available("qdrant"):
+                    self.vector_db_manager.qdrant_adapter = self.multi_db_manager.get_qdrant()
+                    self.vector_db_manager.use_qdrant = True
+                    logger.info("  → VectorDBManager: Qdrant подключен")
+                else:
+                    logger.info("  → VectorDBManager: используется локальный FAISS")
+
+            # 3. Интеграция с DataProvider (TimescaleDB/QuestDB)
+            if hasattr(self, "data_provider") and self.data_provider:
+                if self.multi_db_manager.is_available("timescaledb"):
+                    self.data_provider.timescaledb_adapter = self.multi_db_manager.get_timescaledb()
+                    logger.info("  → DataProvider: TimescaleDB подключен")
+
+                if self.multi_db_manager.is_available("questdb"):
+                    self.data_provider.questdb_adapter = self.multi_db_manager.get_questdb()
+                    logger.info("  → DataProvider: QuestDB подключен")
+
+            # 4. Интеграция с ConsensusEngine (Redis)
+            if hasattr(self, "consensus_engine") and self.consensus_engine:
+                if self.multi_db_manager.is_available("redis"):
+                    self.consensus_engine.redis_adapter = self.multi_db_manager.get_redis()
+                    logger.info("  → ConsensusEngine: Redis подключен для кэширования")
+
+            # 5. Интеграция с KnowledgeGraphQuerier (Neo4j)
+            if hasattr(self, "knowledge_graph_querier") and self.knowledge_graph_querier:
+                if self.multi_db_manager.is_available("neo4j"):
+                    self.knowledge_graph_querier.neo4j_driver = self.multi_db_manager.get_neo4j_driver()
+                    logger.info("  → KnowledgeGraphQuerier: Neo4j подключен")
+
+            logger.info("✓ Интеграция мульти-БД завершена")
+
+        except Exception as e:
+            logger.error(f"Ошибка интеграции мульти-БД: {e}")
+
+    def get_database_statistics(self) -> dict:
+        """
+        Получение статистики по всем базам данных.
+
+        Returns:
+            dict: Статистика по БД
+        """
+        if not self.multi_db_enabled or not hasattr(self, "multi_db_manager"):
+            return {"multi_db_enabled": False, "using": "sqlite_faiss"}
+
+        try:
+            stats = self.multi_db_manager.get_stats()
+            stats["multi_db_enabled"] = True
+            stats["using"] = "multi_database"
+            return stats
+        except Exception as e:
+            logger.error(f"Ошибка получения статистики БД: {e}")
+            return {"error": str(e), "multi_db_enabled": True}
+
     def _safe_gui_update(self, method_name: str, *args, **kwargs):
         # Оптимизация: уменьшаем частоту обновлений GUI
         if not hasattr(self, "_last_gui_updates"):
@@ -3009,6 +3118,11 @@ class TradingSystem(QObject):
 
         if self.gui:
             try:
+                # Проверка что bridge существует
+                if not hasattr(self, "bridge") or self.bridge is None:
+                    logger.debug(f"[GUI] Bridge не найден, пропуск {method_name}")
+                    return
+
                 signal_map = {
                     "update_status": (self.bridge.status_updated, (args[0], kwargs.get("is_error", False))),
                     "update_balance": (self.bridge.balance_updated, args),
@@ -3023,6 +3137,11 @@ class TradingSystem(QObject):
                 }
                 if method_name in signal_map:
                     signal, signal_args = signal_map[method_name]
+
+                    # Логирование для отладки баланса
+                    if method_name == "update_balance":
+                        logger.info(f"[GUI-Balance] Отправка сигнала balance_updated: {args}")
+
                     logger.info(
                         f"[GUI] Отправка сигнала {method_name} с аргументами: {type(signal_args[0]) if signal_args else 'none'}"
                     )

@@ -1640,11 +1640,64 @@ class DatabaseManager:
             logger.critical(
                 f"!!! НОВЫЙ ЧЕМПИОН: {challenger.model_type} v{challenger.version} для {challenger.symbol} (ID: {challenger.id}) !!!"
             )
+
+            # === ОБНОВЛЕНИЕ METADATA ФАЙЛА НА ДИСКЕ ===
+            self._update_model_metadata_file(challenger)
+            # ===========================================
+
         except Exception as e:
             session.rollback()
             logger.error(f"Ошибка при продвижении модели-претендента: {e}", exc_info=True)
         finally:
             session.close()
+
+    def _update_model_metadata_file(self, champion_model):
+        """
+        Обновляет metadata файл на диске после продвижения модели в чемпионы.
+        """
+        try:
+            import json as json_module
+            from pathlib import Path
+
+            models_path = Path(self.config.DATABASE_FOLDER) / "ai_models"
+            metadata_file = models_path / f"{champion_model.symbol}_metadata.json"
+
+            # Создаём директорию если не существует
+            models_path.mkdir(parents=True, exist_ok=True)
+
+            # Читаем существующий metadata или создаём новый
+            if metadata_file.exists():
+                with open(metadata_file, "r", encoding="utf-8") as f:
+                    metadata = json_module.load(f)
+            else:
+                metadata = {}
+
+            # Обновляем поля
+            metadata["symbol"] = champion_model.symbol
+            metadata["trained_at"] = datetime.now().isoformat()  # ← КРИТИЧЕСКОЕ ОБНОВЛЕНИЕ!
+
+            # performance_report — это JSON строка из БД
+            if champion_model.performance_report:
+                try:
+                    report = json_module.loads(champion_model.performance_report)
+                    metadata["val_accuracy"] = report.get("val_accuracy", 0)
+                except Exception:
+                    metadata["val_accuracy"] = 0
+            else:
+                metadata["val_accuracy"] = 0
+
+            metadata["model_type"] = champion_model.model_type
+            metadata["version"] = champion_model.version
+            metadata["is_champion"] = True
+
+            # Сохраняем
+            with open(metadata_file, "w", encoding="utf-8") as f:
+                json_module.dump(metadata, f, indent=2)
+
+            logger.info(f"✅ Metadata файл обновлён: {metadata_file}")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления metadata файла: {e}", exc_info=True)
 
     def save_directives(self, directives: List[ActiveDirective]):
         session = self.Session()

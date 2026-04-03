@@ -114,3 +114,4 @@ System Volume Information/
 *.p12
 secrets/
 ".vs/"
+-e ".vs/\n$null"

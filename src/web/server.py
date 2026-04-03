@@ -213,11 +213,24 @@ class WebServer:
 
     def _put_to_queue_threadsafe(self, message: dict):
         # Используем call_soon_threadsafe для передачи данных из других потоков
+        global app_state  # Объявляем global в начале
+
         if app_state and app_state.loop and app_state.update_queue:
             try:
+                # Проверка что event loop еще открыт
+                if app_state.loop.is_closed():
+                    # Тихо пропускаем если loop закрыт (сервер остановлен)
+                    app_state = None  # Отключаем дальнейшие попытки
+                    return
                 app_state.loop.call_soon_threadsafe(app_state.update_queue.put_nowait, message)
+            except RuntimeError as e:
+                # Event loop is closed - не логируем как ошибку, это нормально при остановке
+                if "Event loop is closed" in str(e):
+                    app_state = None  # Отключаем дальнейшие попытки
+                    return
+                logger.debug(f"[Web] Ошибка добавления в очередь: {e}")
             except Exception as e:
-                logger.error(f"[Web] Ошибка добавления в очередь: {e}")
+                logger.debug(f"[Web] Ошибка добавления в очередь: {e}")
 
     def broadcast_status_update(self, status_obj: SystemStatus):
         self._put_to_queue_threadsafe({"type": "status_update", "payload": status_obj.model_dump()})

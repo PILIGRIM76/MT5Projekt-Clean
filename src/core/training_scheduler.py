@@ -39,11 +39,20 @@ class TrainingScheduler:
         # ИСПРАВЛЕНИЕ: Читаем из вложенного объекта auto_retraining
         auto_retrain_config = getattr(config, "auto_retraining", None)
         if auto_retrain_config:
-            self.enabled = getattr(auto_retrain_config, "enabled", True)
-            self.schedule_time = getattr(auto_retrain_config, "schedule_time", "02:00")
-            self.max_symbols = getattr(auto_retrain_config, "max_symbols_per_run", 30)
-            self.max_workers = getattr(auto_retrain_config, "max_workers", 3)
-            self.interval_hours = getattr(auto_retrain_config, "interval_hours", 24)
+            # Проверяем, это Pydantic модель или dict
+            if isinstance(auto_retrain_config, dict):
+                self.enabled = auto_retrain_config.get("enabled", True)
+                self.schedule_time = auto_retrain_config.get("schedule_time", "02:00")
+                self.max_symbols = auto_retrain_config.get("max_symbols", 30)  # ← ИСПРАВЛЕНО!
+                self.max_workers = auto_retrain_config.get("max_workers", 3)
+                self.interval_hours = auto_retrain_config.get("interval_hours", 24)
+            else:
+                # Pydantic модель
+                self.enabled = getattr(auto_retrain_config, "enabled", True)
+                self.schedule_time = getattr(auto_retrain_config, "schedule_time", "02:00")
+                self.max_symbols = getattr(auto_retrain_config, "max_symbols", 30)  # ← ИСПРАВЛЕНО!
+                self.max_workers = getattr(auto_retrain_config, "max_workers", 3)
+                self.interval_hours = getattr(auto_retrain_config, "interval_hours", 24)
         else:
             # Fallback на старые атрибуты
             self.enabled = getattr(config, "AUTO_RETRAIN_ENABLED", True)
@@ -61,12 +70,20 @@ class TrainingScheduler:
 
     def start(self):
         """Запускает планировщик в отдельном потоке."""
+        logger.info("=" * 80)
+        logger.info("🕐 TrainingScheduler.start() вызван")
+        logger.info(f"   self.enabled = {self.enabled}")
+        logger.info(f"   self.is_running = {self.is_running}")
+        logger.info(f"   self.schedule_time = {self.schedule_time}")
+        logger.info(f"   self.interval_hours = {self.interval_hours}")
+        logger.info("=" * 80)
+
         if not self.enabled:
-            logger.info("Автоматическое переобучение отключено в настройках")
+            logger.info("❌ Автоматическое переобучение отключено в настройках")
             return
 
         if self.is_running:
-            logger.warning("Планировщик переобучения уже запущен")
+            logger.warning("⚠️ Планировщик переобучения уже запущен")
             return
 
         self.stop_event.clear()
@@ -78,7 +95,7 @@ class TrainingScheduler:
         # Запуск потока планировщика
         self.scheduler_thread = threading.Thread(target=self._scheduler_loop, name="TrainingScheduler", daemon=True)
         self.scheduler_thread.start()
-        logger.info("Планировщик автоматического переобучения запущен")
+        logger.info("✅ Планировщик автоматического переобучения ЗАПУЩЕН")
 
     def stop(self):
         """Останавливает планировщик."""
