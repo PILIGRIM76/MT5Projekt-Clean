@@ -443,10 +443,30 @@ class SignalService:
                     )
                     features_to_use = features_without_kg
                 else:
-                    logger.error(
-                        f"[{symbol}] Невозможно согласовать размерности: scaler={expected_features}, unique={len(unique_features)}, no_kg={len(features_without_kg)}. Пропуск."
+                    # Шаг 3: КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ - используем первые N признаков из scaler
+                    # Это для старых моделей которые обучены на подмножестве признаков
+                    logger.warning(
+                        f"[{symbol}] Попытка согласования: scaler={expected_features}, unique={len(unique_features)}, no_kg={len(features_without_kg)}"
                     )
-                    return None, None, None
+
+                    # Проверяем есть ли в scaler информация о названиях признаков
+                    if hasattr(x_scaler, "feature_names_in_") and x_scaler.feature_names_in_ is not None:
+                        scaler_features = list(x_scaler.feature_names_in_)
+                        # Используем только те признаки которые есть и в scaler и в конфиге
+                        features_to_use = [f for f in scaler_features if f in unique_features]
+                        logger.info(f"[{symbol}] Используем {len(features_to_use)} признаков из scaler: {features_to_use}")
+                    else:
+                        # Если нет имен признаков - берем первые N признаков из конфига
+                        # (наиболее вероятные для старых моделей)
+                        features_to_use = unique_features[:expected_features]
+                        logger.warning(f"[{symbol}] Используем первые {len(features_to_use)} признаков: {features_to_use}")
+
+                    # Проверяем что размерность совпала
+                    if len(features_to_use) != expected_features:
+                        logger.error(
+                            f"[{symbol}] Невозможно согласовать размерности: scaler={expected_features}, selected={len(features_to_use)}. Пропуск."
+                        )
+                        return None, None, None
             else:
                 logger.error(
                     f"[{symbol}] Scaler ожидает больше признаков ({expected_features}) чем доступно ({len(unique_features)}). Пропуск."
