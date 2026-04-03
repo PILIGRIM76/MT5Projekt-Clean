@@ -298,8 +298,51 @@ class MultiSourceDataAggregator:
                     response = requests.get(url, timeout=(30, 30), headers=headers)
                     response.raise_for_status()
 
-                    # Парсим полученный XML
-                    feed = feedparser.parse(response.content)
+                    # ИСПРАВЛЕНИЕ: Обрабатываем разные кодировки
+                    raw_content = response.content
+
+                    # Пробуем несколько вариантов декодирования
+                    xml_text = None
+                    for encoding in ["utf-8", "windows-1251", "latin-1"]:
+                        try:
+                            xml_text = raw_content.decode(encoding)
+                            if encoding != "utf-8":
+                                logger.debug(f"RSS {url}: декодировано как {encoding}")
+                            break
+                        except (UnicodeDecodeError, LookupError):
+                            continue
+
+                    if xml_text is None:
+                        logger.error(f"RSS {url}: не удалось декодировать ответ")
+                        break
+
+                    # ИСПРАВЛЕНИЕ: Заменяем русские XML-теги на английские (если есть)
+                    xml_text = (
+                        xml_text.replace("<ссылка>", "<link>")
+                        .replace("</ссылка>", "</link>")
+                        .replace("<описание>", "<description>")
+                        .replace("</описание>", "</description>")
+                        .replace("<заголовок>", "<title>")
+                        .replace("</заголовок>", "</title>")
+                        .replace("<товар>", "<item>")
+                        .replace("</товар>", "</item>")
+                        .replace("<категория>", "<category>")
+                        .replace("</категория>", "</category>")
+                        .replace("<dc:создатель>", "<dc:creator>")
+                        .replace("</dc:создатель>", "</dc:creator>")
+                    )
+
+                    # Парсим обработанный XML
+                    feed = feedparser.parse(xml_text)
+
+                    # Логируем для отладки
+                    if not feed.entries:
+                        logger.warning(f"RSS {url}: feedparser не нашел записей (bozo={feed.bozo})")
+                        # Проверяем есть ли вообще <item> теги
+                        import re
+
+                        items_count = len(re.findall(r"<item>", xml_text))
+                        logger.debug(f"RSS {url}: найдено {items_count} <item> тегов в XML")
 
                     # --- ИСПРАВЛЕНИЕ: Используем .get() для безопасного доступа к title ---
                     feed_title = feed.feed.get("title", "Unknown RSS Feed")
