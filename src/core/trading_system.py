@@ -2353,11 +2353,16 @@ class TradingSystem(QObject):
         self, symbol: str, df: pd.DataFrame, timeframe: int, account_info: Any, current_positions: List
     ):
         async with self.trade_execution_lock:
+            logger.info(f"[{symbol}] 🟢 Начало обработки символа")
             try:
                 market_regime = self.market_regime_manager.get_regime(df)
+                logger.info(f"[{symbol}] Режим рынка: {market_regime}")
+
                 strategy_name = self.config.STRATEGY_REGIME_MAPPING.get(
                     market_regime, self.config.STRATEGY_REGIME_MAPPING.get("Default")
                 )
+                logger.info(f"[{symbol}] Стратегия: {strategy_name}")
+
                 signal_result = None
                 final_strategy_name = strategy_name
                 open_positions_for_symbol = []
