@@ -604,7 +604,7 @@ class TradingSystem(QObject):
 
                     # Отправляем уведомление в GUI
                     if self.gui and hasattr(self.gui, "bridge"):
-                        self.gui.bridge.update_status.emit("⚠️ АВТОТОРГОВЛЯ ОТКЛЮЧЕНА! Включите в MT5 (Ctrl+E)", True)
+                        self.gui.bridge.status_updated.emit("⚠️ АВТОТОРГОВЛЯ ОТКЛЮЧЕНА! Включите в MT5 (Ctrl+E)", True)
             except Exception as e:
                 logger.warning(f"Не удалось проверить статус автоторговли: {e}")
             # ============================
@@ -4041,7 +4041,7 @@ class TradingSystem(QObject):
         logger.info(f"🔔 Доступно обновление: {new_commit[:8]}")
         if self.bridge:
             try:
-                self.bridge.update_status.emit(f"🔔 Доступна новая версия: {new_commit[:8]}")
+                self.bridge.status_updated.emit(f"🔔 Доступна новая версия: {new_commit[:8]}")
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления об обновлении: {e}")
 
@@ -4050,7 +4050,7 @@ class TradingSystem(QObject):
         logger.info(f"✅ Система обновлена: {commit[:8]}")
         if self.bridge:
             try:
-                self.bridge.update_status.emit(f"✅ Система обновлена: {commit[:8]}")
+                self.bridge.status_updated.emit(f"✅ Система обновлена: {commit[:8]}")
                 # Перезагружаем GUI данные
                 if hasattr(self, "_send_model_accuracy_to_gui"):
                     self._send_model_accuracy_to_gui()
@@ -4064,7 +4064,7 @@ class TradingSystem(QObject):
         logger.error(f"❌ Ошибка обновления: {error}")
         if self.bridge:
             try:
-                self.bridge.update_status.emit(f"❌ Ошибка обновления: {error}")
+                self.bridge.status_updated.emit(f"❌ Ошибка обновления: {error}")
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления об ошибке обновления: {e}")
 
