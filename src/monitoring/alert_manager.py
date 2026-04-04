@@ -304,74 +304,77 @@ class AlertManager:
 
         msg.attach(MIMEText(full_body, "plain", "utf-8"))
 
+        # === ИСПРАВЛЕНИЕ: Сначала пробуем прямое подключение ===
         try:
-            # Попытка подключения с прокси (если доступен socks)
-            try:
-                import socket
+            logger.info(f"Попытка отправки Email через {self.smtp_server}:{self.smtp_port} (прямое подключение)")
+            with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10) as server:
+                if self.use_tls:
+                    server.starttls()
+                server.login(self.email_from, self.email_password)
+                server.send_message(msg)
 
-                import socks
-
-                # Список прокси для обхода блокировок
-                proxy_list = [
-                    None,  # Прямое подключение
-                    (socks.HTTP, "185.162.228.73", 80),  # NL
-                    (socks.HTTP, "103.155.217.156", 41476),  # ID
-                    (socks.HTTP, "51.159.115.23", 3128),  # FR
-                    (socks.SOCKS5, "176.115.126.216", 14568),  # UA
-                    (socks.SOCKS5, "195.154.220.171", 1080),  # FR
-                ]
-
-                for i, proxy in enumerate(proxy_list):
-                    try:
-                        if proxy:
-                            logger.debug(f"Попытка подключения через прокси #{i}: {proxy[1]}:{proxy[2]}")
-                            socks.set_default_proxy(*proxy)
-                            socket.socket = socks.socksocket
-
-                        logger.info(f"Подключение к SMTP: {self.smtp_server}:{self.smtp_port}")
-                        with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10) as server:
-                            if self.use_tls:
-                                server.starttls()
-                            server.login(self.email_from, self.email_password)
-                            server.send_message(msg)
-
-                        # Сброс прокси
-                        socks.set_default_proxy()
-                        socket.socket = socket._socketobject if hasattr(socket, "_socketobject") else socket.socket
-
-                        self.stats["email_sent"] += 1
-                        logger.info(f"✅ Email отправлен через {'прокси #' + str(i) if i > 0 else 'прямое подключение'}")
-                        return
-
-                    except (socks.ProxyError, ConnectionRefusedError, TimeoutError) as e:
-                        logger.debug(f"Прокси #{i} не удался: {e}")
-                        if proxy:
-                            socks.set_default_proxy()
-                            socket.socket = socket._socketobject if hasattr(socket, "_socketobject") else socket.socket
-                        continue
-
-            except ImportError:
-                # socks не установлен - пробуем прямое подключение
-                logger.debug("socks не установлен, пробуем прямое подключение")
-                with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10) as server:
-                    if self.use_tls:
-                        server.starttls()
-                    server.login(self.email_from, self.email_password)
-                    server.send_message(msg)
-
-                self.stats["email_sent"] += 1
-                logger.debug(f"Email алерт отправлен: {subject}")
+            self.stats["email_sent"] += 1
+            logger.info("✅ Email отправлен (прямое подключение)")
+            return
 
         except smtplib.SMTPAuthenticationError:
             logger.error("❌ Ошибка аутентификации SMTP. Проверьте логин/пароль приложения")
             raise
-        except smtplib.SMTPConnectError as e:
-            logger.error(f"❌ Ошибка подключения к SMTP серверу: {e}")
-            logger.error("Возможно SMTP сервер заблокирован. Установите: pip install PySocks")
-            raise
-        except Exception as e:
-            logger.error(f"❌ Ошибка отправки Email: {e}")
-            raise
+        except (smtplib.SMTPConnectError, ConnectionRefusedError, TimeoutError) as e:
+            logger.warning(f"Прямое подключение не удалось: {e}")
+            # Продолжаем пробовать через прокси
+
+        # === Попытка подключения через прокси ===
+        try:
+            import socket
+
+            import socks
+
+            # Список прокси
+            proxy_list = [
+                ((socks.HTTP, "185.162.228.73", 80), "NL HTTP"),
+                ((socks.HTTP, "103.155.217.156", 41476), "ID HTTP"),
+                ((socks.HTTP, "51.159.115.23", 3128), "FR HTTP"),
+                ((socks.SOCKS5, "176.115.126.216", 14568), "UA SOCKS5"),
+                ((socks.SOCKS5, "195.154.220.171", 1080), "FR SOCKS5"),
+            ]
+
+            for proxy_config, proxy_name in proxy_list:
+                try:
+                    logger.debug(f"Попытка подключения через прокси {proxy_name}...")
+                    socks.set_default_proxy(*proxy_config)
+                    socket.socket = socks.socksocket
+
+                    with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10) as server:
+                        if self.use_tls:
+                            server.starttls()
+                        server.login(self.email_from, self.email_password)
+                        server.send_message(msg)
+
+                    # Сброс прокси
+                    socks.set_default_proxy()
+                    socket.socket = socket._socketobject if hasattr(socket, "_socketobject") else socket.socket
+
+                    self.stats["email_sent"] += 1
+                    logger.info(f"✅ Email отправлен через прокси {proxy_name}")
+                    return
+
+                except Exception as proxy_err:
+                    logger.debug(f"Прокси {proxy_name} не удался: {proxy_err}")
+                    # Сброс прокси
+                    try:
+                        socks.set_default_proxy()
+                        socket.socket = socket._socketobject if hasattr(socket, "_socketobject") else socket.socket
+                    except:
+                        pass
+                    continue
+
+        except ImportError:
+            logger.debug("PySocks не установлен, прокси недоступен")
+
+        # Если дошли сюда - все способы исчерпаны
+        logger.error("❌ Не удалось отправить Email всеми способами")
+        raise ConnectionError("Не удалось подключиться к SMTP серверу. Проверьте подключение к интернету или используйте VPN.")
 
     def _send_push(self, message: str, priority: str = "normal") -> None:
         """Отправляет push уведомление через Pushover."""

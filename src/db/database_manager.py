@@ -343,9 +343,25 @@ class DatabaseManager:
 
             scaler_record = session.query(Scaler).filter_by(symbol=symbol).first()
             if not scaler_record:
+                logger.warning(f"[{symbol}] Scaler не найден в БД, возвращаем None")
                 return None, None, None
-            x_scaler = pickle.loads(scaler_record.x_scaler_data)
-            y_scaler = pickle.loads(scaler_record.y_scaler_data)
+
+            try:
+                x_scaler = pickle.loads(scaler_record.x_scaler_data)
+            except Exception as e:
+                logger.error(f"[{symbol}] Не удалось загрузить x_scaler: {e}")
+                return None, None, None
+
+            try:
+                y_scaler = pickle.loads(scaler_record.y_scaler_data)
+                # Проверяем что y_scaler не None (pickle может распаковать None без ошибки)
+                if y_scaler is None:
+                    logger.warning(f"[{symbol}] y_scaler распакован как None. Используем x_scaler как fallback")
+                    y_scaler = x_scaler
+            except Exception as e:
+                logger.warning(f"[{symbol}] Не удалось загрузить y_scaler: {e}. Используем x_scaler как fallback")
+                y_scaler = x_scaler
+
             return champion_models, x_scaler, y_scaler
         except Exception as e:
             logger.error(f"Критическая ошибка при загрузке моделей-чемпионов для {symbol}: {e}")

@@ -17,7 +17,10 @@
     "CADJPY",
     "AUDNZD",
     "GBPAUD",
-    "BITCOIN"
+    "BITCOIN",
+    "BITCOIN CASH",
+    "GER40",
+    "SUGAR"
   ],
   "web_dashboard": {
     "enabled": true,
@@ -63,7 +66,7 @@
   },
   "IGNORE_HISTORICAL_DRAWDOWN_ON_START": true,
   "TOP_N_SYMBOLS": 18,
-  "MAX_OPEN_POSITIONS": 17,
+  "MAX_OPEN_POSITIONS": 19,
   "screener_volatility": {
     "ideal_min_percent": 0.05,
     "ideal_max_percent": 0.5
@@ -200,10 +203,9 @@
   "twitter_influencers": [],
   "rss_feeds": [
     "https://ru.investing.com/rss/news.rss",
-    "https://www.dailyfx.com/rss.xml",
-    "https://www.forexlive.com/feed",
-    "https://www.fxstreet.com/rss/news",
-    "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"
+    "https://lenta.ru/rss/news/main.rss",
+    "https://russian.rt.com/rss",
+    "https://vc.ru/rss"
   ],
   "news_api_queries": [
     "(forex OR currency OR inflation OR interest rate OR ECB OR Fed) AND (EUR OR USD OR GBP OR JPY OR Gold)"
@@ -424,7 +426,7 @@
       },
       "email": {
         "enabled": true,
-        "smtp_server": "smtp.gmail.com",
+        "smtp_server": "smtp.yandex.ru",
         "smtp_port": 587,
         "use_tls": true,
         "from_email_env": "ALERT_EMAIL_FROM",
@@ -481,5 +483,35 @@
     "min_lot": 0.01,
     "max_lot": 100.0,
     "lot_step": 0.01
+  },
+  "crypto_exchanges": {
+    "enabled": false,
+    "default_exchange": "binance",
+    "exchanges": {
+      "binance": {
+        "enabled": false,
+        "api_key_env": "BINANCE_API_KEY",
+        "api_secret_env": "BINANCE_API_SECRET",
+        "sandbox": false,
+        "symbols": [
+          "BTC/USDT",
+          "ETH/USDT"
+        ],
+        "default_leverage": 1,
+        "market_type": "spot"
+      },
+      "bybit": {
+        "enabled": false,
+        "api_key_env": "BYBIT_API_KEY",
+        "api_secret_env": "BYBIT_API_SECRET",
+        "sandbox": false,
+        "symbols": [
+          "BTC/USDT",
+          "ETH/USDT"
+        ],
+        "default_leverage": 1,
+        "market_type": "spot"
+      }
+    }
   }
 }

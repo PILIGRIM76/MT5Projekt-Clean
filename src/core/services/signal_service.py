@@ -416,8 +416,14 @@ class SignalService:
 
         # Проверяем наличие scalers
         if not x_scaler or not y_scaler:
-            logger.error(f"[{symbol}] Отсутствуют scalers (ни в model_data, ни в глобальном хранилище)")
-            return None, None, None
+            if not x_scaler:
+                logger.warning(f"[{symbol}] Отсутствует x_scaler - AI сигнал пропущен (модель не обучена)")
+            if not y_scaler:
+                logger.warning(f"[{symbol}] Отсутствует y_scaler - используем fallback (x_scaler)")
+
+            # Если хотя бы x_scaler есть - продолжаем (y_scaler может быть fallback)
+            if not x_scaler:
+                return None, None, None
 
         # КРИТИЧЕСКАЯ ПРОВЕРКА: Размерность scaler должна совпадать с features_to_use
         expected_features = x_scaler.n_features_in_ if hasattr(x_scaler, "n_features_in_") else len(features_to_use)

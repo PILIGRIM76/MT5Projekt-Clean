@@ -38,6 +38,9 @@ class RiskEngine:
         self.mt5_lock = mt5_lock
         self.is_simulation = is_simulation
 
+        # DataProviderManager для крипто-позиций (устанавливается извне)
+        self.data_provider_manager = None
+
         # --- Инициализация аллокации (Матрица Режим -> Стратегия: Вес) ---
         self.capital_allocation: Dict[str, Dict[str, float]] = {}
         self.default_capital_allocation: Dict[str, float] = {}
@@ -368,6 +371,110 @@ class RiskEngine:
         """Делегирует GARCH Monte Carlo симуляцию модулю StressTester."""
         return self.stress_tester.run_garch_monte_carlo(df, stop_loss_price, trade_type)
 
+    def _is_crypto_symbol(self, symbol: str) -> bool:
+        """Проверяет, является ли символ криптовалютным."""
+        if self.data_provider_manager:
+            return self.data_provider_manager.is_crypto_symbol(symbol)
+
+        # Fallback проверка по паттернам
+        crypto_suffixes = ["USDT", "BTC", "ETH", "BUSD", "USDC", "BNB", "SOL", "XRP"]
+        upper_symbol = symbol.upper()
+        return any(upper_symbol.endswith(suffix) for suffix in crypto_suffixes)
+
+    async def calculate_crypto_position_size(
+        self,
+        symbol: str,
+        df: pd.DataFrame,
+        account_info,
+        trade_type: SignalType,
+        confidence: str = "medium",
+        strategy_name: str = "AI_Model",
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Расчёт размера позиции для криптовалютных пар через ccxt.
+
+        Использует аналогичную логику ATR-based risk management,
+        но работает с крипто-провайдером вместо MT5.
+        """
+        if not self.data_provider_manager:
+            logger.error(f"[{symbol}] БЛОКИРОВКА: DataProviderManager не установлен")
+            return None, None
+
+        provider = self.data_provider_manager.get_crypto_provider(symbol)
+        if not provider:
+            logger.error(f"[{symbol}] БЛОКИРОВКА: Крипто-провайдер не найден")
+            return None, None
+
+        # 1. Расчёт Stop Loss на основе ATR
+        if "ATR_14" not in df.columns:
+            logger.error(f"[{symbol}] БЛОКИРОВКА: Нет данных ATR_14.")
+            return None, None
+
+        atr = df["ATR_14"].iloc[-1]
+        if pd.isna(atr) or atr <= 0:
+            logger.error(f"[{symbol}] БЛОКИРОВКА: ATR_14 невалиден ({atr}).")
+            return None, None
+
+        stop_loss_in_price = atr * self.config.STOP_LOSS_ATR_MULTIPLIER
+
+        # 2. Pre-Mortem анализ
+        if not self.run_pre_mortem_analysis(df, stop_loss_in_price, trade_type):
+            logger.critical(f"[{symbol}] БЛОКИРОВКА: Сделка заблокирована Pre-Mortem анализом.")
+            return None, None
+
+        # 3. Определение риска на сделку
+        current_regime = self.trading_system._get_current_market_regime_name() if self.trading_system else "Default"
+        regime_weights = self.capital_allocation.get(current_regime, self.default_capital_allocation)
+
+        strategy_key = strategy_name
+        if strategy_name.startswith("AI_MF_Consensus") or strategy_name.startswith("AI_Model_Confirmed_by_"):
+            strategy_key = "AI_Model"
+
+        allocation_for_strategy = regime_weights.get(strategy_key, 0.0)
+        if allocation_for_strategy <= 0:
+            logger.critical(f"[{symbol}] БЛОКИРОВКА: Allocation <= 0.0. Режим: {current_regime}. Ключ: {strategy_key}")
+            return None, None
+
+        risk_amount = account_info.balance * self.config.RISK_PERCENTAGE / 100.0 * allocation_for_strategy
+
+        # 4. Получаем информацию о символе от крипто-провайдера
+        symbol_info = await provider.get_symbol_info(symbol)
+        if not symbol_info:
+            logger.error(f"[{symbol}] БЛОКИРОВКА: Не удалось получить информацию о символе.")
+            return None, None
+
+        # 5. Расчёт размера позиции
+        current_price = df["close"].iloc[-1]
+        sl_points = stop_loss_in_price / current_price if current_price > 0 else 0
+
+        if sl_points <= 0:
+            logger.error(f"[{symbol}] БЛОКИРОВКА: SL points <= 0")
+            return None, None
+
+        # Для крипты: размер позиции = risk_amount / (sl_points * price)
+        position_size = risk_amount / (sl_points * current_price)
+
+        # 6. Нормализация объёма
+        min_vol = symbol_info.get("volume_min", 0.0)
+        max_vol = symbol_info.get("volume_max", float("inf"))
+        volume_step = symbol_info.get("volume_step", 0.0)
+
+        if volume_step and volume_step > 0:
+            import math
+
+            decimals = int(max(0, -math.log10(volume_step))) if volume_step < 1 else 0
+            position_size = round(round(position_size / volume_step) * volume_step, decimals)
+
+        # Ограничиваем мин/макс
+        position_size = max(min_vol, min(position_size, max_vol))
+
+        logger.info(
+            f"[{symbol}] КРИПТО РАСЧЁТ: Risk=${risk_amount:.2f}, "
+            f"SL_Price=${stop_loss_in_price:.2f}, Final Size={position_size:.6f}"
+        )
+
+        return position_size, stop_loss_in_price
+
     def calculate_position_size(
         self,
         symbol: str,
@@ -425,9 +532,28 @@ class RiskEngine:
             strategy_key = "RLTradeManager"
         # ----------------------------------------------------
         allocation_for_strategy = regime_weights.get(strategy_key, 0.0)
+
+        # === ИСПРАВЛЕНИЕ: Минимальная гарантия для всех стратегий ===
+        MIN_ALLOCATION = 0.1  # Минимум 10% капитала для любой активной стратегии
         if allocation_for_strategy <= 0:
-            logger.critical(f"[{symbol}] БЛОКИРОВКА: Allocation <= 0.0. Режим: {current_regime}. Ключ: {strategy_key}")
-            return None, None
+            # Проверяем есть ли другие стратегии с >0 allocation
+            total_allocation = sum(regime_weights.values())
+            if total_allocation > 0:
+                # Пересчитываем с минимальной гарантией
+                allocation_for_strategy = MIN_ALLOCATION
+                logger.warning(
+                    f"[{symbol}] WARNING: Orchestrator выделил 0% для {strategy_key}. "
+                    f"Установлена минимальная аллокация: {MIN_ALLOCATION:.0%}"
+                )
+            else:
+                logger.critical(f"[{symbol}] БЛОКИРОВКА: Все allocation = 0. Режим: {current_regime}. Ключ: {strategy_key}")
+                return None, None
+        elif allocation_for_strategy < MIN_ALLOCATION:
+            logger.debug(
+                f"[{symbol}] Аллокация {strategy_key} ниже минимума: {allocation_for_strategy:.2%} < {MIN_ALLOCATION:.0%}"
+            )
+        # =========================================================
+
         # --- RISK.1: ВЫЗОВ PRE-MORTEM АНАЛИЗА ---
         if not self.run_pre_mortem_analysis(df, stop_loss_in_price, trade_type):
             logger.critical(f"[{symbol}] БЛОКИРОВКА: Сделка заблокирована Pre-Mortem анализом.")
@@ -503,13 +629,24 @@ class RiskEngine:
         if not open_positions:
             return 0.0
 
-        portfolio_symbols = [pos["symbol"] for pos in open_positions]
+        portfolio_symbols = [pos["symbol"] if isinstance(pos, dict) else pos.symbol for pos in open_positions]
 
         all_returns = []
         for symbol in set(portfolio_symbols):
-            df = data_dict.get(f"{symbol}_{mt5.TIMEFRAME_H1}")
-            if df is not None and not df.empty:
-                all_returns.append(df["close"].pct_change().dropna())
+            # Проверяем крипто-символ
+            is_crypto = self._is_crypto_symbol(symbol)
+
+            if is_crypto:
+                # Для крипто используем данные из data_dict (они уже в унифицированном формате)
+                # Ключ может быть просто symbol или symbol_H1
+                df = data_dict.get(symbol) or data_dict.get(f"{symbol}_H1") or data_dict.get(f"{symbol}_1h")
+                if df is not None and not df.empty and "close" in df.columns:
+                    all_returns.append(df["close"].pct_change().dropna())
+            else:
+                # Для MT5 символов
+                df = data_dict.get(f"{symbol}_{mt5.TIMEFRAME_H1}")
+                if df is not None and not df.empty:
+                    all_returns.append(df["close"].pct_change().dropna())
 
         if not all_returns:
             logger.warning("Нет данных о доходностях для расчета VaR.")

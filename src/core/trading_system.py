@@ -58,6 +58,7 @@ from src.core.session_manager import SessionManager
 from src.core.system_service_manager import SystemServiceManager
 from src.data.blockchain_provider import BlockchainProvider
 from src.data.data_provider import DataProvider
+from src.data.data_provider_manager import DataProviderManager
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
 from src.data.multi_source_aggregator import MultiSourceDataAggregator
 from src.data_models import SignalType, TradeSignal
@@ -270,6 +271,13 @@ class TradingSystem(QObject):
         logger.critical("INIT STEP 3/8: Initializing DataProvider...")
         self.data_provider = DataProvider(self.config, self.mt5_lock)
 
+        # 3.1 DataProviderManager (multi-source: MT5 + Crypto)
+        logger.critical("INIT STEP 3.1/8: Initializing DataProviderManager...")
+        self.data_provider_manager = DataProviderManager(self.config, self.mt5_lock)
+        self.data_provider_manager.set_mt5_provider(self.data_provider)
+        # Инициализация крипто-провайдеров будет выполнена в async контексте
+        logger.critical("INIT STEP 3.1/8: DataProviderManager initialized.")
+
         # --- ДОБАВЛЕНО: Фильтрация символов ---
         logger.info("Фильтрация списка символов под текущего брокера...")
         valid_symbols = self.data_provider.filter_available_symbols(self.config.SYMBOLS_WHITELIST)
@@ -377,6 +385,7 @@ class TradingSystem(QObject):
         self.data_aggregator.data_provider = self.data_provider
         self.data_aggregator.market_screener = self.market_screener
         self.risk_engine = RiskEngine(self.config, self, self.knowledge_graph_querier, self.mt5_lock, is_simulation=False)
+        self.risk_engine.data_provider_manager = self.data_provider_manager  # Для крипто-позиций
 
         # P0: Инициализация Circuit Breaker
         self.circuit_breaker = CircuitBreaker(self.config, self)
@@ -398,6 +407,8 @@ class TradingSystem(QObject):
         self.gp_rd_manager = GPRDManager(self.config, self.data_provider, self.db_manager)
         self.drift_manager = ConceptDriftManager(self.config)
         self.portfolio_service = PortfolioService(self.config, self.rl_manager, self.data_provider, self.mt5_lock)
+        self.portfolio_service.data_provider_manager = self.data_provider_manager  # Для крипто-позиций
+
         self.signal_service = SignalService(
             config=self.config,
             market_regime_manager=self.market_regime_manager,
@@ -409,9 +420,13 @@ class TradingSystem(QObject):
             consensus_engine=self.consensus_engine,
             trading_system_ref=self,
         )
+        self.signal_service.data_provider_manager = self.data_provider_manager  # Для крипто-сигналов
         self.execution_service = TradeExecutor(self.config, self.risk_engine, self.portfolio_service, self.mt5_lock)
+        self.execution_service.data_provider_manager = self.data_provider_manager  # Для крипто-ордеров
         self.auto_updater = AutoUpdater(self, self.bridge)
-        self.orchestrator = Orchestrator(self, self.strategy_optimizer, self.db_manager, self.data_provider)
+        self.orchestrator = Orchestrator(
+            self, self.strategy_optimizer, self.db_manager, self.data_provider, self.data_provider_manager
+        )
         if self.config.web_dashboard.enabled:
             self.web_server = WebServer(self)
 
@@ -457,6 +472,32 @@ class TradingSystem(QObject):
             self.service_manager.initialize_services()
             logger.info("Сервисы инициализированы через SystemServiceManager")
         # ===========================================
+
+    async def initialize_crypto_providers(self):
+        """
+        Асинхронная инициализация крипто-провайдеров.
+        Вызывается отдельно после initialize_heavy_components.
+        """
+        if hasattr(self, "data_provider_manager") and self.data_provider_manager:
+            logger.info("[CryptoProviders] Инициализация крипто-провайдеров...")
+            await self.data_provider_manager.initialize()
+
+            # Получаем расширенный список символов
+            crypto_symbols = []
+            for exchange_id, provider in self.data_provider_manager._crypto_providers.items():
+                symbols = await provider.get_symbols()
+                crypto_symbols.extend(symbols)
+                logger.info(f"[CryptoProviders] {exchange_id}: {len(symbols)} символов")
+
+            if crypto_symbols:
+                # Добавляем крипто-символы в whitelist
+                all_symbols = list(set(self.config.SYMBOLS_WHITELIST + crypto_symbols))
+                self.config.SYMBOLS_WHITELIST = all_symbols
+                logger.info(f"[CryptoProviders] Общий список символов: {len(all_symbols)} (MT5 + Crypto)")
+
+            logger.info(
+                f"[CryptoProviders] Инициализация завершена. Бирж: {len(self.data_provider_manager._crypto_providers)}"
+            )
 
     def start_all_background_services(self, threadpool: QThreadPool):
         """Запускает все постоянные фоновые сервисы."""
@@ -3016,6 +3057,18 @@ class TradingSystem(QObject):
             logger.info("Остановка веб-сервера...")
             self.web_server.stop()
 
+        # Отключение крипто-провайдеров
+        if hasattr(self, "data_provider_manager") and self.data_provider_manager:
+            logger.info("Отключение крипто-провайдеров...")
+            try:
+                import asyncio
+
+                loop = asyncio.new_event_loop()
+                loop.run_until_complete(self.data_provider_manager.shutdown())
+                loop.close()
+            except Exception as e:
+                logger.error(f"Ошибка отключения крипто-провайдеров: {e}")
+
     def _check_multi_db_status(self) -> bool:
         """
         Проверка доступности мульти-базовой архитектуры.
@@ -3568,9 +3621,11 @@ class TradingSystem(QObject):
                 if log_details:
                     logger.info(f"Performance: {operation_name} took {elapsed:.4f}s")
 
-                    # Логировать медленные операции
-                    if elapsed > 1.0:  # Если операция заняла больше 1 секунды
+                    # Логировать медленные операции (порог 15 секунд для AI системы)
+                    if elapsed > 15.0:  # Если операция заняла больше 15 секунд
                         logger.warning(f"Slow operation detected: {operation_name} took {elapsed:.4f}s")
+                    elif elapsed > 5.0:  # Информационное сообщение для 5+ секунд
+                        logger.debug(f"Performance note: {operation_name} took {elapsed:.4f}s (normal for AI analysis)")
 
                 # Удаляем метрику после использования
                 del self.performance_metrics[operation_name]

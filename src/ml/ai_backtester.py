@@ -48,9 +48,10 @@ class AIBacktester:
         trades_pnl = []
         open_trade = None
 
-        if "ATR_14" not in self.data.columns:
-            logger.error("[AIBacktester] Отсутствует колонка 'ATR_14' для расчета стоп-лосса.")
-            return self._generate_report(pd.Series([]))
+        # Проверяем наличие ATR_14 для динамического стоп-лосса
+        has_atr = "ATR_14" in self.data.columns
+        if not has_atr:
+            logger.warning("[AIBacktester] Отсутствует колонка 'ATR_14'. Использую фиксированный стоп-лосс (1% от цены).")
 
         # Убедимся, что все нужные фичи есть в данных
         if not all(feat in self.data.columns for feat in self.model_features):
@@ -90,7 +91,13 @@ class AIBacktester:
                 signal = self._get_ai_signal(data_slice)
                 if signal != "HOLD":
                     entry_price = current_candle["open"]
-                    sl_distance = self.data["ATR_14"].iloc[i] * self.stop_loss_atr_multiplier
+
+                    # Расчёт стоп-лосса: динамический (ATR) или фиксированный
+                    if has_atr:
+                        sl_distance = self.data["ATR_14"].iloc[i] * self.stop_loss_atr_multiplier
+                    else:
+                        # Fallback: 1% от цены входа
+                        sl_distance = entry_price * 0.01
 
                     if signal == "BUY":
                         sl_price = entry_price - sl_distance
