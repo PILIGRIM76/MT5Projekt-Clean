@@ -355,10 +355,16 @@ class SignalService:
         self, symbol: str, df: pd.DataFrame
     ) -> Tuple[Optional[TradeSignal], Optional[np.ndarray], Optional[float]]:
 
+        logger.info(f"[{symbol}] _get_ai_signal: checking models...")
+
         if symbol not in self.models or not self.models[symbol]:
+            logger.warning(f"[{symbol}] _get_ai_signal: модели отсутствуют в self.models")
             return None, None, None
 
         champion_committee = self.models.get(symbol, {})
+        logger.info(
+            f"[{symbol}] _get_ai_signal: champion_committee has {len(champion_committee)} models: {list(champion_committee.keys())}"
+        )
 
         # ИСПРАВЛЕНИЕ: НЕ берем scalers из глобального хранилища сразу
         # Сначала проверим совместимость моделей, потом возьмем правильные scalers
@@ -413,6 +419,10 @@ class SignalService:
         main_model_data = next(iter(champion_committee.values()), {})
         x_scaler = main_model_data.get("x_scaler") or self.x_scalers.get(symbol)
         y_scaler = main_model_data.get("y_scaler") or self.y_scalers.get(symbol)
+
+        logger.info(
+            f"[{symbol}] _get_ai_signal: x_scaler={'✅' if x_scaler else '❌'}, y_scaler={'✅' if y_scaler else '❌ (fallback)'}"
+        )
 
         # Проверяем наличие scalers
         if not x_scaler or not y_scaler:
@@ -631,14 +641,20 @@ class SignalService:
             signal_type = SignalType.SELL
 
         # Проверка минимальной уверенности
+        # ИСПРАВЛЕНИЕ: Порог 0.3 (30%) был слишком высоким и блокировал все сигналы.
+        # Используем ENTRY_THRESHOLD из конфига (обычно 0.01 или 1%)
         confidence = abs(price_change_ratio)
-        if confidence < 0.3:
-            logger.debug(
-                f"[{symbol}] AI сигнал отклонён: confidence={confidence:.3f} < 0.3 (порог ENTRY_THRESHOLD={self.config.ENTRY_THRESHOLD})"
-            )
+        min_confidence = self.config.ENTRY_THRESHOLD * 0.5  # Разрешаем сигналы с половиной порога входа
+
+        if confidence < min_confidence:
+            logger.debug(f"[{symbol}] AI сигнал отклонён: confidence={confidence:.4f} < {min_confidence:.4f}")
             return None, None, current_price
 
         signal = TradeSignal(type=signal_type, confidence=confidence, symbol=symbol, predicted_price=final_predicted_price)
+
+        logger.info(
+            f"[{symbol}] ✅ AI сигнал: {signal_type.name}, confidence={confidence:.3f}, predicted={final_predicted_price:.2f}, current={current_price:.2f}"
+        )
 
         return signal, prediction_input_numpy, current_price
 
