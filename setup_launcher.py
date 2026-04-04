@@ -141,7 +141,7 @@ def setup_paths(config: dict) -> dict:
     print("   Здесь будут храниться:")
     print("   - SQLite база данных (trading_system.db)")
     print("   - Обученные AI-модели")
-    print("   - Векторная база данных (FAISS)")
+    print("   - История сделок")
     default_db = config.get("DATABASE_FOLDER", "F:/Enjen/database")
 
     while True:
@@ -156,19 +156,62 @@ def setup_paths(config: dict) -> dict:
                 print("❌ Настройка прервана: папка БД обязательна")
                 sys.exit(1)
 
+    # Векторная база данных (FAISS)
+    print("\n📊 Укажите папку для векторной базы данных (FAISS):")
+    print("   Здесь будут храниться:")
+    print("   - Векторные эмбеддинги новостей")
+    print("   - Индексы для семантического поиска")
+    print("   - Кэш RAG поиска (~100-500 MB)")
+    default_vectordb = config.get("vector_db", {}).get(
+        "path", os.path.join(config.get("DATABASE_FOLDER", "database"), "vector_db")
+    )
+    # Если путь относительный, делаем абсолютным
+    if not os.path.isabs(default_vectordb):
+        default_vectordb = os.path.join(config["DATABASE_FOLDER"], default_vectordb)
+
+    vector_db_folder = get_user_input("Папка для векторной БД", default=default_vectordb)
+    if verify_dir_path(vector_db_folder, "папка векторной БД"):
+        # Сохраняем относительный путь если внутри DATABASE_FOLDER
+        if vector_db_folder.startswith(config["DATABASE_FOLDER"]):
+            config.setdefault("vector_db", {})["path"] = os.path.relpath(vector_db_folder, config["DATABASE_FOLDER"]).replace(
+                "\\", "/"
+            )
+        else:
+            config.setdefault("vector_db", {})["path"] = vector_db_folder.replace("\\", "/")
+    else:
+        print("⚠ Будет использована папка по умолчанию")
+        config.setdefault("vector_db", {})["path"] = "vector_db"
+
+    # Путь к модели Оркестратора
+    print("\n🎯 Укажите путь к модели Оркестратора (PPO):")
+    print("   Здесь будет храниться:")
+    print("   - Обученная PPO модель для распределения капитала")
+    print("   - Веса нейросети Оркестратора (~5-20 MB)")
+    default_orch = os.path.join(config["DATABASE_FOLDER"], "orchestrator_ppo_model.zip")
+    orchestrator_model_path = get_user_input("Путь к модели Оркестратора", default=default_orch, required=False)
+    if orchestrator_model_path:
+        config["ORCHESTRATOR_MODEL_PATH"] = orchestrator_model_path.replace("\\", "/")
+
     # Логи
-    print("\n📁 Укажите папку для логов:")
+    print("\n📝 Укажите папку для логов системы:")
+    print("   Здесь будут храниться:")
+    print("   - genesis.log — основные логи системы")
+    print("   - genesis_errors.log — ошибки и исключения")
+    print("   - История торговых операций")
     default_logs = config.get("LOGS_FOLDER", os.path.join(config.get("DATABASE_FOLDER", "database"), "logs"))
     logs_folder = get_user_input("Папка для логов", default=default_logs)
     if verify_dir_path(logs_folder, "папка логов"):
         config["LOGS_FOLDER"] = logs_folder.replace("\\", "/")
     else:
-        print("⚠ Папка логов не создана, будет использована по умолчанию")
+        print("⚠ Папка логов будет создана автоматически при запуске")
         config["LOGS_FOLDER"] = os.path.join(config["DATABASE_FOLDER"], "logs")
 
     # Кэш моделей HuggingFace
-    print("\n📁 Укажите папку для кэша AI-моделей (опционально):")
-    print("   Здесь будут храниться модели NLP (~1.1 GB)")
+    print("\n🤖 Укажите папку для кэша AI-моделей (Hugging Face):")
+    print("   Здесь будут храниться:")
+    print("   - all-MiniLM-L6-v2 (90 MB) — NLP анализ новостей")
+    print("   - google/flan-t5-base (990 MB) — генерация связей")
+    print("   - Общий размер: ~1.1 GB")
     default_hf = config.get("HF_MODELS_CACHE_DIR", "")
     hf_folder = get_user_input("Папка для AI-моделей", default=default_hf, required=False)
     if hf_folder:
@@ -176,6 +219,8 @@ def setup_paths(config: dict) -> dict:
             config["HF_MODELS_CACHE_DIR"] = hf_folder.replace("\\", "/")
         else:
             print("⚠ Кэш моделей будет использоваться в стандартной папке")
+    else:
+        print("⚠ Будет использована стандартная папка кэша")
 
     return config
 
