@@ -1167,6 +1167,9 @@ class SettingsWindow(QDialog):
         self.web_port_spinbox.setValue(self.full_config.web_dashboard.port)
 
         self.hf_cache_edit.setText(self.full_config.HF_MODELS_CACHE_DIR or "")
+
+        # Загрузка пути к модели Оркестратора
+        self.orchestrator_model_edit.setText(self.full_config.ORCHESTRATOR_MODEL_PATH or "")
         self.risk_percentage_spinbox.setValue(self.full_config.RISK_PERCENTAGE)
         self.risk_reward_ratio_spinbox.setValue(self.full_config.RISK_REWARD_RATIO)
         self.max_daily_drawdown_spinbox.setValue(self.full_config.MAX_DAILY_DRAWDOWN_PERCENT)
@@ -1531,6 +1534,7 @@ class SettingsWindow(QDialog):
                 "DATABASE_FOLDER": self.db_folder_edit.text(),
                 "LOGS_FOLDER": self.logs_folder_edit.text(),
                 "HF_MODELS_CACHE_DIR": self.hf_cache_edit.text() or None,
+                "ORCHESTRATOR_MODEL_PATH": self.orchestrator_model_edit.text() or None,
                 "GP_POPULATION_SIZE": self.gp_pop_spin.value(),
                 "GP_GENERATIONS": self.gp_gen_spin.value(),
                 "web_dashboard": {
@@ -2019,6 +2023,40 @@ class SettingsWindow(QDialog):
         db_layout.addWidget(self.vector_db_folder_edit, 2, 1)
         db_layout.addWidget(vector_db_browse_button, 2, 2)
 
+        # Путь к модели Оркестратора
+        orchestrator_model_label = QLabel("<b>🎯 Путь к модели Оркестратора (PPO):</b>")
+        orchestrator_model_label.setToolTip(
+            "<b>Что хранится:</b>\n"
+            "• Обученная PPO модель Оркестратора\n"
+            "• Веса нейросети для распределения капитала\n"
+            "• Буфер опыта для дообучения\n\n"
+            "<b>Размер:</b> ~5-20 MB\n\n"
+            "<b>Как работает:</b>\n"
+            "Оркестратор обучается раз в 7 дней и сохраняет модель.\n"
+            "При перезапуске модель загружается для продолжения обучения.\n\n"
+            "<b>По умолчанию:</b>\n"
+            "DATABASE_FOLDER/orchestrator_ppo_model.zip\n\n"
+            "<b>Рекомендации:</b>\n"
+            "• Оставьте пустым для использования пути по умолчанию\n"
+            "• Укажите свой путь если нужно хранить в другом месте"
+        )
+        orchestrator_model_label.setWordWrap(True)
+        orchestrator_model_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
+
+        self.orchestrator_model_edit = QLineEdit()
+        self.orchestrator_model_edit.setPlaceholderText("По умолчанию: DATABASE_FOLDER/orchestrator_ppo_model.zip")
+        self.orchestrator_model_edit.setToolTip(
+            "Полный путь к файлу модели Оркестратора.\n" "Оставьте пустым для использования пути по умолчанию."
+        )
+        orchestrator_model_browse_button = QPushButton("📁 Обзор...")
+        orchestrator_model_browse_button.setCursor(Qt.PointingHandCursor)
+        orchestrator_model_browse_button.clicked.connect(
+            lambda: self._browse_folder(self.orchestrator_model_edit, "Выберите папку для сохранения модели Оркестратора")
+        )
+        db_layout.addWidget(orchestrator_model_label, 3, 0)
+        db_layout.addWidget(self.orchestrator_model_edit, 3, 1)
+        db_layout.addWidget(orchestrator_model_browse_button, 3, 2)
+
         # Папка для логов
         logs_label = QLabel("<b>📝 Папка для логов системы:</b>")
         logs_label.setToolTip(
@@ -2028,20 +2066,20 @@ class SettingsWindow(QDialog):
             "• trading.log — история торговых операций\n\n"
             "<b>Размер:</b> ~50-200 MB в месяц\n\n"
             "<b>Рекомендации:</b>\n"
-            "• Периодически очищайте старые логи\n"
-            "• Храните отдельно от баз данных"
+            "• Размещайте на диске с большим местом\n"
+            "• Регулярно очищайте старые логи"
         )
         logs_label.setWordWrap(True)
         logs_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
 
         self.logs_folder_edit = QLineEdit()
-        self.logs_folder_edit.setPlaceholderText("Например: D:/GenesisDB/logs")
+        self.logs_folder_edit.setPlaceholderText("Например: F:/Enjen/database/logs")
         logs_browse_button = QPushButton("📁 Обзор...")
         logs_browse_button.setCursor(Qt.PointingHandCursor)
         logs_browse_button.clicked.connect(lambda: self._browse_folder(self.logs_folder_edit, "Выберите папку для логов"))
-        db_layout.addWidget(logs_label, 3, 0)
-        db_layout.addWidget(self.logs_folder_edit, 3, 1)
-        db_layout.addWidget(logs_browse_button, 3, 2)
+        db_layout.addWidget(logs_label, 4, 0)
+        db_layout.addWidget(self.logs_folder_edit, 4, 1)
+        db_layout.addWidget(logs_browse_button, 4, 2)
 
         layout.addWidget(db_group, 0, 0, 1, 3)
 
@@ -2476,6 +2514,14 @@ class SettingsWindow(QDialog):
         dir_path = QFileDialog.getExistingDirectory(self, title)
         if dir_path:
             line_edit_widget.setText(dir_path)
+
+    def _browse_file(self, line_edit_widget, title, file_filter="All Files (*.*)"):
+        """Открыть диалог выбора файла."""
+        from PySide6.QtWidgets import QFileDialog
+
+        file_path, _ = QFileDialog.getOpenFileName(self, title, "", file_filter)
+        if file_path:
+            line_edit_widget.setText(file_path)
 
     def _get_relative_vector_db_path(self):
         """Получить относительный путь к векторной БД относительно DATABASE_FOLDER"""

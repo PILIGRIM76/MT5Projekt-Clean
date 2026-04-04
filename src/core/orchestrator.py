@@ -38,6 +38,7 @@ class Orchestrator:
         strategy_optimizer: "StrategyOptimizer",
         db_manager: "DatabaseManager",
         data_provider: "DataProvider",
+        data_provider_manager: Any = None,  # DataProviderManager
     ):
         self.trading_system = trading_system
         self.config = trading_system.config
@@ -47,6 +48,7 @@ class Orchestrator:
         self.strategy_optimizer = strategy_optimizer
         self.db_manager = db_manager
         self.data_provider = data_provider
+        self.data_provider_manager = data_provider_manager  # Новый менеджер
         self.last_decision_time = 0
         self.decision_interval = 3600 * 4  # 4 часа
 
@@ -61,7 +63,20 @@ class Orchestrator:
         self.num_regimes = len(self.regime_names)
         # -----------------------------------------------------------
 
-        self.model_path = Path(self.config.DATABASE_FOLDER) / "orchestrator_ppo_model.zip"
+        # ИСПРАВЛЕНИЕ: Используем настройку ORCHESTRATOR_MODEL_PATH из конфига
+        custom_model_path = getattr(self.config, "ORCHESTRATOR_MODEL_PATH", None)
+        if custom_model_path:
+            # Если путь - папка, добавляем имя файла
+            custom_path = Path(custom_model_path)
+            if custom_path.is_dir() or not custom_path.suffix:
+                # Это папка - добавляем имя файла
+                self.model_path = custom_path / "orchestrator_ppo_model.zip"
+            else:
+                # Это полный путь к файлу
+                self.model_path = custom_path
+            logger.info(f"Используется пользовательский путь к модели Оркестратора: {self.model_path}")
+        else:
+            self.model_path = Path(self.config.DATABASE_FOLDER) / "orchestrator_ppo_model.zip"
 
         if self.model_path.exists():
             try:
@@ -71,6 +86,7 @@ class Orchestrator:
             except Exception as e:
                 # ... (логика обработки ошибки загрузки) ...
                 # ИСПРАВЛЕНИЕ: Добавляем device="cpu" при создании новой модели
+                logger.warning(f"Ошибка загрузки модели Оркестратора: {e}. Создание новой модели...")
                 self.agent = PPO(
                     "MlpPolicy",
                     self.vec_env,
@@ -80,6 +96,12 @@ class Orchestrator:
                     tensorboard_log="./orchestrator_logs/",
                     device="cpu",
                 )
+                # ИСПРАВЛЕНИЕ: Сохраняем новую модель сразу чтобы не терять при перезапуске
+                try:
+                    self.agent.save(self.model_path)
+                    logger.info(f"Новая модель Оркестратора сохранена в {self.model_path}")
+                except Exception as save_err:
+                    logger.error(f"Ошибка сохранения модели Оркестратора: {save_err}")
         else:
             logger.warning("Обученная модель Оркестратора не найдена. Создание новой модели PPO...")
             # ИСПРАВЛЕНИЕ: Добавляем device="cpu" при создании новой модели
@@ -92,6 +114,12 @@ class Orchestrator:
                 tensorboard_log="./orchestrator_logs/",
                 device="cpu",
             )
+            # ИСПРАВЛЕНИЕ: Сохраняем новую модель сразу при создании
+            try:
+                self.agent.save(self.model_path)
+                logger.info(f"Модель Оркестратора создана и сохранена в {self.model_path}")
+            except Exception as save_err:
+                logger.error(f"Ошибка сохранения модели Оркестратора: {save_err}")
 
         buffer_size = 1000
         # ... (Настройка буфера воспроизведения остается прежней, принимая новую форму действия)  ...
