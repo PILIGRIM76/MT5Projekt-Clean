@@ -65,18 +65,33 @@ def verify_dir_path(path: str, dir_name: str = "папка") -> bool:
     if not path:
         return False
     full_path = Path(path)
+
+    # Нормализуем путь для Windows
+    if os.name == "nt":
+        full_path = Path(os.path.normpath(str(full_path)))
+
     if full_path.exists() and full_path.is_dir():
-        print(f"✓ {dir_name} найдена: {path}")
+        print(f"✓ {dir_name} найдена: {full_path}")
         return True
     else:
-        print(f"⚠ {dir_name} не найдена: {path}")
+        print(f"⚠ {dir_name} не найдена: {full_path}")
         # Предложим создать
-        create = get_user_input("Создать эту папку? (y/n)", default="y")
+        while True:
+            create = get_user_input("Создать эту папку? (y/n)", default="y")
+            if create.lower() in ["y", "n"]:
+                break
+            print("Введите 'y' или 'n'")
+
         if create.lower() == "y":
             try:
                 full_path.mkdir(parents=True, exist_ok=True)
-                print(f"✓ Папка создана: {path}")
-                return True
+                # Проверим что папка действительно создалась
+                if full_path.exists() and full_path.is_dir():
+                    print(f"✓ Папка создана: {full_path}")
+                    return True
+                else:
+                    print(f"❌ Не удалось создать папку: {full_path}")
+                    return False
             except Exception as e:
                 print(f"❌ Ошибка создания папки: {e}")
                 return False
@@ -117,28 +132,50 @@ def setup_paths(config: dict) -> dict:
     mt5_path = get_user_input("Путь к terminal64.exe", default=default_mt5)
     if verify_file_path(mt5_path, "terminal64.exe"):
         config["MT5_PATH"] = mt5_path.replace("\\", "/")
+    else:
+        print("⚠ Путь к MT5 не проверен, но будет сохранен")
+        config["MT5_PATH"] = mt5_path.replace("\\", "/")
 
-    # Базы данных
-    print("\n📁 Укажите папку для баз данных:")
-    default_db = config.get("DATABASE_FOLDER", "database")
-    db_folder = get_user_input("Папка для БД", default=default_db)
-    if verify_dir_path(db_folder, "папка баз данных"):
-        config["DATABASE_FOLDER"] = db_folder.replace("\\", "/")
+    # Базы данных - КРИТИЧЕСКИ ВАЖНЫЙ ПУТЬ
+    print("\n📁 Укажите папку для баз данных (ОБЯЗАТЕЛЬНО):")
+    print("   Здесь будут храниться:")
+    print("   - SQLite база данных (trading_system.db)")
+    print("   - Обученные AI-модели")
+    print("   - Векторная база данных (FAISS)")
+    default_db = config.get("DATABASE_FOLDER", "F:/Enjen/database")
+
+    while True:
+        db_folder = get_user_input("Папка для БД", default=default_db)
+        if verify_dir_path(db_folder, "папка баз данных"):
+            config["DATABASE_FOLDER"] = db_folder.replace("\\", "/")
+            break
+        else:
+            print("❌ Папка БД должна существовать или быть создана!")
+            retry = get_user_input("Попробовать снова? (y/n)", default="y")
+            if retry.lower() != "y":
+                print("❌ Настройка прервана: папка БД обязательна")
+                sys.exit(1)
 
     # Логи
     print("\n📁 Укажите папку для логов:")
-    default_logs = config.get("LOGS_FOLDER", "logs")
+    default_logs = config.get("LOGS_FOLDER", os.path.join(config.get("DATABASE_FOLDER", "database"), "logs"))
     logs_folder = get_user_input("Папка для логов", default=default_logs)
     if verify_dir_path(logs_folder, "папка логов"):
         config["LOGS_FOLDER"] = logs_folder.replace("\\", "/")
+    else:
+        print("⚠ Папка логов не создана, будет использована по умолчанию")
+        config["LOGS_FOLDER"] = os.path.join(config["DATABASE_FOLDER"], "logs")
 
     # Кэш моделей HuggingFace
     print("\n📁 Укажите папку для кэша AI-моделей (опционально):")
+    print("   Здесь будут храниться модели NLP (~1.1 GB)")
     default_hf = config.get("HF_MODELS_CACHE_DIR", "")
     hf_folder = get_user_input("Папка для AI-моделей", default=default_hf, required=False)
     if hf_folder:
         if verify_dir_path(hf_folder, "папка кэша моделей"):
             config["HF_MODELS_CACHE_DIR"] = hf_folder.replace("\\", "/")
+        else:
+            print("⚠ Кэш моделей будет использоваться в стандартной папке")
 
     return config
 
