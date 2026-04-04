@@ -108,8 +108,13 @@ class QdrantAdapter:
                     distance=Distance.COSINE,  # Косинусное сходство
                 ),
                 # Оптимизация для частых запросов с фильтрацией
+                # ИСПРАВЛЕНИЕ: Добавлены все обязательные поля для qdrant-client >= 1.7
                 optimizers_config=models.OptimizersConfig(
                     indexing_threshold=20000,  # Порог индексации
+                    deleted_threshold=100,  # Порог удаления (новое поле)
+                    vacuum_min_vector_number=1000,  # Мин. векторов для вакуума (новое поле)
+                    default_segment_number=2,  # Количество сегментов (новое поле)
+                    flush_interval_sec=5,  # Интервал сброса (новое поле)
                 ),
             )
 

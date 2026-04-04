@@ -3063,9 +3063,20 @@ class TradingSystem(QObject):
             try:
                 import asyncio
 
-                loop = asyncio.new_event_loop()
-                loop.run_until_complete(self.data_provider_manager.shutdown())
-                loop.close()
+                # ИСПРАВЛЕНИЕ: Правильное создание event loop в потоке
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self.data_provider_manager.shutdown())
+                    finally:
+                        loop.close()
+                        asyncio.set_event_loop(None)
+                except RuntimeError as e:
+                    if "no current event loop" in str(e):
+                        logger.debug("Event loop не требуется для shutdown крипто-провайдеров")
+                    else:
+                        raise
             except Exception as e:
                 logger.error(f"Ошибка отключения крипто-провайдеров: {e}")
 

@@ -319,9 +319,18 @@ class FeatureEngineer:
             for feat in kg_features:
                 if feat in df_out.columns:
                     zero_ratio = (df_out[feat] == 0).sum() / len(df_out) if len(df_out) > 0 else 0
-                    if zero_ratio > 0.8:
+                    if zero_ratio > 0.95:
+                        # >95% нулей - признак бесполезен, удаляем
                         logger.warning(f"KG feature {feat} is {zero_ratio:.1%} zeros (unreliable) - removing")
                         df_out = df_out.drop(columns=[feat])
+                    elif zero_ratio > 0.8:
+                        # 80-95% нулей - заполняем медианой вместо удаления
+                        median_val = df_out[feat].median()
+                        if median_val == 0:
+                            # Если медиана тоже 0, используем небольшое значение
+                            median_val = 0.01
+                        df_out[feat] = df_out[feat].replace(0, median_val)
+                        logger.info(f"KG feature {feat} has {zero_ratio:.1%} zeros - filled with median ({median_val:.4f})")
 
         except Exception as e:
             logger.error(f"Ошибка в процессе инжиниринга признаков: {e}", exc_info=True)
