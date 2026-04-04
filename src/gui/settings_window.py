@@ -482,6 +482,7 @@ class SettingsWindow(QDialog):
         self.layout().addWidget(self.tab_widget)
 
         mt5_tab = self._create_mt5_tab()
+        crypto_tab = self._create_crypto_tab()  # НОВОЕ: Вкладка криптовалют
         api_tab = self._create_api_tab()
         trading_tab = self._create_trading_tab()
         paths_tab = self._create_paths_tab()
@@ -495,6 +496,7 @@ class SettingsWindow(QDialog):
         self.tab_widget.addTab(gp_tab, self.create_icon("🧪"), "R&D (AI)")
 
         self.tab_widget.addTab(mt5_tab, self.create_icon("🔌"), "Подключение MT5")
+        self.tab_widget.addTab(crypto_tab, self.create_icon("₿"), "Криптовалюты")  # НОВОЕ
         self.tab_widget.addTab(api_tab, self.create_icon("🔑"), "API Ключи")
         self.tab_widget.addTab(trading_tab, self.create_icon("💹"), "Торговля")
         self.tab_widget.addTab(paths_tab, self.create_icon("📁"), "Пути к данным")
@@ -1170,6 +1172,37 @@ class SettingsWindow(QDialog):
 
         # Загрузка пути к модели Оркестратора
         self.orchestrator_model_edit.setText(self.full_config.ORCHESTRATOR_MODEL_PATH or "")
+
+        # Загрузка настроек криптовалют
+        crypto_config = getattr(self.full_config, "crypto_exchanges", None)
+        if crypto_config:
+            # Преобразуем Pydantic модель в dict если нужно
+            if hasattr(crypto_config, "model_dump"):
+                crypto_data = crypto_config.model_dump()
+            elif isinstance(crypto_config, dict):
+                crypto_data = crypto_config
+            else:
+                crypto_data = {}
+
+            if crypto_data:
+                self.crypto_enabled_checkbox.setChecked(crypto_data.get("enabled", False))
+                self.crypto_default_exchange_combo.setCurrentText(crypto_data.get("default_exchange", "binance"))
+
+                # Binance
+                exchanges = crypto_data.get("exchanges", {})
+                if isinstance(exchanges, dict):
+                    binance_config = exchanges.get("binance", {})
+                    self.binance_enabled_checkbox.setChecked(binance_config.get("enabled", False))
+                    self.binance_sandbox_checkbox.setChecked(binance_config.get("sandbox", False))
+                    self.binance_symbols_edit.setText(",".join(binance_config.get("symbols", ["BTC/USDT", "ETH/USDT"])))
+                    self.binance_leverage_spin.setValue(binance_config.get("default_leverage", 1))
+                    self.binance_market_type_combo.setCurrentText(binance_config.get("market_type", "spot"))
+
+                    # Bybit
+                    bybit_config = exchanges.get("bybit", {})
+                    self.bybit_enabled_checkbox.setChecked(bybit_config.get("enabled", False))
+                    self.bybit_sandbox_checkbox.setChecked(bybit_config.get("sandbox", False))
+                    self.bybit_symbols_edit.setText(",".join(bybit_config.get("symbols", ["BTC/USDT", "ETH/USDT"])))
         self.risk_percentage_spinbox.setValue(self.full_config.RISK_PERCENTAGE)
         self.risk_reward_ratio_spinbox.setValue(self.full_config.RISK_REWARD_RATIO)
         self.max_daily_drawdown_spinbox.setValue(self.full_config.MAX_DAILY_DRAWDOWN_PERCENT)
@@ -1503,8 +1536,33 @@ class SettingsWindow(QDialog):
             # Сохраняем состояние чекбоксов в settings.json (будет сделано ниже)
             logger.info(f"Настройки уведомлений: Telegram={telegram_enabled}, Email={email_enabled}")
             logger.info("Настройки уведомлений сохранены")
+
+            # Сохраняем API ключи криптовалют
+            binance_api_key = self.binance_api_key_edit.text()
+            binance_api_secret = self.binance_api_secret_edit.text()
+            if binance_api_key:
+                set_key(self.env_path, "BINANCE_API_KEY", binance_api_key)
+                if secrets_mgr:
+                    secrets_mgr.store_secret("BINANCE_API_KEY", binance_api_key)
+            if binance_api_secret:
+                set_key(self.env_path, "BINANCE_API_SECRET", binance_api_secret)
+                if secrets_mgr:
+                    secrets_mgr.store_secret("BINANCE_API_SECRET", binance_api_secret)
+
+            bybit_api_key = self.bybit_api_key_edit.text()
+            bybit_api_secret = self.bybit_api_secret_edit.text()
+            if bybit_api_key:
+                set_key(self.env_path, "BYBIT_API_KEY", bybit_api_key)
+                if secrets_mgr:
+                    secrets_mgr.store_secret("BYBIT_API_KEY", bybit_api_key)
+            if bybit_api_secret:
+                set_key(self.env_path, "BYBIT_API_SECRET", bybit_api_secret)
+                if secrets_mgr:
+                    secrets_mgr.store_secret("BYBIT_API_SECRET", bybit_api_secret)
+
+            logger.info("Настройки криптовалют сохранены")
         except Exception as e:
-            logger.error(f"Ошибка при сохранении настроек уведомлений: {e}", exc_info=True)
+            logger.error(f"Ошибка при сохранении настроек криптовалют: {e}", exc_info=True)
             QMessageBox.warning(
                 self, "Предупреждение", f"Настройки сохранены, но произошла ошибка при шифровании паролей:\n{e}"
             )
@@ -1535,6 +1593,30 @@ class SettingsWindow(QDialog):
                 "LOGS_FOLDER": self.logs_folder_edit.text(),
                 "HF_MODELS_CACHE_DIR": self.hf_cache_edit.text() or None,
                 "ORCHESTRATOR_MODEL_PATH": self.orchestrator_model_edit.text() or None,
+                "crypto_exchanges": {
+                    "enabled": self.crypto_enabled_checkbox.isChecked(),
+                    "default_exchange": self.crypto_default_exchange_combo.currentText(),
+                    "exchanges": {
+                        "binance": {
+                            "enabled": self.binance_enabled_checkbox.isChecked(),
+                            "api_key_env": "BINANCE_API_KEY",
+                            "api_secret_env": "BINANCE_API_SECRET",
+                            "sandbox": self.binance_sandbox_checkbox.isChecked(),
+                            "symbols": [s.strip() for s in self.binance_symbols_edit.text().split(",") if s.strip()],
+                            "default_leverage": self.binance_leverage_spin.value(),
+                            "market_type": self.binance_market_type_combo.currentText(),
+                        },
+                        "bybit": {
+                            "enabled": self.bybit_enabled_checkbox.isChecked(),
+                            "api_key_env": "BYBIT_API_KEY",
+                            "api_secret_env": "BYBIT_API_SECRET",
+                            "sandbox": self.bybit_sandbox_checkbox.isChecked(),
+                            "symbols": [s.strip() for s in self.bybit_symbols_edit.text().split(",") if s.strip()],
+                            "default_leverage": 1,
+                            "market_type": "spot",
+                        },
+                    },
+                },
                 "GP_POPULATION_SIZE": self.gp_pop_spin.value(),
                 "GP_GENERATIONS": self.gp_gen_spin.value(),
                 "web_dashboard": {
@@ -2544,6 +2626,211 @@ class SettingsWindow(QDialog):
         if not env_path.exists():
             env_path.touch()
         return str(env_path)
+
+    def _create_crypto_tab(self):
+        """Создает вкладку для настройки криптовалютных бирж."""
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setAlignment(Qt.AlignTop)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Заголовок
+        title = QLabel("<h2>₿ Настройка криптовалютных бирж</h2>")
+        title.setStyleSheet("color: #f8f8f2; padding: 10px;")
+        title.setWordWrap(True)
+        layout.addWidget(title)
+
+        # Общая настройка
+        general_group = QGroupBox("Общие настройки")
+        general_layout = QGridLayout(general_group)
+
+        self.crypto_enabled_checkbox = QCheckBox("Включить поддержку криптовалют")
+        self.crypto_enabled_checkbox.setToolTip(
+            "Включает интеграцию с крипто-биржами через ccxt.\n"
+            "Позволяет торговать Bitcoin, Ethereum и другими криптовалютами."
+        )
+        general_layout.addWidget(self.crypto_enabled_checkbox, 0, 0, 1, 2)
+
+        general_layout.addWidget(QLabel("Биржа по умолчанию:"), 1, 0)
+        self.crypto_default_exchange_combo = QComboBox()
+        self.crypto_default_exchange_combo.addItems(["binance", "bybit", "okx", "kucoin"])
+        self.crypto_default_exchange_combo.setToolTip("Биржа, которая будет использоваться по умолчанию.")
+        general_layout.addWidget(self.crypto_default_exchange_combo, 1, 1)
+
+        layout.addWidget(general_group)
+
+        # Binance
+        binance_group = QGroupBox("Binance")
+        binance_layout = QGridLayout(binance_group)
+
+        self.binance_enabled_checkbox = QCheckBox("Включить Binance")
+        binance_layout.addWidget(self.binance_enabled_checkbox, 0, 0, 1, 2)
+
+        binance_layout.addWidget(QLabel("API Key:"), 1, 0)
+        self.binance_api_key_edit = QLineEdit()
+        self.binance_api_key_edit.setPlaceholderText("Введите API ключ Binance")
+        self.binance_api_key_edit.setEchoMode(QLineEdit.Password)
+        binance_layout.addWidget(self.binance_api_key_edit, 1, 1)
+
+        # Кнопка показать/скрыть
+        self.binance_api_key_toggle_btn = QPushButton("👁️")
+        self.binance_api_key_toggle_btn.setFixedWidth(40)
+        self.binance_api_key_toggle_btn.setToolTip("Показать или скрыть API ключ")
+        self.binance_api_key_toggle_btn.clicked.connect(
+            lambda: self._toggle_password_visibility(self.binance_api_key_edit, self.binance_api_key_toggle_btn)
+        )
+        binance_layout.addWidget(self.binance_api_key_toggle_btn, 1, 2)
+
+        binance_layout.addWidget(QLabel("API Secret:"), 2, 0)
+        self.binance_api_secret_edit = QLineEdit()
+        self.binance_api_secret_edit.setPlaceholderText("Введите секретный ключ")
+        self.binance_api_secret_edit.setEchoMode(QLineEdit.Password)
+        binance_layout.addWidget(self.binance_api_secret_edit, 2, 1)
+
+        # Кнопка показать/скрыть
+        self.binance_api_secret_toggle_btn = QPushButton("👁️")
+        self.binance_api_secret_toggle_btn.setFixedWidth(40)
+        self.binance_api_secret_toggle_btn.setToolTip("Показать или скрыть Secret ключ")
+        self.binance_api_secret_toggle_btn.clicked.connect(
+            lambda: self._toggle_password_visibility(self.binance_api_secret_edit, self.binance_api_secret_toggle_btn)
+        )
+        binance_layout.addWidget(self.binance_api_secret_toggle_btn, 2, 2)
+
+        self.binance_sandbox_checkbox = QCheckBox("Sandbox (тестовый режим)")
+        self.binance_sandbox_checkbox.setToolTip(
+            "Использовать тестовую среду Binance.\n"
+            "Не требует реальных API ключей.\n"
+            "Безопасно для обучения и тестирования."
+        )
+        binance_layout.addWidget(self.binance_sandbox_checkbox, 3, 0, 1, 2)
+
+        binance_layout.addWidget(QLabel("Торговые пары:"), 4, 0)
+        self.binance_symbols_edit = QLineEdit()
+        self.binance_symbols_edit.setPlaceholderText("BTC/USDT,ETH/USDT,BNB/USDT")
+        self.binance_symbols_edit.setToolTip(
+            "Список торговых пар через запятую.\n" "Пример: BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT"
+        )
+        binance_layout.addWidget(self.binance_symbols_edit, 4, 1, 1, 2)
+
+        binance_layout.addWidget(QLabel("Кредитное плечо:"), 5, 0)
+        self.binance_leverage_spin = QSpinBox()
+        self.binance_leverage_spin.setRange(1, 125)
+        self.binance_leverage_spin.setValue(1)
+        self.binance_leverage_spin.setToolTip("Кредитное плечо по умолчанию (1 = без плеча).")
+        binance_layout.addWidget(self.binance_leverage_spin, 5, 1)
+
+        binance_layout.addWidget(QLabel("Тип рынка:"), 6, 0)
+        self.binance_market_type_combo = QComboBox()
+        self.binance_market_type_combo.addItems(["spot", "future"])
+        self.binance_market_type_combo.setToolTip("spot = спотовая торговля, future = фьючерсы.")
+        binance_layout.addWidget(self.binance_market_type_combo, 6, 1)
+
+        # Кнопка тестирования
+        self.test_binance_btn = QPushButton("🧪 Тестировать подключение")
+        self.test_binance_btn.setToolTip("Проверяет подключение к Binance API.\n" "В sandbox режиме проверяет тестовую среду.")
+        self.test_binance_btn.clicked.connect(self._test_binance_connection)
+        binance_layout.addWidget(self.test_binance_btn, 7, 0, 1, 3)
+
+        layout.addWidget(binance_group)
+
+        # Bybit
+        bybit_group = QGroupBox("Bybit")
+        bybit_layout = QGridLayout(bybit_group)
+
+        self.bybit_enabled_checkbox = QCheckBox("Включить Bybit")
+        bybit_layout.addWidget(self.bybit_enabled_checkbox, 0, 0, 1, 2)
+
+        bybit_layout.addWidget(QLabel("API Key:"), 1, 0)
+        self.bybit_api_key_edit = QLineEdit()
+        self.bybit_api_key_edit.setPlaceholderText("Введите API ключ Bybit")
+        self.bybit_api_key_edit.setEchoMode(QLineEdit.Password)
+        bybit_layout.addWidget(self.bybit_api_key_edit, 1, 1)
+
+        bybit_layout.addWidget(QLabel("API Secret:"), 2, 0)
+        self.bybit_api_secret_edit = QLineEdit()
+        self.bybit_api_secret_edit.setPlaceholderText("Введите секретный ключ")
+        self.bybit_api_secret_edit.setEchoMode(QLineEdit.Password)
+        bybit_layout.addWidget(self.bybit_api_secret_edit, 2, 1)
+
+        self.bybit_sandbox_checkbox = QCheckBox("Sandbox (тестовый режим)")
+        bybit_layout.addWidget(self.bybit_sandbox_checkbox, 3, 0, 1, 2)
+
+        bybit_layout.addWidget(QLabel("Торговые пары:"), 4, 0)
+        self.bybit_symbols_edit = QLineEdit()
+        self.bybit_symbols_edit.setPlaceholderText("BTC/USDT,ETH/USDT")
+        bybit_layout.addWidget(self.bybit_symbols_edit, 4, 1, 1, 2)
+
+        layout.addWidget(bybit_group)
+
+        layout.addStretch()
+
+        return self._create_scrollable_widget(content_widget)
+
+    def _test_binance_connection(self):
+        """Тестирует подключение к Binance."""
+        from PySide6.QtWidgets import QMessageBox
+
+        try:
+            import ccxt
+
+            sandbox = self.binance_sandbox_checkbox.isChecked()
+
+            if sandbox:
+                # Тестовое подключение
+                exchange = ccxt.binance(
+                    {
+                        "sandbox": True,
+                        "enableRateLimit": True,
+                    }
+                )
+                exchange.load_markets()
+                QMessageBox.information(
+                    self,
+                    "Тестирование Binance",
+                    f"✅ Sandbox режим работает!\n\n"
+                    f"Доступно торговых пар: {len(exchange.markets)}\n\n"
+                    f"Это тестовая среда - реальные торги не проводятся.",
+                )
+            else:
+                # Проверка наличия API ключей
+                api_key = self.binance_api_key_edit.text().strip()
+                api_secret = self.binance_api_secret_edit.text().strip()
+
+                if not api_key or not api_secret:
+                    QMessageBox.warning(
+                        self,
+                        "Предупреждение",
+                        "⚠️ Введите API ключи для тестирования реального подключения!\n\n"
+                        "Или включите Sandbox режим для тестирования без ключей.",
+                    )
+                    return
+
+                exchange = ccxt.binance(
+                    {
+                        "apiKey": api_key,
+                        "secret": api_secret,
+                        "enableRateLimit": True,
+                    }
+                )
+
+                exchange.load_markets()
+                balance = exchange.fetch_balance()
+
+                QMessageBox.information(
+                    self,
+                    "Тестирование Binance",
+                    f"✅ Подключение успешно!\n\n"
+                    f"Доступно торговых пар: {len(exchange.markets)}\n"
+                    f"Баланс: {balance.get('USDT', {}).get('free', 0)} USDT",
+                )
+
+        except ccxt.AuthenticationError as e:
+            QMessageBox.critical(self, "Ошибка аутентификации", f"❌ Ошибка аутентификации:\n{str(e)}\n\nПроверьте API ключи.")
+        except ccxt.NetworkError as e:
+            QMessageBox.critical(self, "Ошибка сети", f"❌ Ошибка подключения:\n{str(e)}\n\nПроверьте интернет-соединение.")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"❌ Неожиданная ошибка:\n{str(e)}")
 
     def _create_mt5_tab(self):
         content_widget = QWidget()
