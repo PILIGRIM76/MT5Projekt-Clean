@@ -30,6 +30,7 @@ class UpdateManagerWidget(QWidget):
     - Текущую версию (коммит)
     - Статус мониторинга
     - Кнопки проверки и применения обновлений
+    - Кнопку просмотра документации
     """
 
     # Сигналы
@@ -46,6 +47,7 @@ class UpdateManagerWidget(QWidget):
         self.check_updates_button = None
         self.apply_update_button = None
         self.toggle_monitoring_button = None
+        self.documentation_button = None
         self.last_check_label = None
 
         self._init_ui()
@@ -156,6 +158,28 @@ class UpdateManagerWidget(QWidget):
             }
         """)
         buttons_layout.addWidget(self.apply_update_button)
+
+        # Кнопка документации
+        self.documentation_button = QPushButton("📖 Документация")
+        self.documentation_button.clicked.connect(self._on_show_documentation)
+        self.documentation_button.setStyleSheet("""
+            QPushButton {
+                background-color: #8be9fd;
+                color: #282a36;
+                border: none;
+                padding: 10px;
+                border-radius: 5px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #a8f0ff;
+            }
+            QPushButton:pressed {
+                background-color: #8be9fd;
+            }
+        """)
+        buttons_layout.addWidget(self.documentation_button)
 
         # Кнопка включения/выключения мониторинга
         self.toggle_monitoring_button = QPushButton("▶️ Включить мониторинг")
@@ -282,6 +306,28 @@ class UpdateManagerWidget(QWidget):
         """Обработчик кнопки переключения мониторинга."""
         logger.info("🔄 Запрос переключения мониторинга")
         self.toggle_monitoring_requested.emit()
+
+    def _on_show_documentation(self):
+        """Обработчик кнопки просмотра документации."""
+        logger.info("📖 Открытие документации")
+        try:
+            from src.gui.dialogs.documentation_dialog import DocumentationDialog
+
+            dialog = DocumentationDialog(self)
+            dialog.exec()
+        except ImportError:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Не удалось загрузить модуль документации.\n\n" "Убедитесь, что файл docs/user_guide.md существует.",
+            )
+        except Exception as e:
+            logger.error(f"Ошибка открытия документации: {e}")
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Произошла ошибка при открытии документации:\n{e}",
+            )
 
     def set_update_status(self, message: str, color: str = "#f8f8f2"):
         """Установка статуса обновления."""

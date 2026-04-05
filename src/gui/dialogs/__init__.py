@@ -2,5 +2,6 @@
 """Диалоговые окна для GUI."""
 
 from src.gui.dialogs.directive_dialog import DirectiveDialog
+from src.gui.dialogs.documentation_dialog import DocumentationDialog
 
-__all__ = ["DirectiveDialog"]
+__all__ = ["DirectiveDialog", "DocumentationDialog"]
