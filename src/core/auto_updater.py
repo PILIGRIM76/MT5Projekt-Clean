@@ -210,7 +210,7 @@ class AutoUpdater:
             self.trading_system.update_pending = False
             logger.info("✅ Флаг update_pending сброшен")
 
-        threading.Thread(target=reset_update_flag, daemon=True).start()
+        Thread(target=reset_update_flag, daemon=True).start()
 
         if self.is_dev_mode:
             self._apply_git_update()
