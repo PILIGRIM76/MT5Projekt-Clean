@@ -1390,6 +1390,25 @@ class MainWindow(QMainWindow):
         """)
         update_layout.addWidget(self.update_button)
 
+        # Кнопка документации
+        self.documentation_button = QPushButton("📖 Документация")
+        self.documentation_button.clicked.connect(self._on_show_documentation)
+        self.documentation_button.setStyleSheet("""
+            QPushButton {
+                background-color: #8be9fd;
+                color: #282a36;
+                border: none;
+                padding: 8px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #a8f0ff;
+            }
+        """)
+        update_layout.addWidget(self.documentation_button)
+
         thread_status_box = self._create_thread_status_panel()
         # Для стилизации, если понадобится
         thread_status_box.setObjectName("ThreadStatusBox")
@@ -3177,6 +3196,29 @@ class MainWindow(QMainWindow):
             manager.start_monitoring(interval=60)
             self.update_status_label.setText("👁️ Мониторинг запущен")
             self.update_status_label.setStyleSheet("color: #50fa7b; font-size: 11px;")
+
+    def _on_show_documentation(self):
+        """Открыть документацию пользователя."""
+        logger.info("📖 Открытие документации")
+        try:
+            from src.gui.dialogs.documentation_dialog import DocumentationDialog
+
+            dialog = DocumentationDialog(self)
+            dialog.exec()
+        except ImportError:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                "Не удалось загрузить модуль документации.\n\n"
+                "Убедитесь, что файл docs/user_guide.md существует.",
+            )
+        except Exception as e:
+            logger.error(f"Ошибка открытия документации: {e}")
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Произошла ошибка при открытии документации:\n{e}",
+            )
 
     def update_retrain_progress_chart(self, progress_data: dict):
         """
