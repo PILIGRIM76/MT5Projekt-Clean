@@ -713,6 +713,18 @@ class MainWindow(QMainWindow):
 
         logger.info("Тяжелая инициализация завершена.")
 
+        # Инициализация крипто-провайдеров (ccxt)
+        logger.info("Инициализация крипто-провайдеров (ccxt)...")
+        try:
+            import asyncio
+
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(self.trading_system.core_system.initialize_crypto_providers())
+            loop.close()
+            logger.info("Крипто-провайдеры инициализированы")
+        except Exception as e:
+            logger.warning(f"Не удалось инициализировать крипто-провайдеры: {e}")
+
         # Фаза 2: Запуск постоянных фоновых сервисов (Data Provider, Orchestrator, R&D)
         logger.info("Начало запуска всех фоновых сервисов...")
         # Передаем QThreadPool для управления потоками, если это необходимо
@@ -3625,6 +3637,19 @@ def run_core_process(config_dict):
 
     try:
         core_system.initialize_heavy_components()
+
+        # Инициализация крипто-провайдеров (ccxt)
+        logger.info("Инициализация крипто-провайдеров (ccxt)...")
+        try:
+            import asyncio
+
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(core_system.initialize_crypto_providers())
+            loop.close()
+            logger.info("Крипто-провайдеры инициализированы")
+        except Exception as e:
+            logger.warning(f"Не удалось инициализировать крипто-провайдеры: {e}")
+
         core_system.start_all_background_services(None)  # Запускаем без QThreadPool
 
         logger.critical("CORE PROCESS: Heavy initialization and services started.")

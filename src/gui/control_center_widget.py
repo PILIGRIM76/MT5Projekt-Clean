@@ -80,8 +80,16 @@ class ControlCenterWidget(QWidget):
             if len(processed_data) == 0:
                 logger.info(f"[PrepareData] Исходный элемент: {item}")
 
+            symbol = item.get("symbol", "N/A")
+
+            # Определяем тип провайдера
+            provider_type = "MT5"
+            if self._is_crypto_symbol(symbol):
+                provider_type = "Crypto"
+
             processed_item = {
-                "symbol": item.get("symbol", "N/A"),
+                "symbol": symbol,
+                "provider_type": provider_type,
                 "price": item.get("price", item.get("last_close", 0)),
                 "change_24h": item.get("change_24h", item.get("normalized_atr_percent", 0)),
                 # RSI берём напрямую, без масштабирования
@@ -97,6 +105,14 @@ class ControlCenterWidget(QWidget):
         )
         return processed_data
 
+    def _is_crypto_symbol(self, symbol: str) -> bool:
+        """Проверяет, является ли символ криптовалютным."""
+        if not symbol or symbol == "N/A":
+            return False
+        crypto_suffixes = ["USDT", "BTC", "ETH", "BUSD", "USDC", "BNB", "SOL", "XRP", "DOGE", "ADA"]
+        upper_symbol = symbol.upper()
+        return any(upper_symbol.endswith(suffix) or upper_symbol.startswith(suffix) for suffix in crypto_suffixes)
+
     def on_display_mode_changed(self):
         """Переключает режим отображения таблицы"""
         if self.signals_radio.isChecked():
@@ -104,7 +120,7 @@ class ControlCenterWidget(QWidget):
             self.market_table.setHorizontalHeaderLabels(["Символ", "Цена", "Сигнал", "Стратегия", "Таймфрейм", "Время"])
         else:
             # Режим рыночных данных
-            self.market_table.setHorizontalHeaderLabels(["Символ", "Цена", "Изм. %", "RSI", "Волатильность", "Режим"])
+            self.market_table.setHorizontalHeaderLabels(["Символ", "Тип", "Цена", "Изм. %", "RSI", "Волатильность", "Режим"])
 
         # Обновляем данные в таблице в соответствии с новым режимом
         if hasattr(self, "_last_market_data") and self._last_market_data:
@@ -144,8 +160,8 @@ class ControlCenterWidget(QWidget):
         # Сканер
         layout.addWidget(QLabel("Сканер Рынка (Топ символов):"))
         self.market_table = QTableWidget()
-        self.market_table.setColumnCount(6)
-        self.market_table.setHorizontalHeaderLabels(["Символ", "Цена", "Изм. %", "RSI", "Волатильность", "Режим"])
+        self.market_table.setColumnCount(7)
+        self.market_table.setHorizontalHeaderLabels(["Символ", "Тип", "Цена", "Изм. %", "RSI", "Волатильность", "Режим"])
         self.market_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.market_table.setAlternatingRowColors(True)
         self.market_table.setStyleSheet("alternate-background-color: #44475a; background-color: #282a36; color: #f8f8f2;")
@@ -362,30 +378,47 @@ class ControlCenterWidget(QWidget):
             # Режим
             regime = str(item.get("regime", "N/A"))
 
-            # 2. Заполнение ячеек (ВСЕГО 6 КОЛОНОК)
+            # Тип провайдера
+            provider_type = item.get("provider_type", "MT5")
+
+            # 2. Заполнение ячеек (ВСЕГО 7 КОЛОНОК)
 
             # Колонка 0: Символ
-            self.market_table.setItem(row_idx, 0, QTableWidgetItem(sym))
+            sym_item = QTableWidgetItem(sym)
+            if provider_type == "Crypto":
+                # Крипто-символы с оранжевым фоном
+                sym_item.setBackground(QColor("#f1fa8c"))
+                sym_item.setForeground(QColor("#282a36"))
+            self.market_table.setItem(row_idx, 0, sym_item)
 
-            # Колонка 1: Цена
-            self.market_table.setItem(row_idx, 1, QTableWidgetItem(price_str))
+            # Колонка 1: Тип провайдера
+            type_item = QTableWidgetItem(provider_type)
+            if provider_type == "Crypto":
+                type_item.setBackground(QColor("#ffb86c"))
+                type_item.setForeground(QColor("#282a36"))
+            else:
+                type_item.setForeground(QColor("#8be9fd"))
+            self.market_table.setItem(row_idx, 1, type_item)
 
-            # Колонка 2: Изменение % (с цветом)
+            # Колонка 2: Цена
+            self.market_table.setItem(row_idx, 2, QTableWidgetItem(price_str))
+
+            # Колонка 3: Изменение % (с цветом)
             change_item = QTableWidgetItem(change_str)
             if chg_val > 0:
                 change_item.setForeground(QColor("#50fa7b"))  # Зеленый
             elif chg_val < 0:
                 change_item.setForeground(QColor("#ff5555"))  # Красный
-            self.market_table.setItem(row_idx, 2, change_item)
+            self.market_table.setItem(row_idx, 3, change_item)
 
-            # Колонка 3: RSI
-            self.market_table.setItem(row_idx, 3, QTableWidgetItem(rsi_str))
+            # Колонка 4: RSI
+            self.market_table.setItem(row_idx, 4, QTableWidgetItem(rsi_str))
 
-            # Колонка 4: Волатильность
-            self.market_table.setItem(row_idx, 4, QTableWidgetItem(vola_str))
+            # Колонка 5: Волатильность
+            self.market_table.setItem(row_idx, 5, QTableWidgetItem(vola_str))
 
-            # Колонка 5: Режим
-            self.market_table.setItem(row_idx, 5, QTableWidgetItem(regime))
+            # Колонка 6: Режим
+            self.market_table.setItem(row_idx, 6, QTableWidgetItem(regime))
 
         # Включаем сортировку обратно
         self.market_table.setSortingEnabled(True)

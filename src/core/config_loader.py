@@ -45,7 +45,6 @@ def _get_default_settings_dict() -> dict:
             "GBPAUD",
             "BITCOIN",
         ],
-        "web_dashboard": {"enabled": True, "host": "0.0.0.0", "port": 8000},
         "FEATURES_TO_USE": [
             "close",
             "tick_volume",

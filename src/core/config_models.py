@@ -315,6 +315,48 @@ class AlertingSettings(BaseModel):
 
 
 # --- Основная модель конфигурации ---
+class CryptoExchangeConfig(BaseModel):
+    """Конфигурация крипто-биржи."""
+
+    enabled: bool = Field(default=False, description="Включить эту биржу")
+    api_key_env: str = Field(default="", description="Переменная окружения для API Key")
+    api_secret_env: str = Field(default="", description="Переменная окружения для API Secret")
+    sandbox: bool = Field(default=False, description="Использовать тестнет/sandbox")
+    symbols: List[str] = Field(default_factory=list, description="Список торговых пар (напр. BTC/USDT)")
+    default_leverage: int = Field(default=1, description="Кредитное плечо по умолчанию")
+    market_type: str = Field(default="spot", description="Тип рынка: spot или future")
+
+
+class CryptoExchangesSettings(BaseModel):
+    """Общие настройки крипто-бирж."""
+
+    enabled: bool = Field(default=False, description="Включить поддержку крипто-бирж")
+    default_exchange: str = Field(default="binance", description="Биржа по умолчанию")
+    exchanges: Dict[str, CryptoExchangeConfig] = Field(
+        default_factory=lambda: {
+            "binance": CryptoExchangeConfig(
+                enabled=False,
+                api_key_env="BINANCE_API_KEY",
+                api_secret_env="BINANCE_API_SECRET",
+                sandbox=False,
+                symbols=["BTC/USDT", "ETH/USDT"],
+                default_leverage=1,
+                market_type="spot",
+            ),
+            "bybit": CryptoExchangeConfig(
+                enabled=False,
+                api_key_env="BYBIT_API_KEY",
+                api_secret_env="BYBIT_API_SECRET",
+                sandbox=False,
+                symbols=["BTC/USDT", "ETH/USDT"],
+                default_leverage=1,
+                market_type="spot",
+            ),
+        },
+        description="Конфигурации крипто-бирж",
+    )
+
+
 class Settings(BaseModel):
 
     # --- MT5 Connection (из .env) ---
@@ -452,6 +494,10 @@ class Settings(BaseModel):
         default=None,
         description="Папка для кэширования больших AI-моделей от Hugging Face. Если не указано, используется стандартная папка. Требуется перезапуск.",
     )
+    ORCHESTRATOR_MODEL_PATH: Optional[str] = Field(
+        default=None,
+        description="Путь к файлу модели Оркестратора (PPO). По умолчанию: DATABASE_FOLDER/orchestrator_ppo_model.zip",
+    )
     TRADE_INTERVAL_SECONDS: int
     TRAINING_INTERVAL_SECONDS: int
     EXCLUDED_SYMBOLS: List[str]
@@ -503,6 +549,8 @@ class Settings(BaseModel):
 
     model_config = {"case_sensitive": False, "coerce_numbers_to_str": True}
 
-    web_dashboard: WebSettings = Field(default_factory=WebSettings)
     auto_retraining: AutoRetrainingSettings = Field(default_factory=AutoRetrainingSettings)
     alerting: AlertingSettings = Field(default_factory=AlertingSettings, description="Настройки системы уведомлений")
+    crypto_exchanges: CryptoExchangesSettings = Field(
+        default_factory=CryptoExchangesSettings, description="Настройки крипто-бирж (ccxt)"
+    )

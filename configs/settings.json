@@ -22,11 +22,6 @@
     "GER40",
     "SUGAR"
   ],
-  "web_dashboard": {
-    "enabled": true,
-    "host": "0.0.0.0",
-    "port": 8000
-  },
   "FEATURES_TO_USE": [
     "close",
     "tick_volume",
@@ -65,8 +60,8 @@
     ]
   },
   "IGNORE_HISTORICAL_DRAWDOWN_ON_START": true,
-  "TOP_N_SYMBOLS": 18,
-  "MAX_OPEN_POSITIONS": 19,
+  "TOP_N_SYMBOLS": 17,
+  "MAX_OPEN_POSITIONS": 10,
   "screener_volatility": {
     "ideal_min_percent": 0.05,
     "ideal_max_percent": 0.5
@@ -85,8 +80,8 @@
   "INPUT_LAYER_SIZE": 30,
   "TRAINING_DATA_POINTS": 5000,
   "PREDICTION_DATA_POINTS": 500,
-  "GP_POPULATION_SIZE": 100,
-  "GP_GENERATIONS": 30,
+  "GP_POPULATION_SIZE": 30,
+  "GP_GENERATIONS": 15,
   "GP_MUTATION_RATE": 0.3,
   "GP_CROSSOVER_RATE": 0.8,
   "GP_ELITISM_SIZE": 5,
@@ -216,11 +211,11 @@
     "lookahead_hours": 24,
     "lookahead_hours_for_impact": 3
   },
-  "DATABASE_FOLDER": "F:/Enjen/database",
+  "DATABASE_FOLDER": "A:/Enjen/database",
   "DATABASE_NAME": "trading_system.db",
-  "LOGS_FOLDER": "F:/Enjen/database\\logs",
+  "LOGS_FOLDER": "A:/Enjen/database\\logs",
   "TRADE_INTERVAL_SECONDS": 15,
-  "TRAINING_INTERVAL_SECONDS": 1800,
+  "TRAINING_INTERVAL_SECONDS": 86400,
   "EXCLUDED_SYMBOLS": [
     "USDRUB",
     "EURRUB"
@@ -343,20 +338,20 @@
       "tp_hit_reward": 1.0
     }
   },
-  "HF_MODELS_CACHE_DIR": "F:/Enjen/all-MiniLM-L6-v2",
+  "HF_MODELS_CACHE_DIR": "A:/Enjen/all-MiniLM-L6-v2",
   "vector_db": {
     "enabled": true,
     "path": "vector_db",
     "collection_name": "news_and_events",
     "embedding_model": "all-MiniLM-L6-v2",
-    "cleanup_enabled": true,
+    "cleanup_enabled": false,
     "max_age_days": 90,
     "cleanup_interval_hours": 24
   },
   "MT5_LOGIN": "52565344",
   "MT5_PASSWORD": "*u5qCsTe",
   "MT5_SERVER": "Alpari-MT5-Demo",
-  "MT5_PATH": "C:/Program Files/Alpari MT5/terminal64.exe",
+  "MT5_PATH": "C:/Program Files/MetaTrader 5/terminal64.exe",
   "FINNHUB_API_KEY": "d3jic09r01qkv9jvr6v0d3jic09r01qkv9jvr6vg",
   "ALPHA_VANTAGE_API_KEY": "I84WCWH95ARB7L2J",
   "NEWS_API_KEY": "a756084feb7c477db832ae56bcd0b830",
@@ -485,14 +480,14 @@
     "lot_step": 0.01
   },
   "crypto_exchanges": {
-    "enabled": false,
+    "enabled": true,
     "default_exchange": "binance",
     "exchanges": {
       "binance": {
-        "enabled": false,
+        "enabled": true,
         "api_key_env": "BINANCE_API_KEY",
         "api_secret_env": "BINANCE_API_SECRET",
-        "sandbox": false,
+        "sandbox": true,
         "symbols": [
           "BTC/USDT",
           "ETH/USDT"
@@ -513,5 +508,6 @@
         "market_type": "spot"
       }
     }
-  }
+  },
+  "ORCHESTRATOR_MODEL_PATH": "A:/Enjen/orchestrator"
 }

@@ -1164,10 +1164,6 @@ class SettingsWindow(QDialog):
         for key, value in api_keys.items():
             self._add_row_to_api_table(key, value)
 
-        self.web_enabled_checkbox.setChecked(self.full_config.web_dashboard.enabled)
-        self.web_host_edit.setText(self.full_config.web_dashboard.host)
-        self.web_port_spinbox.setValue(self.full_config.web_dashboard.port)
-
         self.hf_cache_edit.setText(self.full_config.HF_MODELS_CACHE_DIR or "")
 
         # Загрузка пути к модели Оркестратора
@@ -1619,11 +1615,6 @@ class SettingsWindow(QDialog):
                 },
                 "GP_POPULATION_SIZE": self.gp_pop_spin.value(),
                 "GP_GENERATIONS": self.gp_gen_spin.value(),
-                "web_dashboard": {
-                    "enabled": self.web_enabled_checkbox.isChecked(),
-                    "host": self.web_host_edit.text(),
-                    "port": self.web_port_spinbox.value(),
-                },
                 "vector_db": {
                     "enabled": self.full_config.vector_db.enabled,
                     "path": self._get_relative_vector_db_path(),
@@ -2165,28 +2156,7 @@ class SettingsWindow(QDialog):
 
         layout.addWidget(db_group, 0, 0, 1, 3)
 
-        # --- НОВАЯ ГРУППА: Настройки Web-Dashboard ---
-        web_group = QGroupBox("Настройки Web-Dashboard")
-        web_layout = QGridLayout(web_group)
-
-        self.web_enabled_checkbox = QCheckBox("Включить Web-Dashboard")
-        self.web_enabled_checkbox.setToolTip("Включает/отключает запуск веб-сервера для удаленного мониторинга.")
-        web_layout.addWidget(self.web_enabled_checkbox, 0, 0, 1, 3)
-
-        web_layout.addWidget(QLabel("Хост (IP адрес):"), 1, 0)
-        self.web_host_edit = QLineEdit()
-        self.web_host_edit.setToolTip("IP адрес, на котором будет слушать сервер (0.0.0.0 для всех).")
-        web_layout.addWidget(self.web_host_edit, 1, 1)
-
-        web_layout.addWidget(QLabel("Порт:"), 2, 0)
-        self.web_port_spinbox = QSpinBox()
-        self.web_port_spinbox.setRange(1024, 65535)
-        self.web_port_spinbox.setToolTip("Порт, на котором будет доступен дашборд (по умолчанию 8000).")
-        web_layout.addWidget(self.web_port_spinbox, 2, 1)
-
-        layout.addWidget(web_group, 1, 0, 1, 3)
-
-        layout.setRowStretch(2, 1)
+        layout.setRowStretch(1, 1)
         return self._create_scrollable_widget(content_widget)
 
     def _create_notifications_tab(self):

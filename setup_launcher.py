@@ -364,7 +364,6 @@ def main():
                     }
                 },
             },
-            "web_dashboard": {"enabled": True, "host": "0.0.0.0", "port": 8000},
             "vector_db": {"enabled": True, "path": "database/vector_db"},
         }
 

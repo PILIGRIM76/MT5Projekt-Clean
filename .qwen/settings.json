@@ -56,7 +56,8 @@
       "WebFetch(www.macrotrends.net)",
       "WebFetch(shillerdata.com)",
       "WebFetch(www.kaggle.com)",
-      "WebFetch(stooq.com)"
+      "WebFetch(stooq.com)",
+      "Bash(pip index *)"
     ]
   },
   "$version": 3

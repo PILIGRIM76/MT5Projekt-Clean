@@ -213,8 +213,6 @@ class ConfigValidator:
             "CORRELATION_THRESHOLD": 0.85,
             # Базы данных
             "DATABASE_FOLDER": "database",
-            # Web dashboard
-            "web_dashboard": {"enabled": True, "host": "0.0.0.0", "port": 8000},
         }
 
     def validate_and_fix(self, config: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:

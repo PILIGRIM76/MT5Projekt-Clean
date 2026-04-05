@@ -73,8 +73,6 @@ from src.monitoring.alert_manager import AlertManager
 from src.risk.circuit_breaker import CircuitBreaker
 from src.risk.risk_engine import RiskEngine
 from src.strategies.strategy_loader import StrategyLoader
-from src.web.data_models import Position, SystemStatus
-from src.web.server import WebLogHandler, WebServer
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +207,6 @@ class TradingSystem(QObject):
         self.execution_service = None
         self.auto_updater = None
         self.orchestrator = None
-        self.web_server: Optional[WebServer] = None
         self.training_scheduler = None  # Планировщик автоматического переобучения
         self.hot_reload_manager = None  # Менеджер горячего обновления
         self.safety_monitor = None  # CRITICAL: Safety Monitor для защиты капитала
@@ -427,8 +424,6 @@ class TradingSystem(QObject):
         self.orchestrator = Orchestrator(
             self, self.strategy_optimizer, self.db_manager, self.data_provider, self.data_provider_manager
         )
-        if self.config.web_dashboard.enabled:
-            self.web_server = WebServer(self)
 
         # Инициализация планировщика автоматического переобучения
         from src.core.training_scheduler import TrainingScheduler
@@ -469,8 +464,11 @@ class TradingSystem(QObject):
 
         # === ИНТЕГРАЦИЯ: Инициализация сервисов ===
         if hasattr(self, "service_manager"):
-            self.service_manager.initialize_services()
-            logger.info("Сервисы инициализированы через SystemServiceManager")
+            try:
+                asyncio.run(self.service_manager.initialize_services())
+                logger.info("Сервисы инициализированы через SystemServiceManager")
+            except Exception as e:
+                logger.error(f"Ошибка инициализации сервисов: {e}")
         # ===========================================
 
     async def initialize_crypto_providers(self):
@@ -505,10 +503,6 @@ class TradingSystem(QObject):
             raise RuntimeError("Невозможно запустить сервисы: тяжелая инициализация не завершена.")
 
         logger.info("Начало запуска всех фоновых сервисов...")
-
-        if self.web_server:
-            self.web_server.start()
-            self.thread_status_updated.emit("Web Server", "RUNNING")
 
         # Запуск планировщика автоматического переобучения
         if self.training_scheduler:
@@ -3058,9 +3052,6 @@ class TradingSystem(QObject):
         self.stop_training_scheduler()
 
         # Остановка веб-сервера (если инициализирован)
-        if hasattr(self, "web_server") and self.web_server is not None:
-            logger.info("Остановка веб-сервера...")
-            self.web_server.stop()
 
         # Отключение крипто-провайдеров
         if hasattr(self, "data_provider_manager") and self.data_provider_manager:
@@ -3250,7 +3241,8 @@ class TradingSystem(QObject):
                         )
             except Exception as e:
                 logger.error(f"Ошибка GUI update: {e}", exc_info=True)
-        if self.web_server and self.config.web_dashboard.enabled:
+        # Проверка web_server через hasattr, так как атрибут может не существовать
+        if hasattr(self, 'web_server') and self.web_server and hasattr(self.config, 'web_dashboard') and self.config.web_dashboard.enabled:
             try:
                 if method_name == "update_balance":
                     self._last_known_balance = float(args[0])
