@@ -249,6 +249,9 @@ class TestTradingSystemIntegration:
         )
 
         # Create all modules
+        mock_ml_coordinator = Mock()
+        mock_ml_coordinator.get_all_model_accuracy = Mock(return_value={})
+
         mock_ts = Mock()
         mock_ts.stop_event = Mock()
         mock_ts.stop_event.is_set.return_value = False
@@ -258,7 +261,7 @@ class TestTradingSystemIntegration:
         mock_ts.config = mock_config
         mock_ts.db_manager = Mock()
         mock_ts.db_manager.engine = Mock()
-        mock_ts._ml_coordinator = None
+        mock_ts._ml_coordinator = mock_ml_coordinator
 
         # Initialize modules
         engine = TradingEngine(mock_ts)
