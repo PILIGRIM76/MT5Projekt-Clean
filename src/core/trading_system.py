@@ -41,10 +41,12 @@ from src.analysis.drift_detector import ConceptDriftManager
 from src.analysis.gp_rd_manager import GPRDManager
 from src.analysis.market_regime_manager import MarketRegimeManager
 from src.analysis.market_screener import MarketScreener
+from src.social.subscriber import TradeSubscriber
 from src.analysis.nlp_processor import CausalNLPProcessor
 from src.analysis.strategy_optimizer import StrategyOptimizer
 from src.core.auto_updater import AutoUpdater
 from src.core.account_manager import AccountManager
+from src.social.subscriber import TradeSubscriber
 from src.core.config_models import Settings
 from src.core.config_writer import write_config
 from src.core.hot_reload_manager import HotReloadManager
@@ -417,6 +419,15 @@ class TradingSystem(QObject):
         self.circuit_breaker = CircuitBreaker(self.config, self)
         logger.info("Circuit Breaker инициализирован")
 
+        # P0: Инициализация Social Trading Subscriber
+        if hasattr(self, 'social_subscriber'):
+            try:
+                # Запускаем в асинхронном цикле событий
+                asyncio.create_task(self.social_subscriber.start())
+                logger.info("Social Trading Subscriber запущен")
+            except Exception as e:
+                logger.error(f"Ошибка запуска Social Trading: {e}")
+
         # P0: Инициализация Alert Manager
         self.alert_manager = AlertManager(self.config, self)
         logger.info("Alert Manager инициализирован")
@@ -428,6 +439,10 @@ class TradingSystem(QObject):
         # P0: Инициализация Secrets Manager
         self.secrets_manager = SecretsManager()
         logger.info("Secrets Manager инициализирован")
+        
+        # P0: Инициализация Social Trading (Копирование сделок)
+        self.social_subscriber = TradeSubscriber(self.config)
+        logger.info("Social Trading Subscriber инициализирован")
 
         self.strategy_optimizer = StrategyOptimizer(self.config, self.data_provider)
         self.gp_rd_manager = GPRDManager(self.config, self.data_provider, self.db_manager)
@@ -2606,6 +2621,43 @@ class TradingSystem(QObject):
 
                 if position_ticket and "AI" in final_strategy_name and pred_input is not None and not self.observer_mode:
                     self._calculate_and_save_xai_async(position_ticket, symbol, pred_input, df)
+                
+                # 📢 Social Trading: Публикация сделки для подписчиков
+                if position_ticket:
+                    try:
+                        from src.social.publisher import publish_trade_result
+                        # Получаем инфо о счете (если еще не получали)
+                        acc_info = mt5.account_info()
+                        if acc_info:
+                            # Создаем фейковый объект result для публикатора
+                            class MockResult:
+                                def __init__(self, ticket, sym, price, vol, sl, tp, comm, magic):
+                                    self.retcode = 10009 # TRADE_RETCODE_DONE
+                                    self.order = ticket
+                                    self.symbol = sym
+                                    self.price = price
+                                    self.request = type('Req', (), {
+                                        'type': 0 if confirmed_signal.type.value == 'BUY' else 1,
+                                        'volume': lot_size,
+                                        'sl': sl,
+                                        'tp': tp,
+                                        'magic': magic,
+                                        'comment': comm
+                                    })()
+                            
+                            mock_res = MockResult(
+                                ticket=position_ticket, 
+                                sym=symbol, 
+                                price=entry_price, 
+                                vol=lot_size, 
+                                sl=stop_loss_in_price, 
+                                tp=None, 
+                                comm=final_strategy_name, 
+                                magic=234000
+                            )
+                            asyncio.create_task(publish_trade_result(mock_res, acc_info))
+                    except Exception as soc_err:
+                        logger.debug(f"[SocialTrading] Ошибка публикации: {soc_err}")
             except Exception as e:
                 logger.error(f"Ошибка при обработке символа {symbol} внутри блокировки: {e}", exc_info=True)
 
