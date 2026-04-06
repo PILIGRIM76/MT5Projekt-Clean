@@ -283,7 +283,7 @@
     "win_rate": 0.2,
     "sharpe_ratio": 0.0,
     "max_drawdown": 20.0,
-    "total_trades": 5
+    "total_trades": 10
   },
   "TEMPORARY_RELAXED_MODE": true,
   "backtester_initial_balance": 10000.0,
@@ -368,8 +368,8 @@
   "FRED_API_KEY": "05d652018b9088612ff28a0b3ac0189a",
   "STRATEGY_MIN_WIN_RATE_THRESHOLD": 0.45,
   "orchestrator_settings": {
-    "decision_interval_seconds": 14400,
-    "training_interval_seconds": 1800
+    "decision_interval_seconds": 28800,
+    "training_interval_seconds": 86400
   },
   "ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION": false,
   "concept_drift": {
