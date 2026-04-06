@@ -360,30 +360,26 @@ class TradingSystem(QObject):
 
                 disable_progress_bars()
 
-                # ИСПРАВЛЕНИЕ: Загружаем модель с правильным именем
-                # SentenceTransformer требует оригинальное имя для правильной загрузки конфигурации
-                from sentence_transformers import SentenceTransformer
+                # Оптимизация: Lazy Loading вместо eager загрузки (~80MB RAM экономии)
+                from src.core.trading import NLPLazyLoader
 
-                try:
-                    # Пробуем загрузить с кэшем - модель загрузится из кэша если есть
-                    embedding_model = SentenceTransformer(
-                        self.config.vector_db.embedding_model, device="cpu", cache_folder=cache_dir  # "all-MiniLM-L6-v2"
-                    )
-                    logger.info(f"✅ Модель эмбеддингов успешно загружена: {self.config.vector_db.embedding_model}")
-                except Exception as e:
-                    logger.error(f"Ошибка загрузки SentenceTransformer: {e}")
-                    logger.warning("Продолжаем работу без модели эмбеддингов")
-                    embedding_model = None
+                self.nlp_lazy_loader = NLPLazyLoader(idle_timeout=3600.0)
 
-                # Передаем модель в компоненты
-                self.nlp_processor.embedding_model = embedding_model
-                self.consensus_engine.embedding_model = embedding_model
-                logger.info("Модель эмбеддингов успешно загружена и передана.")
-            except Exception as e:
-                logger.error(f"Ошибка загрузки SentenceTransformer: {e}")
-                logger.warning("Продолжаем работу без модели эмбеддингов")
-        else:
-            logger.info("VectorDB отключен, загрузка модели эмбеддингов пропущена")
+                # Регистрируем модели но НЕ загружаем их сразу
+                self.nlp_lazy_loader.register_model(
+                    self.config.vector_db.embedding_model, "embedding"
+                )
+                logger.info(f"✅ NLP модели зарегистрированы (lazy load): {self.config.vector_db.embedding_model}")
+
+                # Передаём lazy loader в компоненты
+                self.nlp_processor.nlp_lazy_loader = self.nlp_lazy_loader
+                self.consensus_engine.nlp_lazy_loader = self.nlp_lazy_loader
+
+                # Загружаем только если VectorDB включён и нужен сразу
+                if self.config.vector_db.enabled:
+                    logger.info("VectorDB включён — загрузка embedding модели при первом использовании")
+                else:
+                    logger.info("VectorDB отключён — модель эмбеддингов не будет загружена")
         # -----------------------------------------------
 
         self.nlp_processor.device = self.device
@@ -552,6 +548,13 @@ class TradingSystem(QObject):
         if self.safety_monitor:
             self.safety_monitor.initialize()
             logger.critical("[SAFETY] Safety Monitor активирован и готов к работе")
+
+        # Инициализация Health Check Endpoint
+        from src.core.trading import HealthCheckEndpoint
+        self.health_check = HealthCheckEndpoint(self)
+        logger.info("[HEALTH] Health Check Endpoint инициализирован")
+        initial_health = self.health_check.get_health_summary()
+        logger.info(f"[HEALTH] Начальный статус: {initial_health}")
 
         # Создание потоков
         self.history_sync_thread = threading.Thread(target=self._sync_initial_history, daemon=True, name="HistorySyncThread")
@@ -2749,7 +2752,7 @@ class TradingSystem(QObject):
             wr_threshold = thresholds.get("win_rate", 0.35)
             sharpe_threshold = thresholds.get("sharpe_ratio", 0.5)
             dd_threshold = thresholds.get("max_drawdown", 20.0)
-            trades_threshold = thresholds.get("total_trades", 1)  # Минимум 1 сделка для D1
+            trades_threshold = thresholds.get("total_trades", 3)  # Минимум 3 сделки для D1
             logger.info(
                 f"[RELAXED MODE] {symbol}: временные сниженные пороги (PF>{pf_threshold}, WR>{wr_threshold*100}%, DD<{dd_threshold}%, Trades>{trades_threshold})"
             )
@@ -2759,7 +2762,7 @@ class TradingSystem(QObject):
             wr_threshold = 0.35
             sharpe_threshold = 0.5
             dd_threshold = 15.0
-            trades_threshold = 1  # Минимум 1 сделка для D1
+            trades_threshold = 3  # Минимум 3 сделки для D1
             logger.info(
                 f"[STANDARD MODE] {symbol}: стандартные пороги (PF>{pf_threshold}, WR>{wr_threshold*100}%, DD<{dd_threshold}%, Trades>{trades_threshold})"
             )
