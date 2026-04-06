@@ -49,8 +49,17 @@ class AccountManager:
     def update_info(self) -> bool:
         """Обновляет информацию о счете и определяет его тип."""
         acc = mt5.account_info()
+        
+        # Если не удалось получить инфо, пробуем инициализировать MT5
         if acc is None:
-            logger.error("[AccountManager] Не удалось получить info о счете")
+            logger.debug("[AccountManager] Нет связи с терминалом (возможно, идет загрузка). Попытка инициализации...")
+            # Пробуем мягкую инициализацию (подхват активной сессии)
+            if not mt5.initialize():
+                return False
+        
+        # Повторная попытка после инициализации
+        acc = mt5.account_info()
+        if acc is None:
             return False
 
         self.balance = acc.balance
@@ -73,6 +82,7 @@ class AccountManager:
         # Обновляем курс валюты счета к USD
         self._update_fx_rate()
 
+        # Логируем только при успешном получении (уровень INFO)
         logger.info(
             f"[AccountManager] Счет: {self.account_type} | "
             f"Баланс: {self.balance} {self.currency} | "
