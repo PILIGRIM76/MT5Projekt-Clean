@@ -16,6 +16,27 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 
+def send_retrain_complete_signal(successful_symbols: list, failed_symbols: list, duration: float):
+    """
+    Отправляет сигнал в GUI о завершении переобучения.
+    Вызывает _send_retrain_progress_to_gui через trading_system.
+    """
+    try:
+        # Находим trading_system и отправляем данные прогресса в GUI
+        from src.core.container import get_trading_system
+
+        trading_system = get_trading_system()
+
+        if trading_system and hasattr(trading_system, "_send_retrain_progress_to_gui"):
+            logger.info(f"📊 Отправка обновлённого прогресса переобучения в GUI...")
+            trading_system._send_retrain_progress_to_gui()
+            logger.info("✅ Сигнал прогресса отправлен в GUI")
+        else:
+            logger.warning("⚠️ trading_system или метод _send_retrain_progress_to_gui не найден")
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки сигнала в GUI: {e}", exc_info=False)
+
+
 def get_symbols_for_retraining(max_symbols: int = 30) -> List[str]:
     """
     Получить список символов для переобучения.
@@ -247,6 +268,9 @@ def smart_retrain_models(max_symbols: int = 30, max_workers: int = 3, model_type
     if failed_symbols:
         logger.info(f"Неудачные символы ({len(failed_symbols)}): {', '.join(failed_symbols)}")
     logger.info("=" * 80)
+
+    # Отправляем сигнал завершения в GUI (если доступен callback)
+    send_retrain_complete_signal(successful_symbols, failed_symbols, duration)
 
     return {
         "success": total_failed == 0,
