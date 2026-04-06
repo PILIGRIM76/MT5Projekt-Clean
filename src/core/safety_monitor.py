@@ -95,63 +95,64 @@ class SafetyMonitor:
             return True
         self.last_check_time = now
 
+        # Кэшируем данные аккаунта — не вызываем initialize() каждый раз
+        # Используем данные из мониторинг-потока который уже подключён
         try:
             with self.trading_system.mt5_lock:
-                if not mt5.initialize(path=self.config.MT5_PATH):
-                    return True  # Не блокируем торговлю из-за ошибки подключения
-
-                try:
+                # Оптимизация: не вызываем initialize() — пробуем сразу account_info()
+                account_info = mt5.account_info()
+                if not account_info:
+                    # Пробуем инициализацию только если account_info вернул None
+                    if not mt5.initialize(path=self.config.MT5_PATH):
+                        return True  # Не блокируем торговлю из-за ошибки подключения
                     account_info = mt5.account_info()
                     if not account_info:
                         return True
 
-                    current_equity = account_info.equity
-                    current_balance = account_info.balance
+                current_equity = account_info.equity
+                current_balance = account_info.balance
 
-                    # Update peak equity
-                    if current_equity > self.peak_equity:
-                        self.peak_equity = current_equity
+                # Update peak equity
+                if current_equity > self.peak_equity:
+                    self.peak_equity = current_equity
 
-                    # Check 1: Daily loss limit
-                    daily_loss = self.session_start_balance - current_balance
-                    daily_loss_percent = (
-                        (daily_loss / self.session_start_balance) * 100 if self.session_start_balance > 0 else 0
+                # Check 1: Daily loss limit
+                daily_loss = self.session_start_balance - current_balance
+                daily_loss_percent = (
+                    (daily_loss / self.session_start_balance) * 100 if self.session_start_balance > 0 else 0
+                )
+
+                if daily_loss_percent > self.max_daily_loss_percent:
+                    self._trigger_emergency_stop(
+                        f"Daily loss {daily_loss_percent:.2f}% exceeds limit {self.max_daily_loss_percent}%"
+                    )
+                    return False
+
+                # Check 2: Drawdown from peak
+                drawdown_from_peak = (
+                    ((self.peak_equity - current_equity) / self.peak_equity) * 100 if self.peak_equity > 0 else 0
+                )
+
+                if drawdown_from_peak > self.max_drawdown_from_peak:
+                    self._trigger_emergency_stop(
+                        f"Drawdown from peak {drawdown_from_peak:.2f}% exceeds limit {self.max_drawdown_from_peak}%"
+                    )
+                    return False
+
+                # Check 3: Consecutive losses
+                if self.consecutive_losses >= self.max_consecutive_losses:
+                    self._trigger_emergency_stop(
+                        f"Consecutive losses {self.consecutive_losses} exceeds limit {self.max_consecutive_losses}"
+                    )
+                    return False
+
+                # Логируем статус каждые 5 минут
+                if now.minute % 5 == 0 and now.second < 15:
+                    logger.info(
+                        f"[SAFETY] Status OK: Daily Loss={daily_loss_percent:.2f}%, DD from Peak={drawdown_from_peak:.2f}%, Consecutive Losses={self.consecutive_losses}"
                     )
 
-                    if daily_loss_percent > self.max_daily_loss_percent:
-                        self._trigger_emergency_stop(
-                            f"Daily loss {daily_loss_percent:.2f}% exceeds limit {self.max_daily_loss_percent}%"
-                        )
-                        return False
-
-                    # Check 2: Drawdown from peak
-                    drawdown_from_peak = (
-                        ((self.peak_equity - current_equity) / self.peak_equity) * 100 if self.peak_equity > 0 else 0
-                    )
-
-                    if drawdown_from_peak > self.max_drawdown_from_peak:
-                        self._trigger_emergency_stop(
-                            f"Drawdown from peak {drawdown_from_peak:.2f}% exceeds limit {self.max_drawdown_from_peak}%"
-                        )
-                        return False
-
-                    # Check 3: Consecutive losses
-                    if self.consecutive_losses >= self.max_consecutive_losses:
-                        self._trigger_emergency_stop(
-                            f"Consecutive losses {self.consecutive_losses} exceeds limit {self.max_consecutive_losses}"
-                        )
-                        return False
-
-                    # Логируем статус каждые 5 минут
-                    if now.minute % 5 == 0 and now.second < 15:
-                        logger.info(
-                            f"[SAFETY] Status OK: Daily Loss={daily_loss_percent:.2f}%, DD from Peak={drawdown_from_peak:.2f}%, Consecutive Losses={self.consecutive_losses}"
-                        )
-
-                    return True
-
-                finally:
-                    mt5.shutdown()
+                return True
 
         except Exception as e:
             logger.error(f"[SAFETY] Ошибка проверки условий: {e}", exc_info=True)

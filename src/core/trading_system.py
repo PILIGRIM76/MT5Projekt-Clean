@@ -77,8 +77,13 @@ from src.strategies.strategy_loader import StrategyLoader
 logger = logging.getLogger(__name__)
 
 
-def exception_handler(default_return_value=None):
-    """Декоратор для обработки исключений в методах"""
+def exception_handler(default_return_value=None, fatal=False):
+    """Декоратор для обработки исключений в методах.
+    
+    Args:
+        default_return_value: Значение по умолчанию при ошибке
+        fatal: Если True — ошибка критическая, логируется CRITICAL
+    """
 
     def decorator(func):
         @functools.wraps(func)
@@ -86,8 +91,10 @@ def exception_handler(default_return_value=None):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                logger.error(f"Ошибка в методе {func.__name__}: {str(e)}")
-                logger.error(f"Трассировка ошибки: {traceback.format_exc()}")
+                if fatal:
+                    logger.critical(f"КРИТИЧЕСКАЯ ошибка в {func.__name__}: {e}", exc_info=True)
+                else:
+                    logger.error(f"Ошибка в {func.__name__}: {e}")
                 return default_return_value
 
         return wrapper
