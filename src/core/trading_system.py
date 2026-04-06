@@ -461,6 +461,11 @@ class TradingSystem(QObject):
 
         logger.critical("--- [INIT END] ---")
         self.is_heavy_init_complete = True
+        
+        # Сбрасываем флаг обновления после полной инициализации
+        if self.update_pending:
+            logger.info("[INIT] Сброс флага update_pending после завершения инициализации")
+            self.update_pending = False
 
         # === ИНТЕГРАЦИЯ: Инициализация сервисов ===
         if hasattr(self, "service_manager"):
