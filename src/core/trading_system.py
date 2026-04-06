@@ -56,7 +56,7 @@ from src.core.services.signal_service import SignalService
 from src.core.services.trade_executor import TradeExecutor
 from src.core.session_manager import SessionManager
 from src.core.system_service_manager import SystemServiceManager
-from src.core.trading import TradingCache, PerformanceTimer, GUICoordinator, TradingEngine
+from src.core.trading import TradingCache, PerformanceTimer, GUICoordinator, TradingEngine, MLCoordinator
 from src.data.blockchain_provider import BlockchainProvider
 from src.data.data_provider import DataProvider
 from src.data.data_provider_manager import DataProviderManager
@@ -188,6 +188,9 @@ class TradingSystem(QObject):
 
         # --- TradingEngine ---
         self._trading_engine = TradingEngine(self)
+
+        # --- MLCoordinator ---
+        self._ml_coordinator = MLCoordinator(self)
 
         # --- Отслеживание активных обучений ---
         self._training_symbols = set()  # Символы, которые сейчас обучаются
