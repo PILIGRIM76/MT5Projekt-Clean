@@ -616,6 +616,19 @@ class SignalService:
                 elif lgb and isinstance(model, lgb.LGBMRegressor):
                     # Для LightGBM берем только последнюю строку признаков
                     last_features_scaled = last_sequence_scaled[-1].reshape(1, -1)
+
+                    # Оптимизация: проверка размерности перед предсказанием
+                    expected_features = model.n_features_in_ if hasattr(model, 'n_features_in_') else None
+                    if expected_features and last_features_scaled.shape[1] != expected_features:
+                        logger.warning(
+                            f"[{symbol}] LightGBM размерность не совпадает: "
+                            f"получено {last_features_scaled.shape[1]}, ожидается {expected_features}. "
+                            f"Добавляю нулевые признаки."
+                        )
+                        # Добавляем нулевые столбцы до ожидаемой размерности
+                        padding = np.zeros((1, expected_features - last_features_scaled.shape[1]))
+                        last_features_scaled = np.hstack([last_features_scaled, padding])
+
                     prediction_scaled = model.predict(last_features_scaled)
                     # ИСПРАВЛЕНИЕ: ИСПОЛЬЗУЕМ ЛОКАЛЬНУЮ y_scaler
                     predicted_price = y_scaler.inverse_transform(prediction_scaled.reshape(-1, 1))[0][0]
