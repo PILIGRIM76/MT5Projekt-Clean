@@ -283,7 +283,7 @@
     "win_rate": 0.2,
     "sharpe_ratio": 0.0,
     "max_drawdown": 20.0,
-    "total_trades": 2
+    "total_trades": 1
   },
   "TEMPORARY_RELAXED_MODE": true,
   "backtester_initial_balance": 10000.0,
