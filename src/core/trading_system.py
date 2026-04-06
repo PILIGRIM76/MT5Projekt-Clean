@@ -56,6 +56,7 @@ from src.core.services.signal_service import SignalService
 from src.core.services.trade_executor import TradeExecutor
 from src.core.session_manager import SessionManager
 from src.core.system_service_manager import SystemServiceManager
+from src.core.trading import TradingCache, PerformanceTimer, GUICoordinator
 from src.data.blockchain_provider import BlockchainProvider
 from src.data.data_provider import DataProvider
 from src.data.data_provider_manager import DataProviderManager
@@ -171,11 +172,19 @@ class TradingSystem(QObject):
         self.last_news_fetch_time = None
 
         # --- Кэширование данных ---
-        self._data_cache = {}  # Кэш для рыночных данных
-        self._cache_timestamps = {}  # Времена обновления кэша
-        self._cache_ttl = {}  # Время жизни кэша (в секундах)
-        # Блокировка для безопасности доступа к кэшу
-        self._cache_lock = threading.RLock()
+        # Используем новый TradingCache (вынесен из God Object)
+        self._data_cache = TradingCache(max_size=1000)
+        self._cache_timestamps = {}  # Legacy
+        self._cache_ttl = {}  # Legacy
+        self._cache_lock = threading.RLock()  # Legacy
+
+        # --- Таймер производительности ---
+        self._perf_timer = PerformanceTimer()
+        self.performance_metrics = {}
+        self._perf_lock = threading.Lock()
+
+        # --- GUI Coordinator ---
+        self._gui_coordinator = GUICoordinator(bridge=bridge, config=config) if bridge else None
 
         # --- Отслеживание активных обучений ---
         self._training_symbols = set()  # Символы, которые сейчас обучаются
