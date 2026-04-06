@@ -518,7 +518,7 @@ class DatabaseManager:
 
     def save_candle_data(self, symbol: str, timeframe: str, candles: List[Dict]) -> int:
         """
-        Сохраняет свечные данные в базу данных.
+        Сохраняет свечные данные в базу данных (оптимизированная batch версия).
 
         Args:
             symbol: Торговый инструмент (например, EURUSD)
@@ -533,40 +533,70 @@ class DatabaseManager:
         """
         session = self.Session()
         try:
-            saved_count = 0
-            for candle in candles:
-                # Проверяем существование записи
-                existing = (
-                    session.query(CandleData)
-                    .filter_by(symbol=symbol, timeframe=timeframe, timestamp=candle["timestamp"])
-                    .first()
-                )
+            if not candles:
+                return 0
 
-                if existing:
-                    # Обновляем существующую запись
-                    existing.open = candle["open"]
-                    existing.high = candle["high"]
-                    existing.low = candle["low"]
-                    existing.close = candle["close"]
-                    existing.tick_volume = candle.get("tick_volume", 0)
-                else:
-                    # Создаём новую запись
-                    new_candle = CandleData(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        timestamp=candle["timestamp"],
-                        open=candle["open"],
-                        high=candle["high"],
-                        low=candle["low"],
-                        close=candle["close"],
-                        tick_volume=candle.get("tick_volume", 0),
-                    )
-                    session.add(new_candle)
-                    saved_count += 1
+            # Оптимизация: batch insert вместо поштучного добавления
+            batch_size = 1000
+            total_saved = 0
+
+            for i in range(0, len(candles), batch_size):
+                batch = candles[i:i + batch_size]
+
+                # Получаем существующие timestamps для проверки дубликатов
+                timestamps = [c["timestamp"] for c in batch]
+                existing_records = (
+                    session.query(CandleData.timestamp)
+                    .filter_by(symbol=symbol, timeframe=timeframe)
+                    .filter(CandleData.timestamp.in_(timestamps))
+                    .all()
+                )
+                existing_timestamps = {r[0] for r in existing_records}
+
+                # Разделяем на новые и обновляемые
+                new_candles = []
+                update_candles = []
+
+                for candle in batch:
+                    ts = candle["timestamp"]
+                    candle_data = {
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "timestamp": ts,
+                        "open": candle["open"],
+                        "high": candle["high"],
+                        "low": candle["low"],
+                        "close": candle["close"],
+                        "tick_volume": candle.get("tick_volume", 0),
+                    }
+
+                    if ts in existing_timestamps:
+                        update_candles.append(candle_data)
+                    else:
+                        new_candles.append(candle_data)
+
+                # Batch insert новых записей
+                if new_candles:
+                    session.bulk_insert_mappings(CandleData, new_candles)
+                    total_saved += len(new_candles)
+
+                # Batch update существующих
+                for uc in update_candles:
+                    session.query(CandleData).filter_by(
+                        symbol=symbol, timeframe=timeframe, timestamp=uc["timestamp"]
+                    ).update({
+                        "open": uc["open"],
+                        "high": uc["high"],
+                        "low": uc["low"],
+                        "close": uc["close"],
+                        "tick_volume": uc["tick_volume"],
+                    }, synchronize_session=False)
+
+                total_saved += len(update_candles)
 
             session.commit()
-            logger.debug(f"Сохранено {saved_count} свечей для {symbol} {timeframe}")
-            return saved_count
+            logger.debug(f"[Batch] Сохранено {total_saved} свечей для {symbol} {timeframe} ({len(candles)} всего)")
+            return total_saved
 
         except Exception as e:
             session.rollback()
