@@ -50,13 +50,14 @@ REQUIRED_SECRETS = [
     "ALERT_EMAIL_FROM",
     "ALERT_EMAIL_PASSWORD",
     "ALERT_EMAIL_RECIPIENTS",
-    # Encryption
-    "ENCRYPTION_KEY",
     # Database
     "DATABASE_PASSWORD",
     "POSTGRES_PASSWORD",
     # Grafana
     "GRAFANA_ADMIN_PASSWORD",
+    # Примечание: ENCRYPTION_KEY удалён из REQUIRED_SECRETS
+    # Ключ шифрования выводится из SECRETS_MASTER_PASSWORD через PBKDF2HMAC
+    # Это устраняет circular dependency: ключ не хранится в том же хранилище
 ]
 
 # Опциональные секреты

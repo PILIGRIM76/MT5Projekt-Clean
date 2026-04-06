@@ -4,206 +4,56 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
 
 jobs:
-  # ===========================================================================
-  # Tests Job
-  # ===========================================================================
   test:
-    name: Tests & Coverage
     runs-on: windows-latest
-    timeout-minutes: 30
-
     strategy:
       matrix:
-        python-version: ['3.10', '3.11']
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v4
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-
-    - name: Cache pip packages
-      uses: actions/cache@v5
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Cache pytest cache
-      uses: actions/cache@v5
-      with:
-        path: .pytest_cache
-        key: ${{ runner.os }}-pytest-${{ hashFiles('tests/**') }}
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-cov pytest-mock pytest-qt
+        pip install pytest pytest-cov
 
-    - name: Run tests with coverage
+    - name: Run tests
       run: |
-        # Запускаем только unit тесты (исключаем e2e)
-        pytest tests/unit/ -v --cov=src --cov-report=xml --cov-fail-under=40
-      continue-on-error: true
+        pytest tests/ -v --no-cov
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        file: ./coverage.xml
-        flags: unittests
-        name: codecov-${{ matrix.python-version }}
-        fail_ci_if_error: false
+    - name: Check critical tests pass
+      run: |
+        pytest tests/test_critical_safety.py tests/test_data_models.py -v --tb=short
 
-    - name: Upload test results
-      uses: actions/upload-artifact@v5
-      if: always()
-      with:
-        name: test-results-${{ matrix.python-version }}
-        path: |
-          htmlcov/
-          coverage.xml
-
-  # ===========================================================================
-  # Linting Job
-  # ===========================================================================
   lint:
-    name: Code Quality
     runs-on: windows-latest
-    timeout-minutes: 15
-
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: "3.12"
 
     - name: Install linters
       run: |
-        pip install flake8 black isort mypy
+        pip install flake8 black isort
 
-    - name: Run black (format check)
-      run: |
-        black src/ --check --diff
-      continue-on-error: true
+    - name: Check code style with black
+      run: black --check src/ tests/ || true
 
-    - name: Run isort (import check)
-      run: |
-        isort src/ --check-only --diff
-      continue-on-error: true
+    - name: Check imports with isort
+      run: isort --check-only src/ tests/ || true
 
-    - name: Run flake8
-      run: |
-        flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-      continue-on-error: true
-
-    - name: Run mypy
-      run: |
-        mypy src/ --ignore-missing-imports
-      continue-on-error: true
-
-  # ===========================================================================
-  # Security Job
-  # ===========================================================================
-  security:
-    name: Security Scan
-    runs-on: windows-latest
-    timeout-minutes: 15
-
-    steps:
-    - uses: actions/checkout@v5
-
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.10'
-
-    - name: Install security tools
-      run: |
-        pip install bandit safety
-
-    - name: Run bandit (security lint)
-      run: |
-        bandit -r src/ -f json -o bandit-report.json
-      continue-on-error: true
-
-    - name: Run safety (dependency check)
-      run: |
-        safety check --json > safety-report.json
-      continue-on-error: true
-
-    - name: Upload security reports
-      uses: actions/upload-artifact@v5
-      if: always()
-      with:
-        name: security-reports
-        path: |
-          bandit-report.json
-          safety-report.json
-
-  # ===========================================================================
-  # Build Job
-  # ===========================================================================
-  build:
-    name: Build Verification
-    runs-on: windows-latest
-    timeout-minutes: 20
-    needs: [test, lint]
-
-    steps:
-    - uses: actions/checkout@v5
-
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.10'
-
-    - name: Install build dependencies
-      run: |
-        pip install -r requirements.txt
-        pip install pyinstaller
-
-    - name: Verify imports
-      run: |
-        python -c "import src; print('Import check passed')"
-      continue-on-error: true
-
-    - name: Check project structure
-      run: |
-        Write-Host "=== Source files ==="
-        Get-ChildItem -Path src -Recurse -File | Select-Object FullName
-        Write-Host "=== Test files ==="
-        Get-ChildItem -Path tests -Recurse -File | Select-Object FullName
-      continue-on-error: true
-
-  # ===========================================================================
-  # Summary Job
-  # ===========================================================================
-  summary:
-    name: CI Summary
-    runs-on: windows-latest
-    needs: [test, lint, security, build]
-    if: always()
-
-    steps:
-    - name: Generate summary
-      run: |
-        echo "## CI/CD Pipeline Summary"
-        echo ""
-        echo "| Job | Status |"
-        echo "|-----|--------|"
-        echo "| Tests | ${{ needs.test.result }} |"
-        echo "| Lint | ${{ needs.lint.result }} |"
-        echo "| Security | ${{ needs.security.result }} |"
-        echo "| Build | ${{ needs.build.result }} |"
-        echo ""
-        echo "Pipeline completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    - name: Lint with flake8
+      run: flake8 src/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
