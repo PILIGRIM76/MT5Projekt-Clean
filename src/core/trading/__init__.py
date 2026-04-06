@@ -5,6 +5,7 @@ Trading Core — модули ядра торговой системы.
 Выделены из TradingSystem God Object (~4200 строк):
 - utils: кэширование, таймеры, таймфрейм хелперы
 - gui_coordinator: безопасные обновления GUI
+- trading_engine: ядро торговой логики
 """
 
 from src.core.trading.utils import (
@@ -15,6 +16,7 @@ from src.core.trading.utils import (
     TIMEFRAME_MAP,
 )
 from src.core.trading.gui_coordinator import GUICoordinator
+from src.core.trading.trading_engine import TradingEngine
 
 __all__ = [
     "TradingCache",
@@ -23,4 +25,5 @@ __all__ = [
     "get_timeframe_str",
     "TIMEFRAME_MAP",
     "GUICoordinator",
+    "TradingEngine",
 ]
