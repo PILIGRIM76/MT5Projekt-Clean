@@ -25,9 +25,21 @@ class TradingCache:
         self._cache: Dict[str, Any] = {}
         self._max_size = max_size
 
-    def get(self, key: str) -> Optional[Any]:
+    def __contains__(self, key: str) -> bool:
+        """Поддержка оператора `in`."""
+        return key in self._cache
+
+    def __getitem__(self, key: str) -> Any:
+        """Поддержка оператора `[]` для получения."""
+        return self._cache[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Поддержка оператора `[]` для установки."""
+        self.set(key, value)
+
+    def get(self, key: str, default: Any = None) -> Optional[Any]:
         """Получить данные из кэша."""
-        return self._cache.get(key)
+        return self._cache.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
         """Сохранить данные в кэш."""
