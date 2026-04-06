@@ -2716,7 +2716,7 @@ class TradingSystem(QObject):
             wr_threshold = thresholds.get("win_rate", 0.35)
             sharpe_threshold = thresholds.get("sharpe_ratio", 0.5)
             dd_threshold = thresholds.get("max_drawdown", 20.0)
-            trades_threshold = thresholds.get("total_trades", 5)
+            trades_threshold = thresholds.get("total_trades", 10)  # Оптимизация: 10 для D1
             logger.info(
                 f"[RELAXED MODE] {symbol}: временные сниженные пороги (PF>{pf_threshold}, WR>{wr_threshold*100}%, DD<{dd_threshold}%, Trades>{trades_threshold})"
             )
