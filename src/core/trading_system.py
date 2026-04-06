@@ -3701,7 +3701,7 @@ class TradingSystem(QObject):
                     return self._data_cache[key]
                 else:
                     # Удалить устаревшие данные
-                    del self._data_cache[key]
+                    self._data_cache.invalidate(key)
                     del self._cache_timestamps[key]
             return None
 
@@ -3767,11 +3767,11 @@ class TradingSystem(QObject):
         """
         with self._cache_lock:
             if key:
-                self._data_cache.pop(key, None)
+                self._data_cache.invalidate(key)
                 self._cache_timestamps.pop(key, None)
                 self._cache_ttl.pop(key, None)
             else:
-                self._data_cache.clear()
+                self._data_cache.invalidate()
                 self._cache_timestamps.clear()
                 self._cache_ttl.clear()
 
