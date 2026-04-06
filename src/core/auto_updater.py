@@ -197,7 +197,11 @@ class AutoUpdater:
             else:
                 logger.info(f"GUI Bridge не подключен. Статус: {status_text}")
         else:
+            # Обновлений нет — сбрасываем флаг чтобы разблокировать торговый цикл
             logger.info(status_text)
+            self.update_pending = False
+            if self.trading_system:
+                self.trading_system.update_pending = False
 
     def apply_update_and_restart(self):
         """Применяет обновление (универсальный метод)."""
