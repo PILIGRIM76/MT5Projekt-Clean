@@ -75,9 +75,9 @@ class SystemServiceManager:
         logger.info("Запуск сервисов...")
 
         try:
-            # Запускаем асинхронно
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(start_all_services())
+            # Используем asyncio.run для создания event loop в текущем потоке (Python 3.7+)
+            # Это решает ошибку "There is no current event loop" в фоновых потоках
+            asyncio.run(start_all_services())
 
             return {
                 "DataService": True,
@@ -105,9 +105,8 @@ class SystemServiceManager:
         logger.info("Остановка сервисов...")
 
         try:
-            # Останавливаем асинхронно
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(stop_all_services())
+            # Используем asyncio.run для безопасного создания event loop в любом потоке
+            asyncio.run(stop_all_services())
 
             return {
                 "DataService": True,
