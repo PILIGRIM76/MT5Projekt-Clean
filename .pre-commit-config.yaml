@@ -72,3 +72,13 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [manual]
+
+  # Критические тесты — запускаются ПРИ КАЖДОМ коммите
+  - repo: local
+    hooks:
+      - id: critical-tests
+        name: Critical Tests (SafetyMonitor + Data Models + Secrets)
+        entry: pytest tests/test_critical_safety.py tests/test_data_models.py tests/test_secrets_manager.py -v --no-cov -q
+        language: system
+        pass_filenames: false
+        always_run: true
