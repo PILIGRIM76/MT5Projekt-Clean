@@ -3049,15 +3049,13 @@ class SettingsWindow(QDialog):
                             max_symbols=self.auto_retrain_max_symbols_spin.value(),
                             max_workers=self.auto_retrain_max_workers_spin.value(),
                         )
-                        # Обновляем статус в GUI потокобезопасным способом
-                        self.auto_retrain_status_label.setText("Статус: завершено ✓")
-                        self.auto_retrain_status_label.setStyleSheet("color: #50fa7b;")
-                        self.manual_retrain_button.setEnabled(True)
+                        # Обновляем статус в GUI потокобезопасным способом через QTimer
+                        from PySide6.QtCore import QTimer
+                        QTimer.singleShot(0, lambda: self._on_training_finished(success=True))
                     except Exception as e:
                         logger.error(f"Ошибка при ручном переобучении: {e}", exc_info=True)
-                        self.auto_retrain_status_label.setText(f"Статус: ошибка ❌")
-                        self.auto_retrain_status_label.setStyleSheet("color: #ff5555;")
-                        self.manual_retrain_button.setEnabled(True)
+                        from PySide6.QtCore import QTimer
+                        QTimer.singleShot(0, lambda: self._on_training_finished(success=False, error=str(e)))
 
                 training_thread = threading.Thread(target=run_training, daemon=True)
                 training_thread.start()
@@ -3074,6 +3072,20 @@ class SettingsWindow(QDialog):
                 self.auto_retrain_status_label.setStyleSheet("color: #ff5555;")
                 self.manual_retrain_button.setEnabled(True)
                 QMessageBox.critical(self, "Ошибка", f"Не удалось запустить обучение:\n{e}")
+
+    def _on_training_finished(self, success: bool = True, error: str = ""):
+        """Безопасное обновление GUI после завершения обучения (вызывается из основного потока)."""
+        if success:
+            self.auto_retrain_status_label.setText("Статус: завершено ✓")
+            self.auto_retrain_status_label.setStyleSheet("color: #50fa7b;")
+            QMessageBox.information(self, "Готово", "Переобучение моделей успешно завершено!")
+        else:
+            self.auto_retrain_status_label.setText(f"Статус: ошибка ❌")
+            self.auto_retrain_status_label.setStyleSheet("color: #ff5555;")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось завершить обучение:\n{error}")
+        
+        # Возвращаем кнопку в активное состояние
+        self.manual_retrain_button.setEnabled(True)
 
     def _scroll_to_risk_settings(self):
         """Информирование пользователя о настройках риск-менеджмента."""
