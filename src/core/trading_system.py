@@ -741,6 +741,15 @@ class TradingSystem(QObject):
             logger.critical("⛔ Trading stopped by Safety Monitor")
             return
 
+        # Graceful Degradation: проверяем фазу деградации ML моделей
+        if hasattr(self, "_ml_coordinator") and self._ml_coordinator:
+            from src.core.trading import DegradationPhase
+            # Получаем статус деградации из health_check
+            if hasattr(self, "health_check") and self.health_check:
+                degradation = self.health_check.get_health_status().get("degradation", {})
+                phase = degradation.get("current_phase", "full_ml")
+                if phase in ["observer_mode", "emergency_stop"]:
+                    logger.warning(f"[run_cycle] Graceful Degradation фаза: {phase}, снижаю активность")
         # Проверки перед запуском
         if self.stop_event.is_set() or not self.is_heavy_init_complete or self.update_pending:
             logger.warning(
@@ -2609,14 +2618,19 @@ class TradingSystem(QObject):
         return best_timeframe
 
     def _process_commands(self):
-        try:
-            command, args = self.command_queue.get_nowait()
-            if command == "CLOSE_ALL":
-                threading.Thread(target=self.execution_service.emergency_close_all_positions).start()
-            elif command == "CLOSE_ONE":
-                threading.Thread(target=self.execution_service.emergency_close_position, args=(args,)).start()
-        except queue.Empty:
-            pass
+        """Делегирование обработки команд на TradingEngine."""
+        if hasattr(self, "_trading_engine") and self._trading_engine:
+            self._trading_engine.process_commands()
+        else:
+            # Fallback на старую логику
+            try:
+                command, args = self.command_queue.get_nowait()
+                if command == "CLOSE_ALL":
+                    threading.Thread(target=self.execution_service.emergency_close_all_positions).start()
+                elif command == "CLOSE_ONE":
+                    threading.Thread(target=self.execution_service.emergency_close_position, args=(args,)).start()
+            except queue.Empty:
+                pass
 
     def _get_timeframe_str(self, tf_code: Optional[int]) -> str:
         if tf_code is None:
@@ -4233,3 +4247,45 @@ class TradingSystem(QObject):
             logger.info("Остановка планировщика переобучения...")
             self.training_scheduler.stop()
             self.thread_status_updated.emit("Training Scheduler", "STOPPED")
+
+    # ===================================================================
+    # Делегирование на новые модули (Фаза 3 аудита v2.0)
+    # ===================================================================
+
+    def can_trade(self) -> bool:
+        """Делегирование проверки готовности к торговле на TradingEngine."""
+        if hasattr(self, "_trading_engine") and self._trading_engine:
+            return self._trading_engine.can_trade()
+        # Fallback
+        return not (self.stop_event.is_set() or not self.is_heavy_init_complete or self.update_pending)
+
+    def get_available_symbols(self, fallback_symbols=None) -> list:
+        """Делегирование получения символов на TradingEngine."""
+        if hasattr(self, "_trading_engine") and self._trading_engine:
+            return self._trading_engine.get_available_symbols(fallback_symbols)
+        return fallback_symbols or self.config.SYMBOLS_WHITELIST
+
+    def close_positions(self, symbols_to_close=None):
+        """Делегирование закрытия позиций на TradingEngine."""
+        if hasattr(self, "_trading_engine") and self._trading_engine:
+            return self._trading_engine.close_positions_if_needed(symbols_to_close)
+        return False
+
+    def get_model_accuracy(self, symbol):
+        """Делегирование получения точности модели на MLCoordinator."""
+        if hasattr(self, "_ml_coordinator") and self._ml_coordinator:
+            return self._ml_coordinator.get_model_accuracy(symbol)
+        return None
+
+    def get_training_status(self, symbol=None):
+        """Делегирование получения статуса обучения на MLCoordinator."""
+        if hasattr(self, "_ml_coordinator") and self._ml_coordinator:
+            return self._ml_coordinator.get_training_status(symbol)
+        return "not_available"
+
+    def get_health_status(self, force=False):
+        """Делегирование проверки здоровья на HealthCheckEndpoint."""
+        if hasattr(self, "health_check") and self.health_check:
+            return self.health_check.get_health_status(force)
+        return {"status": "unknown"}
+
