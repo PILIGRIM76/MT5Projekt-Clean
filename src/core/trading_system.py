@@ -2125,9 +2125,25 @@ class TradingSystem(QObject):
                     try:
                         account_info = mt5.account_info()
                         if account_info:
-                            logger.info(
-                                f"[Monitoring] Баланс: ${account_info.balance:,.2f}, Эквити: ${account_info.equity:,.2f}"
-                            )
+                            # Оптимизация: логирование баланса только при изменении > 0.1% или раз в 60 сек
+                            should_log = False
+                            if not hasattr(self, '_last_logged_balance'):
+                                self._last_logged_balance = 0
+                                self._last_balance_log_time = 0
+                                should_log = True
+                            else:
+                                time_since_log = current_time - self._last_balance_log_time
+                                balance_changed_pct = abs(account_info.balance - self._last_logged_balance) / max(self._last_logged_balance, 1) * 100
+                                if balance_changed_pct > 0.1 or time_since_log > 60:
+                                    should_log = True
+
+                            if should_log:
+                                logger.info(
+                                    f"[Monitoring] Баланс: ${account_info.balance:,.2f}, Эквити: ${account_info.equity:,.2f}"
+                                )
+                                self._last_logged_balance = account_info.balance
+                                self._last_balance_log_time = current_time
+
                             self._safe_gui_update("update_balance", account_info.balance, account_info.equity)
                             self._last_known_balance = account_info.balance
                             self._last_known_equity = account_info.equity
