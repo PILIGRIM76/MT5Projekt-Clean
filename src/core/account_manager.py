@@ -1,11 +1,13 @@
 # src/core/account_manager.py
 """
-Account Manager — Автоопределение типа счета и адаптация рисков.
+Account Manager — Автоопределение типа счета, валюты и адаптация рисков.
 
 Функции:
 - Определение типа счета (DEMO, CONTEST, REAL)
+- Определение валюты счета (USD, EUR, RUB, и т.д.)
 - Адаптивный расчет риска в зависимости от баланса
 - Проверка доступной маржи перед торговлей
+- Конвертация валют при необходимости
 """
 
 import logging
@@ -13,6 +15,20 @@ from typing import Dict, Optional
 import MetaTrader5 as mt5
 
 logger = logging.getLogger(__name__)
+
+# Курсы основных валют к USD (базовые, если не удалось получить из MT5)
+DEFAULT_FX_RATES = {
+    "USD": 1.0,
+    "EUR": 1.08,
+    "GBP": 1.27,
+    "RUB": 0.011,  # 1 RUB = 0.011 USD (примерно)
+    "JPY": 0.0067,
+    "CHF": 1.13,
+    "CAD": 0.74,
+    "AUD": 0.65,
+    "NZD": 0.60,
+    "CNY": 0.14,
+}
 
 class AccountType:
     DEMO = "DEMO"
@@ -28,6 +44,7 @@ class AccountManager:
         self.currency = "USD"
         self.leverage = 0
         self.margin_free = 0.0
+        self.fx_rate_to_usd = 1.0  # Курс валюты счета к USD
 
     def update_info(self) -> bool:
         """Обновляет информацию о счете и определяет его тип."""
@@ -53,22 +70,63 @@ class AccountManager:
         else:
             self.account_type = AccountType.UNKNOWN
 
-        logger.info(f"[AccountManager] Счет: {self.account_type} | Баланс: {self.balance} {self.currency} | Плечо: 1:{self.leverage}")
+        # Обновляем курс валюты счета к USD
+        self._update_fx_rate()
+
+        logger.info(
+            f"[AccountManager] Счет: {self.account_type} | "
+            f"Баланс: {self.balance} {self.currency} | "
+            f"Курс к USD: {self.fx_rate_to_usd:.4f} | "
+            f"Плечо: 1:{self.leverage}"
+        )
         return True
+
+    def _update_fx_rate(self):
+        """Получает актуальный курс валюты счета к USD из MT5."""
+        if self.currency == "USD":
+            self.fx_rate_to_usd = 1.0
+            return
+
+        # Пробуем получить курс из MT5 (например, EURUSD)
+        symbol_name = f"{self.currency}USD"
+        if self.currency == "USD":
+            symbol_name = "EURUSD"  # Fallback
+        
+        tick = mt5.symbol_info_tick(symbol_name)
+        if tick and tick.bid > 0:
+            self.fx_rate_to_usd = tick.bid
+            logger.info(f"[AccountManager] Курс {symbol_name} из MT5: {self.fx_rate_to_usd}")
+        else:
+            # Если не удалось получить — используем дефолтный курс
+            self.fx_rate_to_usd = DEFAULT_FX_RATES.get(self.currency, 1.0)
+            logger.warning(
+                f"[AccountManager] Не удалось получить курс {symbol_name} из MT5. "
+                f"Используем приближенный: {self.fx_rate_to_usd}"
+            )
+
+    def get_balance_usd(self) -> float:
+        """Возвращает баланс в эквиваленте USD."""
+        return self.balance * self.fx_rate_to_usd
+
+    def get_equity_usd(self) -> float:
+        """Возвращает эквити в эквиваленте USD."""
+        return self.equity * self.fx_rate_to_usd
 
     def get_adaptive_risk_percent(self) -> float:
         """
-        Рассчитывает % риска на сделку в зависимости от размера счета.
+        Рассчитывает % риска на сделку в зависимости от размера счета (в USD эквиваленте).
         Маленькие счета требуют большего %, чтобы преодолеть порог мин. лота (0.01).
         Большие счета требуют меньшего % для безопасности.
         """
-        if self.balance < 100:
+        balance_usd = self.get_balance_usd()
+
+        if balance_usd < 100:
             return 2.0  # Для микро-счетов риск выше, чтобы открылся лот 0.01
-        elif self.balance < 500:
+        elif balance_usd < 500:
             return 1.0
-        elif self.balance < 2000:
+        elif balance_usd < 2000:
             return 0.5
-        elif self.balance < 10000:
+        elif balance_usd < 10000:
             return 0.2
         else:
             return 0.1  # Для крупных счетов риск минимальный
@@ -80,7 +138,10 @@ class AccountManager:
         required_margin = margin_req * lot
         
         if self.margin_free < required_margin:
-            logger.warning(f"[AccountManager] Недостаточно маржи для {symbol} ({lot} лотов). Нужно: {required_margin}, Есть: {self.margin_free}")
+            logger.warning(
+                f"[AccountManager] Недостаточно маржи для {symbol} ({lot} лотов). "
+                f"Нужно: {required_margin:.2f} {self.currency}, Есть: {self.margin_free:.2f} {self.currency}"
+            )
             return False
         return True
 
@@ -106,3 +167,4 @@ class AccountManager:
         # Округляем до шага лота
         lots = int((calculated_lot - min_lot) / lot_step) * lot_step + min_lot
         return lots
+

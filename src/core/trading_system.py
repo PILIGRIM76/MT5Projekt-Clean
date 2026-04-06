@@ -3109,10 +3109,18 @@ class TradingSystem(QObject):
                     delta = datetime.now() - self.start_time
                     uptime_str = str(delta).split(".")[0]
                     
-                    # АДАПТИВНОСТЬ: Вывод типа счета и валюты
+                    # АДАПТИВНОСТЬ: Вывод типа счета, валюты и баланса
                     acc_info = ""
-                    if hasattr(self, 'account_manager'):
-                        acc_info = f"{self.account_manager.account_type} {self.account_manager.currency}"
+                    if hasattr(self, 'account_manager') and self.account_manager.currency:
+                        acc_type = self.account_manager.account_type
+                        currency = self.account_manager.currency
+                        balance = self.account_manager.balance
+                        balance_usd = self.account_manager.get_balance_usd()
+                        
+                        if currency != "USD":
+                            acc_info = f"{acc_type} {currency} {balance:.2f} (≈${balance_usd:.2f})"
+                        else:
+                            acc_info = f"{acc_type} ${balance:.2f}"
                     
                     full_status = f"{acc_info} | {uptime_str}"
                     self.uptime_updated.emit(full_status)

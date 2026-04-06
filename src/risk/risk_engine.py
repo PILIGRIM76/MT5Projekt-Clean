@@ -237,9 +237,15 @@ class RiskEngine:
         max_risk = self.base_risk_per_trade_percent
 
         # АДАПТИВНЫЙ РИСК: Если есть AccountManager, используем его расчет
+        # С учетом валюты счета (баланс конвертируется в USD для универсальности)
         if self.account_manager:
             max_risk = self.account_manager.get_adaptive_risk_percent()
-            logger.debug(f"[RiskEngine] Адаптивный риск: {max_risk}%")
+            balance_usd = self.account_manager.get_balance_usd()
+            logger.debug(
+                f"[RiskEngine] Адаптивный риск: {max_risk}% | "
+                f"Баланс: {self.account_manager.balance} {self.account_manager.currency} "
+                f"(≈ ${balance_usd:.2f} USD)"
+            )
 
         is_anomaly_active = False
         if self.trading_system and self.trading_system.anomaly_detector.is_trained:
