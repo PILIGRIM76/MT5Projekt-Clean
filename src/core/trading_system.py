@@ -2626,7 +2626,6 @@ class TradingSystem(QObject):
                 if position_ticket:
                     try:
                         from src.social.publisher import publish_trade_result
-                        # Получаем инфо о счете (если еще не получали)
                         acc_info = mt5.account_info()
                         if acc_info:
                             # Создаем фейковый объект result для публикатора
@@ -2655,7 +2654,8 @@ class TradingSystem(QObject):
                                 comm=final_strategy_name, 
                                 magic=234000
                             )
-                            asyncio.create_task(publish_trade_result(mock_res, acc_info))
+                            # Вызываем синхронно, так как это быстрая запись в SQLite
+                            publish_trade_result(mock_res, acc_info)
                     except Exception as soc_err:
                         logger.debug(f"[SocialTrading] Ошибка публикации: {soc_err}")
             except Exception as e:

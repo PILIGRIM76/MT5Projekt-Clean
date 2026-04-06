@@ -1,50 +1,94 @@
 # src/social/bus.py
 """
-Асинхронная шина данных для социального трейдинга.
-Использует asyncio.Queue для локальной передачи сигналов.
+Шина данных для социального трейдинга.
+Использует SQLite для межпроцессного взаимодействия (IPC).
+Это позволяет запускать Мастера и Подписчика в разных процессах/терминалах.
 """
 
-import asyncio
 import logging
-from typing import List
-from .models import SocialTradeSignal
+import sqlite3
+import time
+import json
+import os
+from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-class SocialTradeBus:
-    """
-    Очередь торговых сигналов.
-    Публикатор пишет сюда, Подписчик читает.
-    """
-    
-    def __init__(self):
-        # Создаем очередь. Limit=0 означает неограниченный размер.
-        self.queue = asyncio.Queue()
-        self._subscribers: List[asyncio.Queue] = []
-    
-    async def publish(self, signal: SocialTradeSignal):
-        """Опубликовать сигнал для всех подписчиков."""
-        logger.info(f"[SocialBus] Публикация сигнала: {signal.action.value} {signal.symbol} (Ticket: {signal.ticket})")
-        
-        # Кладем в основную очередь (для логирования/сохранения)
-        await self.queue.put(signal)
-        
-        # Рассылаем активным подписчикам
-        for sub_queue in self._subscribers:
-            await sub_queue.put(signal)
-            
-    def subscribe(self) -> asyncio.Queue:
-        """Создать канал для нового подписчика."""
-        q = asyncio.Queue()
-        self._subscribers.append(q)
-        logger.info("[SocialBus] Новый подписчик подключен")
-        return q
-        
-    def unsubscribe(self, q: asyncio.Queue):
-        """Отключить подписчика."""
-        if q in self._subscribers:
-            self._subscribers.remove(q)
-            logger.info("[SocialBus] Подписчик отключен")
+DB_PATH = Path(__file__).parent.parent.parent.parent / "social_signals.db"
 
-# Глобальный экземпляр шины (Singleton)
-trade_bus = SocialTradeBus()
+class SocialSignalDB:
+    def __init__(self):
+        self.conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+        self._create_table()
+    
+    def _create_table(self):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                master_ticket INTEGER,
+                action TEXT,
+                symbol TEXT,
+                type INTEGER,
+                volume REAL,
+                price REAL,
+                sl REAL,
+                tp REAL,
+                timestamp REAL,
+                processed INTEGER DEFAULT 0
+            )
+        """)
+        self.conn.commit()
+
+    def publish(self, signal_data):
+        """Сохранить сигнал в БД."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO signals (
+                master_ticket, action, symbol, type, volume, price, sl, tp, timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            signal_data.get('ticket'),
+            signal_data.get('action'),
+            signal_data.get('symbol'),
+            signal_data.get('type'),
+            signal_data.get('volume'),
+            signal_data.get('price'),
+            signal_data.get('sl'),
+            signal_data.get('tp'),
+            time.time()
+        ))
+        self.conn.commit()
+        logger.info(f"[SocialBus] Сигнал сохранен в БД: {signal_data['action']} {signal_data['symbol']}")
+
+    def get_new_signals(self) -> list:
+        """Получить необработанные сигналы."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM signals WHERE processed = 0 ORDER BY id ASC")
+        rows = cursor.fetchall()
+        
+        signals = []
+        for row in rows:
+            signals.append({
+                'db_id': row[0],
+                'master_ticket': row[1],
+                'action': row[2],
+                'symbol': row[3],
+                'type': row[4],
+                'volume': row[5],
+                'price': row[6],
+                'sl': row[7],
+                'tp': row[8],
+                'timestamp': row[9]
+            })
+        return signals
+
+    def mark_processed(self, db_id):
+        """Отметить сигнал как обработанный."""
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE signals SET processed = 1 WHERE id = ?", (db_id,))
+        self.conn.commit()
+
+# Глобальный экземпляр
+trade_db = SocialSignalDB()
