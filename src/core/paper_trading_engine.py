@@ -428,20 +428,19 @@ class PaperTradingEngine:
         )
 
         # Отправляем сигнал дрейфа если есть predicted_price
-        if hasattr(self, "trading_system") and self.trading_system:
+        if position.predicted_price is not None and hasattr(self, "trading_system") and self.trading_system:
             ts = self.trading_system
-            # Пытаемся получить predicted_price из entry_data
-            predicted = getattr(position, 'predicted_price', None)
-            if predicted is not None and hasattr(ts, "drift_data_updated"):
-                try:
-                    error_val = abs(current_price - predicted) / predicted * 100
-                    is_drifting = error_val > 2.0  # 2% порог дрейфа
-                    import time
+            try:
+                import time
+                error_val = abs(current_price - position.predicted_price) / position.predicted_price * 100
+                is_drifting = error_val > 2.0  # 2% порог дрейфа
+                if hasattr(ts, "drift_data_updated"):
                     ts.drift_data_updated.emit(
                         time.time(), position.symbol, error_val, is_drifting
                     )
-                except Exception as drift_err:
-                    logger.debug(f"Ошибка отправки drift сигнала: {drift_err}")
+                    logger.debug(f"[Drift] Paper Trade: {position.symbol} error={error_val:.2f}%")
+            except Exception as drift_err:
+                logger.debug(f"Ошибка отправки drift сигнала: {drift_err}")
 
         # Отправляем алерт
         if hasattr(self.trading_system, "alert_manager"):
