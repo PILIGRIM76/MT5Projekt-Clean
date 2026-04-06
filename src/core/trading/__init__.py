@@ -24,6 +24,7 @@ from src.core.trading.model_fallback import (
     DegradationPhase,
     ModelHealth,
 )
+from src.core.trading.health_check import HealthCheckEndpoint
 
 __all__ = [
     "TradingCache",
@@ -37,4 +38,5 @@ __all__ = [
     "GracefulDegradationManager",
     "DegradationPhase",
     "ModelHealth",
+    "HealthCheckEndpoint",
 ]
