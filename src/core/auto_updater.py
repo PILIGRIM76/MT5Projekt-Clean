@@ -217,6 +217,81 @@ class AutoUpdater:
         else:
             self._apply_release_update()
 
+    def _get_user_config_files(self) -> list:
+        """Возвращает список пользовательских файлов, которые нужно сохранять при обновлении."""
+        base_path = Path(__file__).parent.parent.parent
+        return [
+            base_path / "configs" / "settings.json",
+            base_path / "configs" / "optimized_params.json",
+        ]
+
+    def _backup_user_configs(self) -> dict:
+        """Делает бэкап пользовательских конфигурационных файлов в память."""
+        import shutil
+
+        user_configs = {}
+        config_files = self._get_user_config_files()
+
+        for config_path in config_files:
+            if config_path.exists():
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        user_configs[str(config_path)] = f.read()
+                    logger.info(f"✅ Бэкап пользовательского конфига: {config_path.name}")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка бэкапа {config_path.name}: {e}")
+
+        logger.info(f"📦 Всего сохранено пользовательских конфигов: {len(user_configs)}")
+        return user_configs
+
+    def _restore_user_configs(self, backup_configs: dict):
+        """Восстанавливает пользовательские конфигурационные файлы из бэкапа."""
+        import json
+
+        restored_count = 0
+        for config_path_str, content in backup_configs.items():
+            config_path = Path(config_path_str)
+            try:
+                # Проверяем, что файл существует после git reset
+                if config_path.exists():
+                    # Для JSON файлов — делаем умное слияние
+                    if config_path.suffix == ".json":
+                        try:
+                            backup_data = json.loads(content)
+                            with open(config_path, "r", encoding="utf-8") as f:
+                                current_data = json.loads(f.read())
+
+                            # Обновляем текущие данные из бэкапа (пользовательские настройки приоритетнее)
+                            current_data.update(backup_data)
+
+                            with open(config_path, "w", encoding="utf-8") as f:
+                                json.dump(current_data, f, indent=2, ensure_ascii=False)
+                            logger.info(f"✅ Восстановлен конфиг (умное слияние): {config_path.name}")
+                        except json.JSONDecodeError:
+                            # Если не удалось распарсить — просто копируем бэкап
+                            with open(config_path, "w", encoding="utf-8") as f:
+                                f.write(content)
+                            logger.info(f"✅ Восстановлен конфиг (полная замена): {config_path.name}")
+                    else:
+                        # Для не-JSОН файлов — полная замена
+                        with open(config_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+                        logger.info(f"✅ Восстановлен конфиг: {config_path.name}")
+
+                    restored_count += 1
+                else:
+                    # Файл не существует после reset — создаём заново
+                    config_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(config_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    logger.info(f"✅ Создан конфиг из бэкапа: {config_path.name}")
+                    restored_count += 1
+
+            except Exception as e:
+                logger.error(f"❌ Ошибка восстановления {config_path.name}: {e}")
+
+        logger.info(f"🔄 Всего восстановлено пользовательских конфигов: {restored_count}/{len(backup_configs)}")
+
     def _apply_git_update(self):
         """Применяет обновление через Git (для dev-режима)."""
         logger.critical("НАЧИНАЕТСЯ ПРОЦЕСС ОБНОВЛЕНИЯ ЧЕРЕЗ GIT!")
@@ -227,6 +302,9 @@ class AutoUpdater:
             self.trading_system.stop()
             time.sleep(3)
 
+        # Шаг 0: Бэкап пользовательских конфигурационных файлов
+        user_config_files = self._backup_user_configs()
+
         logger.info("Шаг 1: Получение последних изменений (fetch)...")
         self._run_command(["git", "fetch", "origin", "main"])
 
@@ -234,7 +312,10 @@ class AutoUpdater:
         reset_result = self._run_command(["git", "reset", "--hard", "origin/main"])
         logger.info(f"Результат git reset:\n{reset_result}")
 
-        logger.info("Шаг 3: Установка/обновление зависимостей...")
+        # Шаг 3: Восстановление пользовательских конфигураций
+        self._restore_user_configs(user_config_files)
+
+        logger.info("Шаг 4: Установка/обновление зависимостей...")
         python_executable = sys.executable
         req_path = Path(__file__).parent.parent.parent / "requirements.txt"
         if req_path.exists():
@@ -242,7 +323,7 @@ class AutoUpdater:
         else:
             logger.warning("Файл requirements.txt не найден")
 
-        logger.critical("Шаг 4: Перезапуск приложения...")
+        logger.critical("Шаг 5: Перезапуск приложения...")
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
     def _apply_release_update(self):
