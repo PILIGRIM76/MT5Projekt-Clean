@@ -19,6 +19,11 @@ from src.core.trading.utils import (
 from src.core.trading.gui_coordinator import GUICoordinator
 from src.core.trading.trading_engine import TradingEngine
 from src.core.trading.ml_coordinator import MLCoordinator
+from src.core.trading.model_fallback import (
+    GracefulDegradationManager,
+    DegradationPhase,
+    ModelHealth,
+)
 
 __all__ = [
     "TradingCache",
@@ -29,4 +34,7 @@ __all__ = [
     "GUICoordinator",
     "TradingEngine",
     "MLCoordinator",
+    "GracefulDegradationManager",
+    "DegradationPhase",
+    "ModelHealth",
 ]
