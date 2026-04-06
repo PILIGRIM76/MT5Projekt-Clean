@@ -108,13 +108,13 @@ class AutoTrainer:
         logger.info(f"  📉 Порог падения точности: {self.accuracy_drop_threshold:.0%}")
         logger.info(f"  💾 Путь к моделям: {self.models_path}")
 
-    def load_training_data(self, symbol: str, timeframe: str = "H1") -> Optional[pd.DataFrame]:
+    def load_training_data(self, symbol: str, timeframe: str = "D1") -> Optional[pd.DataFrame]:
         """
         Загружает данные для обучения из базы или MT5.
 
         Args:
             symbol: Торговый инструмент
-            timeframe: Таймфрейм
+            timeframe: Таймфрейм (по умолчанию D1 — наиболее доступен в БД)
 
         Returns:
             DataFrame с данными или None
@@ -126,12 +126,12 @@ class AutoTrainer:
             query = """
                 SELECT timestamp, open, high, low, close, tick_volume
                 FROM candle_data
-                WHERE symbol = ? AND timeframe = ?
+                WHERE symbol LIKE ? AND timeframe = ?
                 ORDER BY timestamp DESC
                 LIMIT ?
             """
-
-            df = pd.read_sql_query(query, self.db_manager.engine, params=(symbol, timeframe, self.min_samples_for_retrain * 2))
+            # Оптимизация: используем LIKE для поиска символа с суффиксами (EURUSD -> EURUSD=X)
+            df = pd.read_sql_query(query, self.db_manager.engine, params=(f"{symbol}%", timeframe, self.min_samples_for_retrain * 2))
 
             if len(df) >= self.min_samples_for_retrain:
                 df.rename(columns={"timestamp": "time"}, inplace=True)
