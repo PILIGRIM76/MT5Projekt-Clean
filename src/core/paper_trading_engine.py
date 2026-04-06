@@ -73,6 +73,7 @@ class VirtualPosition:
     commission: float = 0.0
     slippage: float = 0.0
     spread_cost: float = 0.0
+    predicted_price: Optional[float] = None  # Для графика ошибки предсказаний
 
     # Заполняется при закрытии
     close_price: Optional[float] = None
@@ -324,6 +325,7 @@ class PaperTradingEngine:
             commission=commission,
             slippage=slippage,
             spread_cost=self._get_spread(signal.symbol) * (lot_size or 0.1) * 100000,
+            predicted_price=signal.predicted_price if hasattr(signal, 'predicted_price') else None,
         )
 
         # Сохраняем
@@ -424,6 +426,22 @@ class PaperTradingEngine:
             f"📄 PAPER TRADE CLOSED: {position.ticket} ({position.symbol}) "
             f"PnL: {pnl:.2f} ({pnl_percent:.2f}%), Reason: {reason}"
         )
+
+        # Отправляем сигнал дрейфа если есть predicted_price
+        if hasattr(self, "trading_system") and self.trading_system:
+            ts = self.trading_system
+            # Пытаемся получить predicted_price из entry_data
+            predicted = getattr(position, 'predicted_price', None)
+            if predicted is not None and hasattr(ts, "drift_data_updated"):
+                try:
+                    error_val = abs(current_price - predicted) / predicted * 100
+                    is_drifting = error_val > 2.0  # 2% порог дрейфа
+                    import time
+                    ts.drift_data_updated.emit(
+                        time.time(), position.symbol, error_val, is_drifting
+                    )
+                except Exception as drift_err:
+                    logger.debug(f"Ошибка отправки drift сигнала: {drift_err}")
 
         # Отправляем алерт
         if hasattr(self.trading_system, "alert_manager"):
