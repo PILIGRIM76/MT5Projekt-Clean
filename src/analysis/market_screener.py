@@ -14,14 +14,28 @@ logger = logging.getLogger(__name__)
 class MarketScreener:
     """
     Анализирует и ранжирует рыночные инструменты на основе волатильности, тренда и ликвидности.
-    Версия 2.3 с надежным подключением к MT5.
+    Версия 2.4 с адаптивным выбором доступных инструментов.
     """
 
     def __init__(self, config: Settings, mt5_lock: threading.Lock):
         self.config = config
         self.mt5_lock = mt5_lock
 
-    def rank_symbols(self, data_dict: Dict[str, pd.DataFrame]) -> Tuple[List[str], List[dict]]:
+    def filter_symbols_by_margin(self, symbols: List[str], account_manager) -> List[str]:
+        """Фильтрует символы, которые мы не можем себе позволить."""
+        available = []
+        with self.mt5_lock:
+            for sym in symbols:
+                info = mt5.symbol_info(sym)
+                if info and info.trade_mode != mt5.SYMBOL_TRADE_MODE_DISABLED:
+                    margin_req = info.margin_initial
+                    if account_manager.margin_free >= margin_req * info.volume_min:
+                        available.append(sym)
+                    else:
+                        logger.debug(f"[Screener] Символ {sym} исключен: недостаточно маржи")
+        return available
+
+    def rank_symbols(self, data_dict: Dict[str, pd.DataFrame], account_manager=None) -> Tuple[List[str], List[dict]]:
         symbol_scores: Dict[str, Dict[str, Any]] = {}
 
         ideal_min_vol = self.config.screener_volatility.ideal_min_percent

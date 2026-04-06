@@ -44,6 +44,7 @@ from src.analysis.market_screener import MarketScreener
 from src.analysis.nlp_processor import CausalNLPProcessor
 from src.analysis.strategy_optimizer import StrategyOptimizer
 from src.core.auto_updater import AutoUpdater
+from src.core.account_manager import AccountManager
 from src.core.config_models import Settings
 from src.core.config_writer import write_config
 from src.core.hot_reload_manager import HotReloadManager
@@ -404,7 +405,12 @@ class TradingSystem(QObject):
         # ИСПРАВЛЕНИЕ: Передаем data_provider и market_screener в MultiSourceDataAggregator
         self.data_aggregator.data_provider = self.data_provider
         self.data_aggregator.market_screener = self.market_screener
-        self.risk_engine = RiskEngine(self.config, self, self.knowledge_graph_querier, self.mt5_lock, is_simulation=False)
+
+        # P0: Инициализация Account Manager (Автоопределение типа счета и рисков)
+        self.account_manager = AccountManager()
+        logger.info("Account Manager инициализирован")
+
+        self.risk_engine = RiskEngine(self.config, self, self.knowledge_graph_querier, self.mt5_lock, is_simulation=False, account_manager=self.account_manager)
         self.risk_engine.data_provider_manager = self.data_provider_manager  # Для крипто-позиций
 
         # P0: Инициализация Circuit Breaker
@@ -959,7 +965,7 @@ class TradingSystem(QObject):
             logger.info(f"[Orchestrator] Начало ранжирования символов. Данных: {len(data_dict_raw)}")
             self.start_performance_timer("rank_symbols")
             data_dict = {key: df for key, df in data_dict_raw.items()}
-            ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict)
+            ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict, account_manager=self.account_manager)
 
             # === ТОРГОВЛЯ ВСЕМИ ИНСТРУМЕНТАМИ ===
             # Используем ВСЕ доступные символы вместо топ-N
@@ -1292,7 +1298,7 @@ class TradingSystem(QObject):
 
             if data_dict_raw:
                 logger.info(f"[R&D] Данные собраны: {len(data_dict_raw)} таймфреймов")
-                ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict_raw)
+                ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict_raw, account_manager=self.account_manager)
                 self.latest_full_ranked_list = full_ranked_list
                 logger.info(f"[R&D] Ранжировано {len(ranked_symbols)} символов")
             else:
@@ -1450,7 +1456,7 @@ class TradingSystem(QObject):
                             if result:
                                 key, df = result
                                 data_dict_raw[key] = df
-                    ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict_raw)
+                    ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict_raw, account_manager=self.account_manager)
                     self.latest_full_ranked_list = full_ranked_list
                     if not ranked_symbols:
                         logger.warning("[R&D] Принудительный сбор не дал результатов. R&D цикл пропущен.")
@@ -2084,11 +2090,22 @@ class TradingSystem(QObject):
         graph_update_interval = 30
         last_kpi_update_time = 0
         kpi_update_interval = 60
+        last_account_update = 0
 
         # Оптимизация: уменьшаем частоту опроса stop_event
         loop_counter = 0
         while not self.stop_event.is_set():
             current_time = standard_time.time()
+            
+            # Обновляем информацию о счете каждые 5 секунд
+            if current_time - last_account_update > 5:
+                self.account_manager.update_info()
+                last_account_update = current_time
+                logger.info(
+                    f"[AccountManager] Тип: {self.account_manager.account_type} | "
+                    f"Баланс: {self.account_manager.balance} | Эквити: {self.account_manager.equity}"
+                )
+
             lock_acquired = False
             if self.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION and (
                 current_time - last_graph_update_time > graph_update_interval
@@ -3091,8 +3108,15 @@ class TradingSystem(QObject):
                 if self.start_time:
                     delta = datetime.now() - self.start_time
                     uptime_str = str(delta).split(".")[0]
-                    self.uptime_updated.emit(uptime_str)
-                    self._safe_gui_update("update_uptime", uptime_str)
+                    
+                    # АДАПТИВНОСТЬ: Вывод типа счета и валюты
+                    acc_info = ""
+                    if hasattr(self, 'account_manager'):
+                        acc_info = f"{self.account_manager.account_type} {self.account_manager.currency}"
+                    
+                    full_status = f"{acc_info} | {uptime_str}"
+                    self.uptime_updated.emit(full_status)
+                    self._safe_gui_update("update_uptime", full_status)
             except Exception as e:
                 logger.error(f"Ошибка в цикле Uptime: {e}")
             self.stop_event.wait(1)

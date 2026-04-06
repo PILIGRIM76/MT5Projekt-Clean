@@ -30,6 +30,7 @@ class RiskEngine:
         querier: Optional[KnowledgeGraphQuerier] = None,
         mt5_lock: threading.Lock = None,
         is_simulation: bool = False,
+        account_manager=None
     ):
         self.config = config
         self.risk_config = config.risk
@@ -37,6 +38,7 @@ class RiskEngine:
         self.knowledge_graph_querier = querier
         self.mt5_lock = mt5_lock
         self.is_simulation = is_simulation
+        self.account_manager = account_manager  # Для динамического определения риска
 
         # DataProviderManager для крипто-позиций (устанавливается извне)
         self.data_provider_manager = None
@@ -233,6 +235,11 @@ class RiskEngine:
     def get_dynamic_risk_percentage(self, account_info, trade_history: List) -> float:
         min_risk = self.config.DYNAMIC_RISK_MIN_PERCENT
         max_risk = self.base_risk_per_trade_percent
+
+        # АДАПТИВНЫЙ РИСК: Если есть AccountManager, используем его расчет
+        if self.account_manager:
+            max_risk = self.account_manager.get_adaptive_risk_percent()
+            logger.debug(f"[RiskEngine] Адаптивный риск: {max_risk}%")
 
         is_anomaly_active = False
         if self.trading_system and self.trading_system.anomaly_detector.is_trained:
@@ -607,6 +614,14 @@ class RiskEngine:
                     logger.warning(f"[{symbol}] volume_step был None/0. Установлено безопасное значение: {step}")
                 # Также убедимся, что lot_size - float
                 lot_size = float(lot_size)
+                
+                # АДАПТИВНОСТЬ: Проверка на минимальный лот через AccountManager
+                if self.account_manager:
+                    lot_size = self.account_manager.adjust_lot_for_min(symbol, lot_size)
+                    if lot_size == 0.0:
+                        logger.warning(f"[{symbol}] АДАПТИВНЫЙ РИСК: Невозможно открыть позицию (недостаточно маржи для мин. лота)")
+                        return None, None
+
                 # ----------------------------------------------------------------------
                 if step > 0:
                     import math
@@ -746,8 +761,8 @@ class RiskEngine:
 
         return hedge_symbol, hedge_signal, hedge_lot_size
 
-    def _normalize_lot_size(self, lot_size: float, symbol_info: Any) -> float:
-        """Нормализует лот в соответствии с правилами MT5 (step, min, max)."""
+    def _normalize_lot_size(self, lot_size: float, symbol_info: Any, symbol: str = "") -> float:
+        """Нормализует лот в соответствии с правилами MT5 (step, min, max) и риском счета."""
         step = symbol_info.volume_step
         min_vol = symbol_info.volume_min
         max_vol = symbol_info.volume_max
@@ -757,6 +772,10 @@ class RiskEngine:
 
             decimals = int(max(0, -math.log10(step))) if step < 1 else 0
             lot_size = round(round(lot_size / step) * step, decimals)
+
+        # АДАПТИВНОСТЬ: Если расчетный лот меньше минимального, проверяем можем ли мы открыть минимум
+        if lot_size < min_vol and self.account_manager:
+            return self.account_manager.adjust_lot_for_min(symbol, lot_size)
 
         return max(min_vol, min(max_vol, lot_size))
 
