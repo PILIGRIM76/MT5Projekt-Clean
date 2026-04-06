@@ -185,7 +185,8 @@ class AutoUpdater:
         if update_available:
             logger.warning(f"!!! НАЙДЕНО ОБНОВЛЕНИЕ !!! {status_text}")
             self.update_pending = True
-            self.trading_system.update_pending = True
+            # НЕ блокируем торговый цикл! Только GUI уведомление
+            # trading_system.update_pending = True  # ← УДАЛЕНО: это блокировало торговлю
 
             # Отправляем сигнал в GUI
             if self.bridge is not None:
