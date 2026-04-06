@@ -89,17 +89,17 @@ class DataProvider:
         # Ограничиваем количество параллельных запросов к MT5
         self.mt5_semaphore = asyncio.Semaphore(5)
 
-        # LRU-кэш для исторических данных (100 последних запросов)
-        self._data_cache = LRUCache(max_size=100)
+        # LRU-кэш для исторических данных (оптимизация: 50 вместо 100)
+        self._data_cache = LRUCache(max_size=50)
 
-        # Кэш для курсов конвертации (50 последних курсов)
-        self._conversion_cache = LRUCache(max_size=50)
+        # Кэш для курсов конвертации (оптимизация: 30 вместо 50)
+        self._conversion_cache = LRUCache(max_size=30)
 
         # Инициализация last_news_timestamp для get_mt5_news
         self.last_news_timestamp = datetime.now(timezone.utc) - timedelta(days=1)
 
-        # ThreadPoolExecutor для всех асинхронных операций
-        self.executor = ThreadPoolExecutor(max_workers=None)
+        # ThreadPoolExecutor для всех асинхронных операций (оптимизация: 4 вместо None)
+        self.executor = ThreadPoolExecutor(max_workers=4)
 
     def __del__(self):
         """Корректное закрытие executor."""

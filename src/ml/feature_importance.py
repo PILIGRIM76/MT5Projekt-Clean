@@ -202,7 +202,7 @@ class FeatureImportanceTracker:
                 y,
                 n_repeats=n_repeats,
                 random_state=random_state,
-                n_jobs=-1,
+                n_jobs=2,  # Оптимизация: 2 вместо -1
             )
 
             # Создаём словарь

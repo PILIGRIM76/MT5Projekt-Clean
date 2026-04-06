@@ -678,15 +678,15 @@ class MainWindow(QMainWindow):
         self.connect_signals()
         self.apply_style("Темная")
 
-        # Настройка таймера статуса
+        # Настройка таймера статуса (оптимизация: 2 мин вместо 1 мин)
         self.status_update_timer = QTimer(self)
         self.status_update_timer.timeout.connect(self.update_scheduler_status_display)
-        self.status_update_timer.start(60 * 1000)
+        self.status_update_timer.start(120 * 1000)
 
-        # Таймер для обновления статуса обновлений (каждые 10 секунд)
+        # Таймер для обновления статуса обновлений (оптимизирован: 30 сек вместо 10 сек)
         self.update_status_bar_timer = QTimer(self)
         self.update_status_bar_timer.timeout.connect(self._update_update_box_info)
-        self.update_status_bar_timer.start(10 * 1000)  # 10 секунд
+        self.update_status_bar_timer.start(30 * 1000)  # 30 секунд
 
         self.update_scheduler_status_display()
         # Предполагаем, что kg_enabled_checkbox существует после _init_widgets
@@ -2493,7 +2493,7 @@ class MainWindow(QMainWindow):
         self.backtest_process.start()
         self.backtest_check_timer = QTimer(self)
         self.backtest_check_timer.timeout.connect(self.check_backtest_results)
-        self.backtest_check_timer.start(100)
+        self.backtest_check_timer.start(500)  # Оптимизация: 500мс вместо 100мс
 
     def check_backtest_results(self):
         try:

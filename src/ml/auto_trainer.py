@@ -296,6 +296,8 @@ class AutoTrainer:
             try:
                 import lightgbm as lgb
 
+                # Оптимизация: n_jobs=2 вместо -1 (все ядра) для снижения нагрузки на CPU
+                n_jobs_lightgbm = min(2, multiprocessing.cpu_count())
                 model = lgb.LGBMClassifier(
                     n_estimators=100,
                     learning_rate=0.05,
@@ -303,7 +305,7 @@ class AutoTrainer:
                     num_leaves=31,
                     random_state=42,
                     verbose=-1,
-                    n_jobs=-1,  # Используем все ядра CPU
+                    n_jobs=n_jobs_lightgbm,
                 )
 
                 model.fit(X_train_scaled, y_train)
@@ -321,7 +323,8 @@ class AutoTrainer:
                 logger.warning("LightGBM не установлен, используем RandomForest")
                 from sklearn.ensemble import RandomForestClassifier
 
-                model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
+                # Оптимизация: n_jobs=2 вместо -1
+                model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=2)
 
                 model.fit(X_train_scaled, y_train)
 

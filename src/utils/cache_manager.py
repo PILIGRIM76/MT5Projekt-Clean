@@ -280,20 +280,21 @@ class LRUCache:
 # Global Cache Instances
 # ===========================================
 
+# Оптимизация: уменьшены размеры кэшей для снижения RAM
 # Кэш режимов рынка (кэш на 1 минуту)
-market_regime_cache = LRUCache(max_size=50, name="MarketRegimeCache")
+market_regime_cache = LRUCache(max_size=30, name="MarketRegimeCache")
 
 # Кэш Pre-Mortem анализа (кэш на 5 минут)
-pre_mortem_cache = LRUCache(max_size=100, name="PreMortemCache")
+pre_mortem_cache = LRUCache(max_size=50, name="PreMortemCache")
 
 # Кэш векторного поиска (кэш на 10 минут)
-vector_search_cache = LRUCache(max_size=200, name="VectorSearchCache")
+vector_search_cache = LRUCache(max_size=100, name="VectorSearchCache")
 
 # Кэш котировок (кэш на 30 секунд)
-quotes_cache = LRUCache(max_size=500, name="QuotesCache")
+quotes_cache = LRUCache(max_size=200, name="QuotesCache")
 
 # Кэш новостей (кэш на 5 минут)
-news_cache = LRUCache(max_size=100, name="NewsCache")
+news_cache = LRUCache(max_size=50, name="NewsCache")
 
 
 # ===========================================
