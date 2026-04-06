@@ -677,3 +677,25 @@ class PaperTradingEngine:
         """Возвращает список закрытых позиций."""
         with self._lock:
             return self.closed_positions[-limit:]
+
+    def get_trade_history(self, limit: int = 500) -> list:
+        """
+        Возвращает историю сделок для графика PnL.
+
+        Returns:
+            Список словарей с полями: ticket, symbol, profit, time_close
+        """
+        with self._lock:
+            closed = list(self.closed_positions[-limit:])
+
+        history = []
+        for pos in closed:
+            if pos.close_time is not None and pos.pnl is not None:
+                history.append({
+                    "ticket": pos.ticket,
+                    "symbol": pos.symbol,
+                    "profit": pos.pnl,
+                    "time_close": pos.close_time,
+                })
+
+        return history

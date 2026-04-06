@@ -2236,6 +2236,21 @@ class TradingSystem(QObject):
                                 self._last_positions_cache = []
                             self._safe_gui_update("update_positions_view", positions_list)
                             found_new_trade = self._check_and_log_closed_positions()
+
+                            # Оптимизация: проверка закрытых Paper Trading позиций
+                            if hasattr(self, "paper_trading_engine") and self.paper_trading_engine.enabled:
+                                closed_tickets = self.paper_trading_engine.check_stop_loss_take_profit()
+                                if closed_tickets:
+                                    logger.info(f"[PaperTrading] Закрыто {len(closed_tickets)} позиций по SL/TP")
+                                    # Обновляем баланс и отправляем в GUI
+                                    balance = self.paper_trading_engine.current_balance
+                                    equity = self.paper_trading_engine.current_equity
+                                    self._safe_gui_update("update_balance", balance, equity)
+                                    # Обновляем PnL график
+                                    history = self.paper_trading_engine.get_trade_history()
+                                    if history:
+                                        self._safe_gui_update("update_pnl_graph", history)
+
                             if found_new_trade or self.history_needs_update:
                                 all_history = self.db_manager.get_trade_history()
                                 if all_history:
