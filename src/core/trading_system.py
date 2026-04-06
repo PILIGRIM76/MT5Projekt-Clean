@@ -380,6 +380,11 @@ class TradingSystem(QObject):
                     logger.info("VectorDB включён — загрузка embedding модели при первом использовании")
                 else:
                     logger.info("VectorDB отключён — модель эмбеддингов не будет загружена")
+            except Exception as e:
+                logger.error(f"Ошибка инициализации NLP Lazy Loader: {e}")
+                logger.warning("Продолжаем работу без lazy loading моделей")
+        else:
+            logger.info("VectorDB отключен, регистрация NLP моделей пропущена")
         # -----------------------------------------------
 
         self.nlp_processor.device = self.device
