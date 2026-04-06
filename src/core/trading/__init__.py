@@ -25,6 +25,7 @@ from src.core.trading.model_fallback import (
     ModelHealth,
 )
 from src.core.trading.health_check import HealthCheckEndpoint
+from src.core.trading.nlp_lazy_loader import NLPLazyLoader, LazyNLPModel
 
 __all__ = [
     "TradingCache",
@@ -39,4 +40,6 @@ __all__ = [
     "DegradationPhase",
     "ModelHealth",
     "HealthCheckEndpoint",
+    "NLPLazyLoader",
+    "LazyNLPModel",
 ]
