@@ -44,6 +44,7 @@ class Bridge(QObject):
     vector_db_search_results = Signal(list)
     thread_status_updated = Signal(str, str)
     long_task_status_updated = Signal(str, str, bool)
+    social_status_updated = Signal(str)  # НОВОЕ: Статус социальной торговли
     heavy_initialization_finished = Signal()
     drift_data_updated = Signal(float, str, float, bool)
     pnl_kpis_updated = Signal(dict)

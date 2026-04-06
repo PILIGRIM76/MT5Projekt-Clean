@@ -15,11 +15,12 @@ from .bus import trade_db
 logger = logging.getLogger(__name__)
 
 class TradeSubscriber:
-    def __init__(self, config):
+    def __init__(self, config, signal_emitter=None):
         self.config = config
         self.is_running = False
         self.task = None
         self.active_trades: Dict[int, int] = {}  # {master_ticket: follower_ticket}
+        self.signal_emitter = signal_emitter  # Для отправки статуса в GUI
 
         # Настройки из конфига
         social_cfg = getattr(config, 'social_trading', {})
@@ -35,6 +36,9 @@ class TradeSubscriber:
         logger.info("[SocialSubscriber] Запуск подписчика...")
         self.is_running = True
         self.task = asyncio.create_task(self._listen_loop())
+        if self.signal_emitter:
+            self.signal_emitter.emit("✅ Подписчик активен")
+        logger.info("[SocialSubscriber] Подписчик запущен и ожидает сигналы...")
 
     async def stop(self):
         """Остановка подписчика."""

@@ -479,6 +479,7 @@ class PySideTradingSystem(QObject):
         # --- ДОБАВЛЕННЫЕ ПОДКЛЮЧЕНИЯ (WEB.3 и другие) ---
         self.core_system.thread_status_updated.connect(self.bridge.thread_status_updated)
         self.core_system.long_task_status_updated.connect(self.bridge.long_task_status_updated)
+        self.core_system.social_status_updated.connect(self.bridge.social_status_updated)
         self.core_system.drift_data_updated.connect(self.bridge.drift_data_updated)
         # --------------------------------------------------------------------
 
@@ -1192,6 +1193,17 @@ class MainWindow(QMainWindow):
             label.setText(text)
             label.setStyleSheet(f"font-weight: bold; color: {color};")
             QApplication.processEvents()  # Принудительное обновление GUI
+
+    def update_social_status(self, status: str):
+        """Обновляет статус социальной торговли в UI."""
+        if hasattr(self, 'settings_window') and hasattr(self.settings_window, 'social_status_label'):
+            self.settings_window.social_status_label.setText(f"Статус: {status}")
+            if "активен" in status.lower() or "active" in status.lower():
+                self.settings_window.social_status_label.setStyleSheet("color: #50fa7b;")
+            elif "ошибка" in status.lower() or "error" in status.lower():
+                self.settings_window.social_status_label.setStyleSheet("color: #ff5555;")
+            else:
+                self.settings_window.social_status_label.setStyleSheet("color: #ffb86c;")
 
     def _create_thread_status_panel(self) -> QGroupBox:
         """Создает панель для отображения статуса фоновых потоков и задач."""
@@ -2230,8 +2242,8 @@ class MainWindow(QMainWindow):
         self.bad_trade_button.clicked.connect(lambda: self.record_feedback(-1))
         self.bridge.orchestrator_allocation_updated.connect(self.update_orchestrator_panel)
         self.bridge.knowledge_graph_updated.connect(self.update_knowledge_graph)
-        self.bridge.observer_pnl_updated.connect(self.update_observer_pnl_chart)
         self.bridge.thread_status_updated.connect(self.update_thread_status)
+        self.bridge.social_status_updated.connect(self.update_social_status)
         self.control_center_tab.settings_changed.connect(self.on_runtime_settings_changed)
         self.kg_enabled_checkbox.stateChanged.connect(self.on_kg_toggle)
         self.bridge.orchestrator_allocation_updated.connect(self.update_orchestrator_panel)

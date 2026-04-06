@@ -488,12 +488,14 @@ class SettingsWindow(QDialog):
         paths_tab = self._create_paths_tab()
         scheduler_tab = self._create_scheduler_tab()
         gp_tab = self._create_gp_tab()
+        social_tab = self._create_social_tab()
         # P0: Notifications (Telegram/Email)
         notifications_tab = self._create_notifications_tab()
         # НОВОЕ: Вкладка обновлений
         updates_tab = self._create_updates_tab()
 
         self.tab_widget.addTab(gp_tab, self.create_icon("🧪"), "R&D (AI)")
+        self.tab_widget.addTab(social_tab, self.create_icon("🤝"), "Копирование Сделок")
 
         self.tab_widget.addTab(mt5_tab, self.create_icon("🔌"), "Подключение MT5")
         self.tab_widget.addTab(crypto_tab, self.create_icon("₿"), "Криптовалюты")  # НОВОЕ
@@ -508,6 +510,85 @@ class SettingsWindow(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         self.layout().addWidget(button_box)
+
+    def _create_social_tab(self):
+        """Создание вкладки социальной торговли."""
+        widget = QWidget()
+        layout = QFormLayout()
+        widget.setLayout(layout)
+
+        # Группа: Основные настройки
+        self.social_enabled_check = QCheckBox("Включить копирование сделок")
+        layout.addRow(self.social_enabled_check)
+
+        self.social_role_combo = QComboBox()
+        self.social_role_combo.addItem("Мастер (Трансляция сигналов)", "master")
+        self.social_role_combo.addItem("Подписчик (Копирование)", "follower")
+        layout.addRow("Роль:", self.social_role_combo)
+
+        # Группа: Настройки Подписчика
+        self.social_sub_group = QGroupBox("Настройки Подписчика")
+        sub_layout = QFormLayout()
+        self.social_sub_group.setLayout(sub_layout)
+
+        self.social_risk_spin = QDoubleSpinBox()
+        self.social_risk_spin.setRange(0.1, 10.0)
+        self.social_risk_spin.setValue(1.0)
+        self.social_risk_spin.setSingleStep(0.1)
+        sub_layout.addRow("Множитель риска:", self.social_risk_spin)
+
+        self.social_max_lot_spin = QDoubleSpinBox()
+        self.social_max_lot_spin.setRange(0.01, 100.0)
+        self.social_max_lot_spin.setValue(1.0)
+        self.social_max_lot_spin.setSingleStep(0.1)
+        sub_layout.addRow("Максимальный лот:", self.social_max_lot_spin)
+
+        self.social_symbols_edit = QLineEdit()
+        self.social_symbols_edit.setPlaceholderText("EURUSD, GBPUSD (оставьте пустым для всех)")
+        sub_layout.addRow("Разрешенные символы:", self.social_symbols_edit)
+
+        layout.addRow(self.social_sub_group)
+
+        # Группа: Статус
+        self.social_status_label = QLabel("Статус: Не запущено")
+        self.social_status_label.setStyleSheet("color: gray;")
+        layout.addRow("Статус:", self.social_status_label)
+
+        return widget
+
+    def _apply_social_settings(self):
+        """Применение настроек социальной торговли."""
+        enabled = self.social_enabled_check.isChecked()
+        role = self.social_role_combo.currentData()
+        risk = self.social_risk_spin.value()
+        max_lot = self.social_max_lot_spin.value()
+        symbols_str = self.social_symbols_edit.text()
+        allowed_symbols = [s.strip().upper() for s in symbols_str.split(",") if s.strip()]
+
+        self.settings.social_trading = {
+            "enabled": enabled,
+            "role": role,
+            "risk_multiplier": risk,
+            "max_lot_per_trade": max_lot,
+            "allowed_symbols": allowed_symbols
+        }
+
+    def _load_social_settings(self):
+        """Загрузка настроек социальной торговли."""
+        social_cfg = self.settings.social_trading if hasattr(self.settings, 'social_trading') and self.settings.social_trading else {}
+        
+        self.social_enabled_check.setChecked(social_cfg.get("enabled", False))
+        
+        role = social_cfg.get("role", "master")
+        index = self.social_role_combo.findData(role)
+        if index >= 0:
+            self.social_role_combo.setCurrentIndex(index)
+
+        self.social_risk_spin.setValue(social_cfg.get("risk_multiplier", 1.0))
+        self.social_max_lot_spin.setValue(social_cfg.get("max_lot_per_trade", 1.0))
+        
+        symbols = social_cfg.get("allowed_symbols", [])
+        self.social_symbols_edit.setText(", ".join(symbols))
 
     def _create_scrollable_widget(self, content_widget: QWidget) -> QWidget:
         """Создаёт прокручиваемый контейнер для вкладки."""
@@ -1391,6 +1472,9 @@ class SettingsWindow(QDialog):
             else:
                 self.quiet_hours_enabled_checkbox.setChecked(False)
 
+            # Social Trading Settings
+            self._load_social_settings()
+
             # Daily Digest
             if isinstance(alerting_config, dict):
                 digest_config = alerting_config.get("daily_digest", {})
@@ -1578,6 +1662,8 @@ class SettingsWindow(QDialog):
                     symbols_list.append(item.text())
 
             # 3. Создаем словарь со всеми настройками, которые нужно обновить
+            self._apply_social_settings()  # Собираем настройки из GUI в self.settings
+            
             settings_to_update = {
                 "RISK_PERCENTAGE": self.risk_percentage_spinbox.value(),
                 "RISK_REWARD_RATIO": self.risk_reward_ratio_spinbox.value(),
@@ -1678,6 +1764,7 @@ class SettingsWindow(QDialog):
                         "time": self.digest_time_edit.time().toString("HH:mm"),
                         "timezone": "UTC",
                     },
+                    "social_trading": self.settings.social_trading if hasattr(self.settings, 'social_trading') and self.settings.social_trading else {},
                 },
             }
 
