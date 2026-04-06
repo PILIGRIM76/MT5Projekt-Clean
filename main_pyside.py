@@ -1770,15 +1770,17 @@ class MainWindow(QMainWindow):
         self.model_accuracy_data = {}
         logger.info("[GUI-Analytics] График точности инициализирован")
 
-        # График прогресса переобучения
+        # График прогресса переобучения (оптимизация: авто-масштаб Y)
         self.retrain_progress_widget = pg.PlotWidget(title="⏰ До переобучения (ч)")
         self.retrain_progress_plot = self.retrain_progress_widget.getPlotItem()
         self.retrain_progress_plot.showGrid(x=True, y=True, alpha=0.3)
         self.retrain_progress_plot.getAxis("bottom").setLabel("Символ")
-        self.retrain_progress_plot.getAxis("left").setRange(0, 3)
+        # УБРАН setRange(0, 3) — теперь авто-масштабирование
         self.retrain_progress_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="b")
         self.retrain_progress_plot.addItem(self.retrain_progress_bars)
-        self.retrain_progress_plot.addItem(pg.InfiniteLine(angle=0, pos=1.0, pen=pg.mkPen("y", style=Qt.DashLine)))
+        # Линия порога переобучения (24ч — текущий интервал TRAINING_INTERVAL_SECONDS=172800)
+        self.retrain_threshold_line = pg.InfiniteLine(angle=0, pos=48.0, pen=pg.mkPen("y", width=2, style=Qt.DashLine))
+        self.retrain_progress_plot.addItem(self.retrain_threshold_line)
         self.retrain_progress_data = {}
         logger.info("[GUI-Analytics] График прогресса инициализирован")
 
@@ -3241,30 +3243,51 @@ class MainWindow(QMainWindow):
             symbols = list(progress_data.keys())
             hours = [progress_data[s] for s in symbols]
 
-            # Цветовое кодирование: красный > 24ч (сильно просрочено), жёлтый 12-24ч, зелёный < 12ч
-            # Порог 24ч соответствует интервалу переобучения из конфигурации
+            # Оптимизация: порог 48ч соответствует TRAINING_INTERVAL_SECONDS=172800
+            training_threshold = 48.0
             colors = []
             for h in hours:
-                if h >= 24.0:
-                    colors.append("#ff5555")  # Красный - пора переобучать! (> 24ч)
-                elif h >= 12.0:
-                    colors.append("#ffb86c")  # Оранжевый - скоро пора (12-24ч)
+                if h >= training_threshold:
+                    colors.append("#ff5555")  # Красный - пора переобучать! (>= 48ч)
+                elif h >= training_threshold * 0.5:
+                    colors.append("#ffb86c")  # Оранжевый - скоро пора (24-48ч)
                 else:
-                    colors.append("#50fa7b")  # Зелёный - ещё рано (< 12ч)
+                    colors.append("#50fa7b")  # Зелёный - ещё рано (< 24ч)
 
             # Обновляем график
             x_positions = list(range(len(symbols)))
             self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
 
-            # Обновляем заголовок - считаем символы которые старше 24ч
-            symbols_to_retrain = sum(1 for h in hours if h >= 24.0)
-            self.retrain_progress_widget.setTitle(f"⏰ Прогресс переобучения (требуют: {symbols_to_retrain})")
+            # Авто-масштабирование оси Y
+            if hours:
+                max_hours = max(hours)
+                if max_hours > 100:
+                    # Если есть значения 999 (модель не обучалась), ограничиваем отображение
+                    y_max = min(max_hours * 1.1, 1000)
+                else:
+                    y_max = max(max_hours * 1.3, 10)  # Минимум 10ч для видимости
+                self.retrain_progress_plot.getAxis("left").setRange(0, y_max)
+
+            # Обновляем линию порога
+            if hasattr(self, "retrain_threshold_line"):
+                self.retrain_threshold_line.setPos(training_threshold)
+
+            # Обновляем заголовок - считаем символы которые старше порога
+            symbols_to_retrain = sum(1 for h in hours if h >= training_threshold)
+            self.retrain_progress_widget.setTitle(
+                f"⏰ До переобучения (требуют: {symbols_to_retrain}/{len(symbols)})"
+            )
+
+            # Обновляем метки символов на оси X
+            ticks = [list(enumerate(symbols))]
+            self.retrain_progress_plot.getAxis("bottom").setTicks(ticks)
 
             # Сохраняем данные
             self.retrain_progress_data = progress_data
 
             logger.info(
-                f"[GUI-RetrainProgress] График обновлён: {len(symbols)} символов, требуют переобучения: {symbols_to_retrain}"
+                f"[GUI-RetrainProgress] График обновлён: {len(symbols)} символов, "
+                f"требуют переобучения: {symbols_to_retrain}, max часов: {max(hours):.1f}"
             )
 
         except Exception as e:
