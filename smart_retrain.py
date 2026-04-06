@@ -79,34 +79,55 @@ def train_symbol_model(symbol: str) -> dict:
         # Импортируем необходимые компоненты
         import queue
 
+        import MetaTrader5 as mt5
+
         from src.core.config_loader import load_config
         from src.db.database_manager import DatabaseManager
         from src.ml.auto_trainer import AutoTrainer
 
-        # Инициализируем компоненты
-        config = load_config()
-        write_queue = queue.Queue()  # Создаем очередь для записи
-        db = DatabaseManager(config, write_queue)
-        trainer = AutoTrainer(config, db)
+        # Инициализируем MT5 (обязательно для загрузки данных если их нет в БД)
+        if not mt5.initialize():
+            config_tmp = load_config()
+            if not mt5.initialize(
+                path=config_tmp.MT5_PATH,
+                login=int(config_tmp.MT5_LOGIN),
+                password=config_tmp.MT5_PASSWORD,
+                server=config_tmp.MT5_SERVER,
+            ):
+                logger.warning(f"[{symbol}] MT5 недоступен, пропускаем")
+                result["error"] = "MT5 недоступен"
+                return result
 
-        # Загружаем данные для обучения
-        data = trainer.load_training_data(symbol)
+        try:
+            # Инициализируем компоненты
+            config = load_config()
+            write_queue = queue.Queue()  # Создаем очередь для записи
+            db = DatabaseManager(config, write_queue)
+            trainer = AutoTrainer(config, db)
 
-        if data is None or len(data) < 1000:
-            logger.warning(f"[{symbol}] Недостаточно данных для обучения ({len(data) if data else 0} баров)")
-            result["error"] = "Недостаточно данных"
-            return result
+            # Загружаем данные для обучения (из БД или MT5)
+            data = trainer.load_training_data(symbol)
 
-        # Обучаем модель
-        success = trainer.train_model(symbol)
+            if data is None or len(data) < 500:
+                logger.warning(f"[{symbol}] Недостаточно данных для обучения ({len(data) if data else 0} баров)")
+                result["error"] = "Недостаточно данных"
+                return result
 
-        result["success"] = success
-        result["metrics"] = {"status": "trained" if success else "failed"}
+            logger.info(f"[{symbol}] Загружено {len(data)} баров для обучения")
 
-        if success:
-            logger.info(f"[{symbol}] Обучение завершено успешно")
-        else:
-            logger.warning(f"[{symbol}] Обучение завершено с ошибками")
+            # Обучаем модель
+            success = trainer.train_model(symbol)
+
+            result["success"] = success
+            result["metrics"] = {"status": "trained" if success else "failed"}
+
+            if success:
+                logger.info(f"[{symbol}] Обучение завершено успешно")
+            else:
+                logger.warning(f"[{symbol}] Обучение завершено с ошибками")
+        finally:
+            # Не закрываем MT5 полностью — только если мы его инициализировали
+            pass
 
     except ImportError as e:
         logger.warning(f"[{symbol}] Компоненты обучения недоступны: {e}")

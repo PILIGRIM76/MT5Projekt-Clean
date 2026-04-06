@@ -146,6 +146,22 @@ class AutoTrainer:
         # Если в БД нет данных, загружаем напрямую из MT5
         logger.info(f"Загрузка данных из MT5 для {symbol}...")
         try:
+            # Убедимся что MT5 инициализирован в этом потоке
+            if not mt5.initialize():
+                logger.warning(f"MT5 не инициализирован для {symbol}")
+                return None
+
+            # Выбираем символ (может отличаться от имени в whitelist)
+            select_symbol = symbol
+            rates = mt5.symbol_info_tick(symbol)
+            if rates is None:
+                # Пробуем распространённые варианты имени
+                for alt in [symbol, f"{symbol}c", f"{symbol}.", f"{symbol}m", f"{symbol}pro"]:
+                    if mt5.symbol_info_tick(alt):
+                        select_symbol = alt
+                        logger.info(f"Найден альтернативный символ: {symbol} -> {alt}")
+                        break
+
             # Преобразуем timeframe строку в MT5 константу
             tf_map = {
                 "M1": mt5.TIMEFRAME_M1,
@@ -157,13 +173,13 @@ class AutoTrainer:
                 "D1": mt5.TIMEFRAME_D1,
                 "W1": mt5.TIMEFRAME_W1,
             }
-            mt5_timeframe = tf_map.get(timeframe, mt5.TIMEFRAME_H1)
+            mt5_timeframe = tf_map.get(timeframe, mt5.TIMEFRAME_D1)
 
             # Получаем последние бары
-            rates = mt5.copy_rates_from_pos(symbol, mt5_timeframe, 0, self.min_samples_for_retrain * 2)
+            rates = mt5.copy_rates_from_pos(select_symbol, mt5_timeframe, 0, self.min_samples_for_retrain * 2)
 
             if rates is None or len(rates) == 0:
-                logger.warning(f"MT5 не вернул данные для {symbol}")
+                logger.warning(f"MT5 не вернул данные для {symbol} (пробовал {select_symbol})")
                 return None
 
             df = pd.DataFrame(rates)
