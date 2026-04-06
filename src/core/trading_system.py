@@ -508,6 +508,12 @@ class TradingSystem(QObject):
             raise RuntimeError("Невозможно запустить сервисы: тяжелая инициализация не завершена.")
 
         logger.info("Начало запуска всех фоновых сервисов...")
+        
+        # КРИТИЧНО: Принудительный сброс флага обновления при запуске сервисов
+        # AutoUpdater может установить его в фоновом потоке, что блокирует торговый цикл
+        if self.update_pending:
+            logger.warning("[RUNTIME] Принудительный сброс update_pending при запуске сервисов")
+            self.update_pending = False
 
         # Запуск планировщика автоматического переобучения
         if self.training_scheduler:
