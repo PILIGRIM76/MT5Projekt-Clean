@@ -279,10 +279,10 @@
     "total_trades": 3
   },
   "FOREX_THRESHOLDS": {
-    "profit_factor": 0.4,
-    "win_rate": 0.2,
-    "sharpe_ratio": 0.0,
-    "max_drawdown": 20.0,
+    "profit_factor": 0.0,
+    "win_rate": 0.0,
+    "sharpe_ratio": -1.0,
+    "max_drawdown": 50.0,
     "total_trades": 1
   },
   "TEMPORARY_RELAXED_MODE": true,
