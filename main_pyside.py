@@ -3347,6 +3347,11 @@ class MainWindow(QMainWindow):
     def on_heavy_initialization_finished(self):
         """Слот, который безопасно включает кнопку запуска после загрузки моделей."""
         self.start_button.setEnabled(True)
+        
+        # Инициализация DeFi Widget (подключение к БД)
+        if hasattr(self, 'defi_widget') and hasattr(self.trading_system.core_system, 'db_manager'):
+            logger.info("[DeFi] Подключение к БД...")
+            self.defi_widget.set_db_manager(self.trading_system.core_system.db_manager)
 
     def on_filter_request(self, filter_type: str, filter_value: str):
         """
