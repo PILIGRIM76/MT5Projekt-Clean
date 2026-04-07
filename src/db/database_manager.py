@@ -1971,11 +1971,13 @@ class DatabaseManager:
             session.close()
 
     def get_graph_data(self, limit: int = 50) -> Optional[Dict[str, List]]:
+        """Получает данные для графа знаний (оптимизировано)."""
         session = self.Session()
         try:
             source_alias = aliased(Entity)
             target_alias = aliased(Entity)
 
+            # Оптимизация: выбираем только нужные колонки и ограничиваем выборку
             results = (
                 session.query(
                     Relation.source_id,

@@ -371,7 +371,7 @@
     "decision_interval_seconds": 28800,
     "training_interval_seconds": 86400
   },
-  "ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION": false,
+  "ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION": true,
   "concept_drift": {
     "enabled": true,
     "adwin_delta": 0.002,

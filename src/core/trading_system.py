@@ -2185,7 +2185,9 @@ class TradingSystem(QObject):
         # ОПТИМИЗАЦИЯ: Уменьшено до 3 секунд для частого обновления прибыли
         heavy_check_interval = 3
         last_graph_update_time = 0
-        graph_update_interval = 30
+        # Оптимизация: Интервал обновления графика знаний увеличен до 60 секунд
+        # чтобы снизить нагрузку на GUI и БД.
+        graph_update_interval = 60
         last_kpi_update_time = 0
         kpi_update_interval = 60
         last_account_update = 0
