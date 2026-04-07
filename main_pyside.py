@@ -103,6 +103,7 @@ from src.gui.settings_window import SettingsWindow
 from src.gui.sound_manager import SoundManager
 from src.gui.styles import DARK_STYLE, LIGHT_STYLE
 from src.gui.widgets import Bridge, CustomCandlestickItem, GraphBackend, GUIBridge
+from src.gui.widgets.defi_widget import DeFiWidget
 from src.strategies.strategy_loader import StrategyLoader
 
 # ===================================================================
@@ -755,6 +756,10 @@ class MainWindow(QMainWindow):
         self.status_update_timer.start(60 * 1000)
         self.update_scheduler_status_display()
         self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
+        
+        # 4. Инициализация DeFi Widget
+        if hasattr(self, 'defi_widget') and hasattr(self.core_system, 'db_manager'):
+            self.defi_widget.set_db_manager(self.core_system.db_manager)
         self.on_kg_toggle()
 
         if hasattr(self, "control_center_tab"):
@@ -1984,6 +1989,10 @@ class MainWindow(QMainWindow):
         model_manager_layout.addLayout(mm_controls_layout)
         model_manager_layout.addWidget(self.models_table)
         right_widget.addTab(model_manager_tab, self.create_icon("🤖"), "Менеджер Моделей")
+
+        # --- ВКЛАДКА "DeFi МЕТРИКИ" ---
+        self.defi_widget = DeFiWidget()
+        right_widget.addTab(self.defi_widget, self.create_icon("💎"), "DeFi Метрики")
 
         # --- ВКЛАДКА "ГРАФ ЗНАНИЙ" ---
         knowledge_graph_tab = QWidget()
