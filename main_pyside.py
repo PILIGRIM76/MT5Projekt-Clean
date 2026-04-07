@@ -1743,7 +1743,7 @@ class MainWindow(QMainWindow):
 
     def on_tab_changed(self, index):
         """Обработчик переключения вкладок правой панели (минимальное логирование)"""
-        tab_widget = self.sender()
+        tab_widget: QTabWidget = self.sender()  # type: ignore
         tab_name = tab_widget.tabText(index)
         logger.debug(f"[GUI-Tab-Right] Переключение на вкладку: '{tab_name}' (индекс {index})")
 
@@ -1756,7 +1756,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"[GUI-Tab-Right] Ошибка при переключении на вкладку '{tab_name}': {e}", exc_info=True)
 
-    def on_left_tab_changed(self, index, tab_widget):
+    def on_left_tab_changed(self, index, tab_widget: QTabWidget):
         """Обработчик переключения вкладок левой панели (минимальное логирование)"""
         tab_name = tab_widget.tabText(index)
         logger.debug(f"[GUI-Tab-Left] Переключение на вкладку: '{tab_name}' (индекс {index})")
@@ -1782,10 +1782,10 @@ class MainWindow(QMainWindow):
         self.bridge.update_status_changed.connect(self.update_update_status)
         self.bridge.status_updated.connect(self.update_status)
         self.bridge.balance_updated.connect(self.update_balance)
-        self.bridge.log_message_added.connect(self.add_log_message, Qt.QueuedConnection)
+        self.bridge.log_message_added.connect(self.add_log_message, Qt.ConnectionType.QueuedConnection)
         self.bridge.positions_updated.connect(self.update_positions_table)
         self.bridge.history_updated.connect(self.update_history_table)
-        self.bridge.training_history_updated.connect(self.update_training_chart, Qt.QueuedConnection)
+        self.bridge.training_history_updated.connect(self.update_training_chart, Qt.ConnectionType.QueuedConnection)
         self.bridge.candle_chart_updated.connect(self.update_candle_chart)
         self.bridge.pnl_updated.connect(self.update_pnl_chart)
         self.bridge.market_scan_updated.connect(self.update_market_scanner_view)
@@ -1805,8 +1805,8 @@ class MainWindow(QMainWindow):
         self.bridge.backtest_finished.connect(self.display_backtest_results)
 
         # НОВЫЕ: Подключение сигналов для визуализации переобучения
-        self.bridge.model_accuracy_updated.connect(self.update_model_accuracy_chart, Qt.QueuedConnection)
-        self.bridge.retrain_progress_updated.connect(self.update_retrain_progress_chart, Qt.QueuedConnection)
+        self.bridge.model_accuracy_updated.connect(self.update_model_accuracy_chart, Qt.ConnectionType.QueuedConnection)
+        self.bridge.retrain_progress_updated.connect(self.update_retrain_progress_chart, Qt.ConnectionType.QueuedConnection)
         logger.info("[GUI] Сигналы model_accuracy_updated и retrain_progress_updated подключены")
 
         #  Указываем правильный метод on_initialization_successful +++
