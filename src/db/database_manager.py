@@ -108,7 +108,8 @@ class RestrictedUnpickler(pickle.Unpickler):
         "numpy.core": {"_reconstruct"},
         "numpy._core.multiarray": {"_reconstruct", "scalar"},
         "numpy._core": {"_reconstruct"},
-        "numpy.core.numeric": {"ndarray"},
+        "numpy.core.numeric": {"ndarray", "_frombuffer"},
+        "numpy._core.numeric": {"_frombuffer"},
         "numpy.core._multiarray_umath": {"_reconstruct"},
         # Collections
         "collections": {"OrderedDict", "defaultdict"},
