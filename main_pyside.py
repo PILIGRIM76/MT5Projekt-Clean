@@ -996,6 +996,7 @@ class MainWindow(QMainWindow):
 
         control_box = QFrame()
         control_layout = QHBoxLayout(control_box)
+        control_layout.setAlignment(Qt.AlignTop)
 
         # Левая колонка: кнопка запуска + чекбокс наблюдателя (вертикально)
         start_layout = QVBoxLayout()
@@ -1004,9 +1005,13 @@ class MainWindow(QMainWindow):
         self.observer_checkbox.setChecked(True)
         start_layout.addWidget(self.start_button)
         start_layout.addWidget(self.observer_checkbox)
+        start_layout.addStretch()
         control_layout.addLayout(start_layout)
 
-        # Остальные кнопки
+        # Остальные кнопки (выровнены по верху)
+        buttons_layout = QVBoxLayout()
+        buttons_layout.setAlignment(Qt.AlignTop)
+
         self.stop_button = QPushButton("Остановка")
         self.stop_button.setEnabled(False)
 
@@ -1015,9 +1020,10 @@ class MainWindow(QMainWindow):
         self.restart_system_button = QPushButton("Перезапустить Систему")
         self.restart_system_button.setStyleSheet("background-color: #ffb86c; color: #000;")
 
-        control_layout.addWidget(self.stop_button)
-        control_layout.addWidget(self.settings_button)
-        control_layout.addWidget(self.restart_system_button)
+        buttons_layout.addWidget(self.stop_button)
+        buttons_layout.addWidget(self.settings_button)
+        buttons_layout.addWidget(self.restart_system_button)
+        control_layout.addLayout(buttons_layout)
 
         update_box = QFrame()
         update_layout = QVBoxLayout(update_box)
