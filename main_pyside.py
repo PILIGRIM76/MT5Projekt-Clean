@@ -1696,7 +1696,7 @@ class MainWindow(QMainWindow):
             "D1": mt5.TIMEFRAME_D1,
             "W1": mt5.TIMEFRAME_W1,
         }
-        self.bt_timeframe_combo.addItems(self.timeframe_map.keys())
+        self.bt_timeframe_combo.addItems(list(self.timeframe_map.keys()))
         self.bt_timeframe_combo.setCurrentText("H1")
         strategy_loader = StrategyLoader(self.trading_system.config)
         strategies = strategy_loader.load_strategies()
@@ -1722,7 +1722,7 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.bt_end_date)
         controls_layout.addStretch()
         controls_layout.addWidget(self.bt_run_button)
-        results_splitter = QSplitter(Qt.Vertical)
+        results_splitter = QSplitter(Qt.Orientation.Vertical)
         self.bt_report_text = QTextEdit("Здесь будет отчет по результатам бэктеста...")
         self.bt_report_text.setReadOnly(True)
         self.bt_equity_chart_widget = pg.GraphicsLayoutWidget()
