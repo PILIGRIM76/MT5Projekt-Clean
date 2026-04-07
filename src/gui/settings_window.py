@@ -1705,57 +1705,68 @@ class SettingsWindow(QDialog):
 
         # --- ЕДИНАЯ ЛОГИКА СОХРАНЕНИЯ settings.json ---
         try:
-            # 1. Сначала загружаем текущую полную конфигурацию
             current_config = load_config().model_dump()
-
-            # 2. Собираем новые значения из GUI
-            symbols_list = []
-            for row in range(self.symbols_table.rowCount()):
-                item = self.symbols_table.item(row, 0)
-                if item:
-                    symbols_list.append(item.text())
-
-            # 3. Создаем словарь со всеми настройками, которые нужно обновить
-            self._apply_social_settings()  # Собираем настройки из GUI в self.settings
             
+            # Собираем символы
+            symbols_list = []
+            try:
+                for row in range(self.symbols_table.rowCount()):
+                    item = self.symbols_table.item(row, 0)
+                    if item: symbols_list.append(item.text())
+            except RuntimeError: symbols_list = self.full_config.SYMBOLS_WHITELIST
+
+            self._apply_social_settings()
+
+            # Собираем настройки с защитой от ошибок виджетов
+            def safe_val(w, d): 
+                try: return w.value() if hasattr(w, 'value') else w.isChecked() 
+                except RuntimeError: return d
+
             settings_to_update = {
-                "RISK_PERCENTAGE": self.risk_percentage_spinbox.value(),
-                "RISK_REWARD_RATIO": self.risk_reward_ratio_spinbox.value(),
-                "MAX_DAILY_DRAWDOWN_PERCENT": self.max_daily_drawdown_spinbox.value(),
-                "MAX_OPEN_POSITIONS": self.max_open_positions_spinbox.value(),
+                "RISK_PERCENTAGE": safe_val(self.risk_percentage_spinbox, self.full_config.RISK_PERCENTAGE),
+                "RISK_REWARD_RATIO": safe_val(self.risk_reward_ratio_spinbox, self.full_config.RISK_REWARD_RATIO),
+                "MAX_DAILY_DRAWDOWN_PERCENT": safe_val(self.max_daily_drawdown_spinbox, self.full_config.MAX_DAILY_DRAWDOWN_PERCENT),
+                "MAX_OPEN_POSITIONS": safe_val(self.max_open_positions_spinbox, self.full_config.MAX_OPEN_POSITIONS),
                 "SYMBOLS_WHITELIST": symbols_list,
-                "ALLOW_WEEKEND_TRADING": self.allow_weekend_trading_checkbox.isChecked(),
+                "ALLOW_WEEKEND_TRADING": safe_val(self.allow_weekend_trading_checkbox, self.full_config.ALLOW_WEEKEND_TRADING),
                 "DATABASE_FOLDER": self.db_folder_edit.text(),
                 "LOGS_FOLDER": self.logs_folder_edit.text(),
                 "HF_MODELS_CACHE_DIR": self.hf_cache_edit.text() or None,
                 "ORCHESTRATOR_MODEL_PATH": self.orchestrator_model_edit.text() or None,
-                "crypto_exchanges": {
-                    "enabled": self.crypto_enabled_checkbox.isChecked(),
-                    "default_exchange": self.crypto_default_exchange_combo.currentText(),
-                    "exchanges": {
-                        "binance": {
-                            "enabled": self.binance_enabled_checkbox.isChecked(),
-                            "api_key_env": "BINANCE_API_KEY",
-                            "api_secret_env": "BINANCE_API_SECRET",
-                            "sandbox": self.binance_sandbox_checkbox.isChecked(),
-                            "symbols": [s.strip() for s in self.binance_symbols_edit.text().split(",") if s.strip()],
-                            "default_leverage": self.binance_leverage_spin.value(),
-                            "market_type": self.binance_market_type_combo.currentText(),
-                        },
-                        "bybit": {
-                            "enabled": self.bybit_enabled_checkbox.isChecked(),
-                            "api_key_env": "BYBIT_API_KEY",
-                            "api_secret_env": "BYBIT_API_SECRET",
-                            "sandbox": self.bybit_sandbox_checkbox.isChecked(),
-                            "symbols": [s.strip() for s in self.bybit_symbols_edit.text().split(",") if s.strip()],
-                            "default_leverage": 1,
-                            "market_type": "spot",
-                        },
+                "GP_POPULATION_SIZE": safe_val(self.gp_pop_spin, self.full_config.GP_POPULATION_SIZE),
+                "GP_GENERATIONS": safe_val(self.gp_gen_spin, self.full_config.GP_GENERATIONS),
+            }
+
+            # Криптовалюты
+            settings_to_update["crypto_exchanges"] = {
+                "enabled": self.crypto_enabled_checkbox.isChecked(),
+                "default_exchange": self.crypto_default_exchange_combo.currentText(),
+                "exchanges": {
+                    "binance": {
+                        "enabled": self.binance_enabled_checkbox.isChecked(),
+                        "api_key_env": "BINANCE_API_KEY",
+                        "api_secret_env": "BINANCE_API_SECRET",
+                        "sandbox": self.binance_sandbox_checkbox.isChecked(),
+                        "symbols": [s.strip() for s in self.binance_symbols_edit.text().split(",") if s.strip()],
+                        "default_leverage": self.binance_leverage_spin.value(),
+                        "market_type": self.binance_market_type_combo.currentText(),
+                    },
+                    "bybit": {
+                        "enabled": self.bybit_enabled_checkbox.isChecked(),
+                        "api_key_env": "BYBIT_API_KEY",
+                        "api_secret_env": "BYBIT_API_SECRET",
+                        "sandbox": self.bybit_sandbox_checkbox.isChecked(),
+                        "symbols": [s.strip() for s in self.bybit_symbols_edit.text().split(",") if s.strip()],
+                        "default_leverage": 1,
+                        "market_type": "spot",
                     },
                 },
-                "GP_POPULATION_SIZE": self.gp_pop_spin.value(),
-                "GP_GENERATIONS": self.gp_gen_spin.value(),
-                "vector_db": {
+            }
+            settings_to_update.update({
+                "GP_POPULATION_SIZE": safe_val(self.gp_pop_spin, self.full_config.GP_POPULATION_SIZE),
+                "GP_GENERATIONS": safe_val(self.gp_gen_spin, self.full_config.GP_GENERATIONS),
+            })
+            settings_to_update["vector_db"] = {
                     "enabled": self.full_config.vector_db.enabled,
                     "path": self._get_relative_vector_db_path(),
                     "collection_name": self.full_config.vector_db.collection_name,
@@ -1763,31 +1774,34 @@ class SettingsWindow(QDialog):
                     "cleanup_enabled": self.full_config.vector_db.cleanup_enabled,
                     "max_age_days": self.full_config.vector_db.max_age_days,
                     "cleanup_interval_hours": self.full_config.vector_db.cleanup_interval_hours,
-                },
-                "auto_retraining": {
+                }
+            settings_to_update["auto_retraining"] = {
                     "enabled": self.auto_retrain_checkbox.isChecked(),
                     "schedule_time": self.auto_retrain_time_edit.time().toString("hh:mm"),
                     "interval_hours": self.auto_retrain_interval_spin.value(),
                     "max_symbols": self.auto_retrain_max_symbols_spin.value(),
                     "max_workers": self.auto_retrain_max_workers_spin.value(),
-                },
-                "trading_mode": {
+                }
+            settings_to_update["trading_mode"] = {
                     "current_mode": self.trading_mode_toggle.get_mode() if hasattr(self, "trading_mode_toggle") else "paper",
                     "enabled": True,
-                },
-                "PROFIT_TARGET_MODE": self.profit_target_mode_combo.currentText(),
-                "PROFIT_TARGET_MANUAL_PERCENT": self.profit_target_manual_spin.value(),
-                "REENTRY_COOLDOWN_AFTER_PROFIT": self.reentry_profit_spin.value(),
-                "REENTRY_COOLDOWN_AFTER_LOSS": self.reentry_loss_spin.value(),
-                # Новые настройки контроля прибыли и интенсивности
-                "MAX_PROFIT_PER_TRADE_PERCENT": self.max_profit_close_spin.value(),
-                "PROFIT_MODE": self.profit_mode_combo.currentText(),
-                "TRADE_INTENSITY": self.trade_intensity_combo.currentText(),
-                "TRADE_INTERVAL_SECONDS": self.trade_interval_spin.value(),
-                "REENTRY_SAME_PAIR_MODE": self.reentry_same_pair_combo.currentText(),
-                "REENTRY_SAME_PAIR_COOLDOWN_MINUTES": self.reentry_same_pair_cooldown_spin.value(),
-                # Настройки уведомлений (alerting) — ДОБАВЛЕНО
-                "alerting": {
+                }
+            settings_to_update["PROFIT_TARGET_MODE"] = self.profit_target_mode_combo.currentText()
+            settings_to_update.update({
+                    "PROFIT_TARGET_MANUAL_PERCENT": self.profit_target_manual_spin.value(),
+                    "REENTRY_COOLDOWN_AFTER_PROFIT": self.reentry_profit_spin.value(),
+                    "REENTRY_COOLDOWN_AFTER_LOSS": self.reentry_loss_spin.value(),
+                })
+            settings_to_update.update({
+                    # Новые настройки контроля прибыли и интенсивности
+                    "MAX_PROFIT_PER_TRADE_PERCENT": self.max_profit_close_spin.value(),
+                    "PROFIT_MODE": self.profit_mode_combo.currentText(),
+                    "TRADE_INTENSITY": self.trade_intensity_combo.currentText(),
+                    "TRADE_INTERVAL_SECONDS": self.trade_interval_spin.value(),
+                    "REENTRY_SAME_PAIR_MODE": self.reentry_same_pair_combo.currentText(),
+                    "REENTRY_SAME_PAIR_COOLDOWN_MINUTES": self.reentry_same_pair_cooldown_spin.value(),
+                })
+            settings_to_update["alerting"] = {
                     "enabled": self.telegram_enabled_checkbox.isChecked() or self.email_enabled_checkbox.isChecked(),
                     "channels": {
                         "telegram": {
@@ -1818,9 +1832,8 @@ class SettingsWindow(QDialog):
                         "time": self.digest_time_edit.time().toString("HH:mm"),
                         "timezone": "UTC",
                     },
-                    "social_trading": self.settings.social_trading if hasattr(self.settings, 'social_trading') and self.settings.social_trading else {},
-                },
-            }
+                }
+            settings_to_update["social_trading"] = self.full_config.social_trading if hasattr(self.full_config, 'social_trading') and self.full_config.social_trading else {}
 
             # 4. Обновляем текущую конфигурацию новыми значениями
             current_config.update(settings_to_update)
