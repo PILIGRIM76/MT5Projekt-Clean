@@ -352,9 +352,10 @@ class MainWindow(QMainWindow):
         # Настройка панели уведомлений
         self.notification_bar = QFrame()
         self.notification_bar.setObjectName("NotificationBar")
-        self.notification_bar.setLayout(QHBoxLayout())
+        notification_layout = QHBoxLayout()
+        self.notification_bar.setLayout(notification_layout)
         self.notification_label = QLabel("")
-        self.notification_bar.layout().addWidget(self.notification_label)
+        notification_layout.addWidget(self.notification_label)
         self.notification_bar.setVisible(False)
 
         self.notification_timer = QTimer(self)
@@ -975,7 +976,9 @@ class MainWindow(QMainWindow):
         main_splitter.addWidget(right_panel)
         main_splitter.setSizes([650, 950])
         self.status_label = QLabel("Система не запущена.")
-        self.statusBar().addWidget(self.status_label)
+        sb = self.statusBar()
+        if sb:
+            sb.addWidget(self.status_label)
 
     def _create_top_panel(self):
         top_widget = QFrame()
