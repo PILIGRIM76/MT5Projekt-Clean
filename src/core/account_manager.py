@@ -13,6 +13,7 @@ Account Manager — Автоопределение типа счета, валю
 import logging
 from typing import Dict, Optional
 import MetaTrader5 as mt5
+from src.core.mt5_connection_manager import MT5ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +53,9 @@ class AccountManager:
         
         # Если не удалось получить инфо, пробуем инициализировать MT5
         if acc is None:
-            logger.debug("[AccountManager] Нет связи с терминалом (возможно, идет загрузка). Попытка инициализации...")
-            # Пробуем мягкую инициализацию (подхват активной сессии)
-            if not mt5.initialize():
+            logger.debug("[AccountManager] Нет связи с терминалом. Попытка инициализации через MT5ConnectionManager...")
+            manager = MT5ConnectionManager.get_instance()
+            if not manager.initialize():
                 return False
         
         # Повторная попытка после инициализации

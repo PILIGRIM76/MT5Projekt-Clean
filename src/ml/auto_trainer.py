@@ -147,8 +147,10 @@ class AutoTrainer:
         logger.info(f"Загрузка данных из MT5 для {symbol}...")
         try:
             # Убедимся что MT5 инициализирован в этом потоке
-            if not mt5.initialize():
-                logger.warning(f"MT5 не инициализирован для {symbol}")
+            from src.core.mt5_connection_manager import MT5ConnectionManager
+            manager = MT5ConnectionManager.get_instance()
+            if not manager.is_connected():
+                logger.warning(f"MT5 не подключен для {symbol}")
                 return None
 
             # Выбираем символ (может отличаться от имени в whitelist)
