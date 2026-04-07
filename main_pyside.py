@@ -996,22 +996,26 @@ class MainWindow(QMainWindow):
 
         control_box = QFrame()
         control_layout = QHBoxLayout(control_box)
-        self.start_button = QPushButton("Запуск Системы")
-        self.stop_button = QPushButton("Остановка")
-        self.stop_button.setEnabled(False)
 
+        # Левая колонка: кнопка запуска + чекбокс наблюдателя (вертикально)
+        start_layout = QVBoxLayout()
+        self.start_button = QPushButton("Запуск Системы")
         self.observer_checkbox = QCheckBox("Режим Наблюдателя")
         self.observer_checkbox.setChecked(True)
+        start_layout.addWidget(self.start_button)
+        start_layout.addWidget(self.observer_checkbox)
+        control_layout.addLayout(start_layout)
+
+        # Остальные кнопки
+        self.stop_button = QPushButton("Остановка")
+        self.stop_button.setEnabled(False)
 
         self.settings_button = QPushButton("Настройки")
 
         self.restart_system_button = QPushButton("Перезапустить Систему")
         self.restart_system_button.setStyleSheet("background-color: #ffb86c; color: #000;")
 
-        control_layout.addWidget(self.start_button)
-        control_layout.addWidget(self.observer_checkbox)
         control_layout.addWidget(self.stop_button)
-
         control_layout.addWidget(self.settings_button)
         control_layout.addWidget(self.restart_system_button)
 
