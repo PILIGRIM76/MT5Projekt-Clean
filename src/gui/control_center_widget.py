@@ -472,10 +472,10 @@ class ControlCenterWidget(QWidget):
             return
         logger.info(f"[TradingSignals] Первый элемент: {data[0]}")
 
-        # Проверяем тип данных — если это данные сканера (есть 'rank'), пропускаем
+        # Проверяем тип данных — если это данные сканера (нет 'signal_type'), пропускаем
         first_item = data[0]
-        if "rank" in first_item or "liquidity_score" in first_item:
-            logger.debug("[TradingSignals] Это данные сканера, а не торговые сигналы — пропускаю")
+        if "signal_type" not in first_item:
+            logger.debug("[TradingSignals] Это данные сканера (нет signal_type), а не торговые сигналы — пропускаю")
             return
 
         # Сохраняем последние данные для возможного переключения режимов
