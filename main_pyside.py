@@ -3039,7 +3039,11 @@ class MainWindow(QMainWindow):
         # Вспомогательный метод для принудительного обновления
         try:
             # 1. Вызываем метод, который должен вернуть данные
-            graph_data = self.trading_system.core_system.db_manager.get_graph_data(limit=50)
+            db_manager = self.trading_system.core_system.db_manager
+            if db_manager is None:
+                logger.warning("KG: db_manager ещё не инициализирован")
+                return
+            graph_data = db_manager.get_graph_data(limit=50)
 
             if graph_data:
                 # 2. Если данные есть, отправляем их
@@ -3101,7 +3105,10 @@ class MainWindow(QMainWindow):
         try:
             # В реальной системе здесь была бы сложная логика запроса к Neo4j/SQLite.
             # Для демонстрации: просто запрашиваем последние 50 связей
-            graph_data = self.trading_system.core_system.db_manager.get_graph_data(limit=50)
+            db_manager = self.trading_system.core_system.db_manager
+            if db_manager is None:
+                return
+            graph_data = db_manager.get_graph_data(limit=50)
 
             if graph_data:
                 # Отправляем данные обратно в JS

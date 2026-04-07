@@ -280,7 +280,10 @@ class MonitoringService(BaseService):
     def _update_knowledge_graph(self) -> None:
         """Обновить граф знаний"""
         try:
-            graph_data = self.trading_system.db_manager.get_graph_data()
+            db_manager = self.trading_system.db_manager
+            if db_manager is None:
+                return
+            graph_data = db_manager.get_graph_data()
             if graph_data:
                 import json
 

@@ -2200,6 +2200,8 @@ class TradingSystem(QObject):
                 current_time - last_graph_update_time > graph_update_interval
             ):
                 try:
+                    if self.db_manager is None:
+                        continue
                     graph_data = self.db_manager.get_graph_data()
                     if graph_data:
                         graph_json = json.dumps(graph_data)
