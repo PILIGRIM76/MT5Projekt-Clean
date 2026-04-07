@@ -558,7 +558,7 @@ class TradingSystem(QObject):
                 f"[CryptoProviders] Инициализация завершена. Бирж: {len(self.data_provider_manager._crypto_providers)}"
             )
 
-    def start_all_background_services(self, threadpool: QThreadPool):
+    def start_all_background_services(self, threadpool: Optional[QThreadPool] = None):
         """Запускает все постоянные фоновые сервисы."""
         logger.info(
             f"[TradingSystem] start_all_background_services вызван. is_heavy_init_complete={self.is_heavy_init_complete}"
@@ -3524,8 +3524,6 @@ class TradingSystem(QObject):
         if method_name == "update_visualization":
             logger.info(f"[Throttle] Вызван _safe_gui_update для {method_name}")
 
-        import time as standard_time
-
         current_time = standard_time.time()
 
         # Устанавливаем минимальные интервалы между обновлениями
@@ -4043,7 +4041,6 @@ class TradingSystem(QObject):
         """
         Асинхронное принудительное обучение (в отдельном потоке).
         """
-        import time as standard_time
         import uuid
 
         training_batch_id = f"batch-{uuid.uuid4()}"
@@ -4117,8 +4114,6 @@ class TradingSystem(QObject):
         """
         Асинхронное обучение для конкретного символа (без блокировки training_lock).
         """
-        import time as standard_time
-
         from sklearn.model_selection import train_test_split
 
         from src.ml.feature_engineer import FeatureEngineer
