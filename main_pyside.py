@@ -2385,6 +2385,7 @@ class MainWindow(QMainWindow):
 
     def update_balance(self, balance, equity):
         """Обновляет баланс и эквити, а также рассчитывает открытый PnL."""
+        logger.info(f"[GUI-Balance] update_balance вызван: balance={balance}, equity={equity}")
         self.balance_label.setText(f"Баланс: {balance:.2f}")
         self.equity_label.setText(f"Эквити: {equity:.2f}")
 
@@ -2392,11 +2393,16 @@ class MainWindow(QMainWindow):
         open_pnl = equity - balance
         open_pnl_pct = (open_pnl / balance * 100) if balance > 0 else 0
 
+        logger.info(f"[GUI-Balance] Открытый PnL: {open_pnl:.2f} ({open_pnl_pct:.2f}%)")
+
         # Обновляем метку открытого PnL (незакрытые позиции)
         if hasattr(self, "open_pnl_label"):
             color = "#50fa7b" if open_pnl >= 0 else "#ff5555"
             pnl_text = f"<span style='font-weight: bold; color:{color}'>{open_pnl:+.2f} ({open_pnl_pct:+.2f}%)</span>"
             self.open_pnl_label.setText(pnl_text)
+            logger.info(f"[GUI-Balance] open_pnl_label обновлён: {pnl_text}")
+        else:
+            logger.warning("[GUI-Balance] open_pnl_label не найден!")
 
     def add_log_message(self, text: str, color: QColor):
         char_format = QTextCharFormat()
