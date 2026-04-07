@@ -489,14 +489,10 @@ class SettingsWindow(QDialog):
         paths_tab = self._create_paths_tab()
         scheduler_tab = self._create_scheduler_tab()
         gp_tab = self._create_gp_tab()
-        social_tab = self._create_social_tab()
         # P0: Notifications (Telegram/Email)
         notifications_tab = self._create_notifications_tab()
         # НОВОЕ: Вкладка обновлений
         updates_tab = self._create_updates_tab()
-
-        self.tab_widget.addTab(gp_tab, self.create_icon("🧪"), "R&D (AI)")
-        self.tab_widget.addTab(social_tab, self.create_icon("🤝"), "Копирование Сделок")
 
         self.tab_widget.addTab(mt5_tab, self.create_icon("🔌"), "Подключение MT5")
         self.tab_widget.addTab(crypto_tab, self.create_icon("₿"), "Криптовалюты")  # НОВОЕ
@@ -506,6 +502,14 @@ class SettingsWindow(QDialog):
         self.tab_widget.addTab(scheduler_tab, self.create_icon("⏰"), "Планировщик")
         self.tab_widget.addTab(notifications_tab, self.create_icon("🔔"), "Уведомления")
         self.tab_widget.addTab(updates_tab, self.create_icon("🔄"), "Обновления")
+        
+        # НОВОЕ: Вкладка Копирование Сделок (в самом конце для заметности)
+        try:
+            social_tab = self._create_social_tab()
+            self.tab_widget.addTab(social_tab, self.create_icon("🤝"), "Копирование Сделок")
+            logger.info("✅ Вкладка 'Копирование Сделок' успешно создана и добавлена")
+        except Exception as e:
+            logger.error(f"❌ Ошибка создания вкладки Social Trading: {e}")
 
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
