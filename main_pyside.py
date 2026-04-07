@@ -444,9 +444,9 @@ class MainWindow(QMainWindow):
         self.on_kg_toggle()
 
         # 4. Инициализация DeFi Widget
-        if hasattr(self, "defi_widget") and hasattr(self.core_system, "db_manager"):
+        if hasattr(self, "defi_widget") and hasattr(self.trading_system.core_system, "db_manager"):
             logger.info("[DeFi] Подключение к БД...")
-            self.defi_widget.set_db_manager(self.core_system.db_manager)
+            self.defi_widget.set_db_manager(self.trading_system.core_system.db_manager)
 
         if hasattr(self, "control_center_tab"):
             self.control_center_tab.load_initial_settings()
@@ -2910,9 +2910,9 @@ class MainWindow(QMainWindow):
             # --- 3. Рабочий класс для ожидания завершения потоков ---
             # (Использует QRunnable, чтобы не блокировать главный цикл PySide)
             class JoinWorker(QRunnable):
-                def __init__(self, core_system):
+                def __init__(self, core_system: "TradingSystem"):
                     super().__init__()
-                    self.core_system = core_system
+                    self.core_system: TradingSystem = core_system
 
                 def run(self):
                     # Отправляем сигнал остановки (если не было) и ждем завершения
