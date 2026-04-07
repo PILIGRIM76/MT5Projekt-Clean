@@ -2393,30 +2393,42 @@ class SettingsWindow(QDialog):
         layout.addWidget(QLabel("Время запуска:"), 6, 0)
         self.auto_retrain_time_edit = QTimeEdit()
         self.auto_retrain_time_edit.setDisplayFormat("hh:mm")
-        self.auto_retrain_time_edit.setToolTip("Время суток для автоматического запуска обучения (рекомендуется ночью)")
+        self.auto_retrain_time_edit.setToolTip(
+            "Окно запуска обучения (Ночной режим). Система будет учиться +/- 2 часа от этого времени."
+        )
         layout.addWidget(self.auto_retrain_time_edit, 6, 1)
 
         layout.addWidget(QLabel("Интервал (часов):"), 7, 0)
         self.auto_retrain_interval_spin = QSpinBox()
-        self.auto_retrain_interval_spin.setRange(1, 168)  # От 1 часа до недели
-        self.auto_retrain_interval_spin.setToolTip("Интервал между запусками обучения (в часах)")
+        self.auto_retrain_interval_spin.setRange(1, 168)
+        self.auto_retrain_interval_spin.setToolTip(
+            "ИНТЕРВАЛ ЗАБЛОКИРОВАН: Обучение оптимизировано (Ночной режим). Интервал применяется только в окне обучения."
+        )
+        self.auto_retrain_interval_spin.setEnabled(False)  # Блокируем изменение, чтобы не нарушать оптимизацию
         layout.addWidget(self.auto_retrain_interval_spin, 7, 1)
 
-        layout.addWidget(QLabel("Макс. символов:"), 8, 0)
+        # Добавляем пояснение
+        optimization_note = QLabel(
+            "⚡ <b>Оптимизация:</b> R&D (обучение) работает только ночью (Тихие часы), чтобы не мешать торговле."
+        )
+        optimization_note.setStyleSheet("color: #ffb86c;")
+        layout.addWidget(optimization_note, 8, 0, 1, 3)
+
+        layout.addWidget(QLabel("Макс. символов:"), 9, 0)
         self.auto_retrain_max_symbols_spin = QSpinBox()
         self.auto_retrain_max_symbols_spin.setRange(5, 200)
         self.auto_retrain_max_symbols_spin.setToolTip(
             "Максимальное количество символов для обучения.\n" "Система автоматически отберёт лучшие из всех доступных."
         )
-        layout.addWidget(self.auto_retrain_max_symbols_spin, 8, 1)
+        layout.addWidget(self.auto_retrain_max_symbols_spin, 9, 1)
 
-        layout.addWidget(QLabel("Параллельных потоков:"), 9, 0)
+        layout.addWidget(QLabel("Параллельных потоков:"), 10, 0)
         self.auto_retrain_max_workers_spin = QSpinBox()
         self.auto_retrain_max_workers_spin.setRange(1, 10)
         self.auto_retrain_max_workers_spin.setToolTip(
             "Количество параллельных потоков для обучения.\n" "Рекомендуется: CPU/2 (например, 3-4 для 8-ядерного процессора)"
         )
-        layout.addWidget(self.auto_retrain_max_workers_spin, 9, 1)
+        layout.addWidget(self.auto_retrain_max_workers_spin, 10, 1)
 
         # Кнопка для ручного запуска
         self.manual_retrain_button = QPushButton("▶ Запустить обучение сейчас")
@@ -2424,11 +2436,11 @@ class SettingsWindow(QDialog):
             "Запустить переобучение моделей вручную.\n" "Полезно для тестирования или внепланового обновления стратегий."
         )
         self.manual_retrain_button.clicked.connect(self._trigger_manual_retraining)
-        layout.addWidget(self.manual_retrain_button, 10, 0, 1, 2)
+        layout.addWidget(self.manual_retrain_button, 11, 0, 1, 2)
 
         self.auto_retrain_status_label = QLabel("Статус: не запланировано")
         self.auto_retrain_status_label.setToolTip("Текущий статус задачи автоматического переобучения.")
-        layout.addWidget(self.auto_retrain_status_label, 10, 2)
+        layout.addWidget(self.auto_retrain_status_label, 11, 2)
 
         info_label = QLabel(
             "\n<b>Внимание:</b> Для управления задачами программу необходимо запустить <b>от имени Администратора</b>."
