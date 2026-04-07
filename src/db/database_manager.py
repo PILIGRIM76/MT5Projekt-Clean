@@ -79,18 +79,40 @@ class RestrictedUnpickler(pickle.Unpickler):
         # Sklearn скалеры (разные версии модулей)
         "sklearn.preprocessing": {"StandardScaler", "MinMaxScaler", "RobustScaler"},
         "sklearn.preprocessing._data": {"StandardScaler", "MinMaxScaler", "RobustScaler"},
+        # Sklearn деревья и ансамбли
+        "sklearn.tree._tree": {"Tree"},
+        "sklearn.tree._criterion": {"Criterion"},
         # LightGBM модели
         "lightgbm": {"Booster", "LGBMClassifier", "LGBMRegressor"},
         "lightgbm.sklearn": {"LGBMClassifier", "LGBMRegressor"},
         "lightgbm.basic": {"Booster"},
+        "lightgbm.callback": {"EarlyStopException"},
         # Numpy
-        "numpy": {"ndarray", "dtype", "float64", "int64", "float32", "int32"},
-        "numpy.core.multiarray": {"_reconstruct"},
+        "numpy": {
+            "ndarray",
+            "dtype",
+            "float64",
+            "int64",
+            "float32",
+            "int32",
+            "bool_",
+            "float16",
+            "int16",
+            "int8",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+        },
+        "numpy.core.multiarray": {"_reconstruct", "scalar"},
         "numpy.core": {"_reconstruct"},
-        "numpy._core.multiarray": {"_reconstruct"},
+        "numpy._core.multiarray": {"_reconstruct", "scalar"},
         "numpy._core": {"_reconstruct"},
+        "numpy.core.numeric": {"ndarray"},
+        "numpy.core._multiarray_umath": {"_reconstruct"},
+        # Collections
+        "collections": {"OrderedDict", "defaultdict"},
         # Torch
-        "collections": {"OrderedDict"},
         "torch._utils": {"_rebuild_tensor_v2"},
         "torch": {
             "FloatStorage",
