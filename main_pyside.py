@@ -1000,20 +1000,20 @@ class MainWindow(QMainWindow):
         self.stop_button = QPushButton("Остановка")
         self.stop_button.setEnabled(False)
 
+        self.observer_checkbox = QCheckBox("Режим Наблюдателя")
+        self.observer_checkbox.setChecked(True)
+
         self.settings_button = QPushButton("Настройки")
 
         self.restart_system_button = QPushButton("Перезапустить Систему")
         self.restart_system_button.setStyleSheet("background-color: #ffb86c; color: #000;")
 
-        self.observer_checkbox = QCheckBox("Режим Наблюдателя")
-        self.observer_checkbox.setChecked(True)
-
         control_layout.addWidget(self.start_button)
+        control_layout.addWidget(self.observer_checkbox)
         control_layout.addWidget(self.stop_button)
 
         control_layout.addWidget(self.settings_button)
         control_layout.addWidget(self.restart_system_button)
-        control_layout.addWidget(self.observer_checkbox)
 
         update_box = QFrame()
         update_layout = QVBoxLayout(update_box)
