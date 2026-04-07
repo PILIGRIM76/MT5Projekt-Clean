@@ -4,10 +4,9 @@
 Проверяет что каждый тип бэктеста возвращает корректные данные.
 """
 
+import asyncio
 import logging
-import os
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -30,12 +29,20 @@ logger = logging.getLogger(__name__)
 
 @pytest.fixture(scope="module")
 def sample_config():
-    """Создаёт тестовую конфигурацию."""
-    config = Settings()
-    config.BACKTEST_START_DATE = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-    config.BACKTEST_END_DATE = datetime.now().strftime("%Y-%m-%d")
-    config.BACKTEST_SYMBOL = "EURUSD"
-    config.BACKTEST_TIMEFRAME = "H1"
+    """Загружает реальную конфигурацию из configs/settings.json."""
+    settings_path = PROJECT_ROOT / "configs" / "settings.json"
+    if settings_path.exists():
+        config = Settings(_env_file=settings_path)
+    else:
+        config = Settings(
+            MT5_LOGIN="52565344",
+            MT5_PASSWORD="test",
+            MT5_SERVER="Alpari-MT5-Demo",
+            MT5_PATH="C:/Program Files/MetaTrader 5/terminal64.exe",
+            DATABASE_FOLDER=str(PROJECT_ROOT / "database"),
+            DATABASE_NAME="trading_system.db",
+            SYMBOLS_WHITELIST=["EURUSD"],
+        )
     return config
 
 
@@ -76,8 +83,6 @@ class TestEventDrivenBacktest:
         backtester = EventDrivenBacktester(sample_config, sample_historical_data)
 
         # Запускаем бэктест
-        import asyncio
-
         report, equity_df = asyncio.run(backtester.run())
 
         # Проверяем отчёт
@@ -124,7 +129,12 @@ class TestClassicStrategyBacktest:
     def test_mean_reversion_backtest_returns_report(self, sample_config, sample_historical_data):
         """Бэктест MeanReversionStrategy должен возвращать отчёт."""
         strategy = MeanReversionStrategy()
-        backtester = StrategyBacktester(strategy=strategy, data=sample_historical_data, timeframe="H1", config=sample_config)
+        backtester = StrategyBacktester(
+            strategy=strategy,
+            data=sample_historical_data,
+            timeframe="H1",
+            config=sample_config,
+        )
 
         # Запускаем бэктест
         report = backtester.run()
@@ -161,8 +171,6 @@ class TestBacktestModesIntegration:
         results = {}
 
         # 1. Event-Driven
-        import asyncio
-
         ed_backtester = EventDrivenBacktester(sample_config, sample_historical_data)
         ed_report, _ = asyncio.run(ed_backtester.run())
         results["Event-Driven"] = ed_report
@@ -175,7 +183,10 @@ class TestBacktestModesIntegration:
         # 3. Classic Strategy
         strategy = MeanReversionStrategy()
         classic_backtester = StrategyBacktester(
-            strategy=strategy, data=sample_historical_data, timeframe="H1", config=sample_config
+            strategy=strategy,
+            data=sample_historical_data,
+            timeframe="H1",
+            config=sample_config,
         )
         classic_report = classic_backtester.run()
         results["Classic"] = classic_report
