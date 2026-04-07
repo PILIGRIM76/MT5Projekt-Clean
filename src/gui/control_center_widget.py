@@ -365,7 +365,11 @@ class ControlCenterWidget(QWidget):
 
         # Проверяем, в каком режиме мы находимся
         if hasattr(self, "signals_radio") and self.signals_radio.isChecked():
-            # Если включён режим торговых сигналов, используем другой метод
+            # Если включён режим торговых сигналов, но это данные сканера (есть 'rank'), игнорируем
+            if data and "rank" in data[0]:
+                logger.debug("[MarketTable] Режим торговых сигналов, но данные — сканер (есть rank), пропускаю")
+                return
+            # Это реальные торговые сигналы
             logger.info("[MarketTable] Режим торговых сигналов, вызываем update_trading_signals_table")
             self.update_trading_signals_table(data)
             return
