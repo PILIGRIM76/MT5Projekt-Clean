@@ -2654,6 +2654,7 @@ class TradingSystem(QObject):
                         "timeframe": self._get_timeframe_str(timeframe),
                     }
                 ]
+                logger.info(f"[TradingSignal] Отправляю сигнал в GUI: {trading_signal_data}")
                 # ИСПРАВЛЕНИЕ: Отправляем только через self.trading_signals_updated
                 # Сигнал автоматически пробрасывается в bridge через подключение
                 self.trading_signals_updated.emit(trading_signal_data)

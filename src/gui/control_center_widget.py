@@ -466,8 +466,11 @@ class ControlCenterWidget(QWidget):
     @Slot(list)
     def update_trading_signals_table(self, data: list):
         """Обновляет таблицу торговых сигналов."""
+        logger.info(f"[TradingSignals] update_trading_signals_table вызван с {len(data) if data else 0} элементами")
         if not data:
+            logger.warning("[TradingSignals] Данные пустые, пропускаю")
             return
+        logger.info(f"[TradingSignals] Первый элемент: {data[0]}")
 
         # Сохраняем последние данные для возможного переключения режимов
         self._last_market_data = data
