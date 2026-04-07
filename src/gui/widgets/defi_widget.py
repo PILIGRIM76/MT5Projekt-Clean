@@ -117,19 +117,27 @@ class DeFiWidget(QGroupBox):
 
     def refresh_data(self):
         """Загрузить данные из БД."""
+        logger.info(f"[DeFiWidget] refresh_data вызван. db_manager={self.db_manager is not None}")
         if not self.db_manager:
+            logger.warning("[DeFiWidget] db_manager не установлен, пропуск")
             return
 
         try:
+            logger.info("[DeFiWidget] Создание сессии БД...")
             session = self.db_manager.Session()
-            
+            logger.info("[DeFiWidget] Сессия создана")
+
             # 1. Топ APY (за последние 24 часа, исключая подозрительно высокие > 1000%)
             since = datetime.utcnow() - timedelta(hours=24)
+            logger.info(f"[DeFiWidget] Запрос APY с {since}")
+            
             top_yields = session.query(DefiMetrics).filter(
                 DefiMetrics.metric_type == "supply_apy",
                 DefiMetrics.timestamp > since,
                 DefiMetrics.value < 1000.0  # Фильтр скама/ошибок
             ).order_by(DefiMetrics.value.desc()).limit(10).all()
+
+            logger.info(f"[DeFiWidget] Найдено {len(top_yields)} записей APY")
 
             self.yields_list.clear()
             for m in top_yields:
@@ -167,11 +175,13 @@ class DeFiWidget(QGroupBox):
             self.last_update_label.setText(f"Обновлено: {datetime.now().strftime('%H:%M:%S')}")
             
             if not top_yields:
-                self.yields_list.addItem("Нет данных за 24ч. Запустите загрузку в Настройках.")
+                self.yields_list.addItem("Нет данных за 24ч. Нажмите 🔄 или запустите загрузку в Настройках.")
+            else:
+                logger.info(f"[DeFiWidget] Успешно обновлено {len(top_yields)} APY записей")
 
             session.close()
 
         except Exception as e:
-            logger.error(f"[DeFiWidget] Ошибка обновления: {e}")
+            logger.error(f"[DeFiWidget] Ошибка обновления: {e}", exc_info=True)
             self.status_label.setText("🔴 Ошибка")
             self.status_label.setStyleSheet("color: #ff5555;")

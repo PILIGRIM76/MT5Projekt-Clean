@@ -758,8 +758,16 @@ class MainWindow(QMainWindow):
         self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
         
         # 4. Инициализация DeFi Widget
-        if hasattr(self, 'defi_widget') and hasattr(self.core_system, 'db_manager'):
-            self.defi_widget.set_db_manager(self.core_system.db_manager)
+        logger.info("[DeFi] Проверка инициализации DeFi Widget...")
+        if hasattr(self, 'defi_widget'):
+            logger.info("[DeFi] DeFi Widget найден")
+            if hasattr(self.core_system, 'db_manager'):
+                logger.info("[DeFi] db_manager найден, подключаем...")
+                self.defi_widget.set_db_manager(self.core_system.db_manager)
+            else:
+                logger.error("[DeFi] db_manager НЕ найден в core_system!")
+        else:
+            logger.error("[DeFi] DeFi Widget НЕ найден!")
         self.on_kg_toggle()
 
         if hasattr(self, "control_center_tab"):
