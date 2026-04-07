@@ -1857,8 +1857,8 @@ class MainWindow(QMainWindow):
                 "Подтверждение",
                 "Вы уверены, что хотите отключить Режим Наблюдателя и перейти в рабочий режим?\n"
                 "Система сможет открывать реальные сделки.",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
 
             if reply == QMessageBox.Yes:
@@ -1878,14 +1878,14 @@ class MainWindow(QMainWindow):
             return
 
         directive_type_item = self.directives_model.index(selected_indexes[0].row(), 0)
-        directive_type = self.directives_model.data(directive_type_item, Qt.DisplayRole)
+        directive_type = self.directives_model.data(directive_type_item, Qt.ItemDataRole.DisplayRole)
 
         reply = QMessageBox.question(
             self,
             "Подтверждение",
             f"Вы уверены, что хотите удалить директиву '{directive_type}'?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -1897,17 +1897,17 @@ class MainWindow(QMainWindow):
             self,
             "Подтверждение перезапуска",
             "Вы уверены, что хотите перезапустить систему? Все текущие операции будут остановлены.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.Yes:
             self.update_status("Перезапуск системы...", is_error=False)
 
             msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Information)
+            msg.setIcon(QMessageBox.Icon.Information)
             msg.setText("Перезапуск системы...")
             msg.setInformativeText("Пожалуйста, подождите. Приложение будет перезапущено.")
-            msg.setStandardButtons(QMessageBox.NoButton)
+            msg.setStandardButtons(QMessageBox.StandardButton.NoButton)
             msg.show()
 
             QApplication.processEvents()
@@ -1955,7 +1955,7 @@ class MainWindow(QMainWindow):
         index = self.scanner_table.indexAt(position)
         if not index.isValid():
             return
-        symbol = self.scanner_model.data(index.siblingAtColumn(1), Qt.DisplayRole)
+        symbol = self.scanner_model.data(index.siblingAtColumn(1), Qt.ItemDataRole.DisplayRole)
         if not symbol:
             return
         menu = QMenu()
@@ -1969,8 +1969,8 @@ class MainWindow(QMainWindow):
             self,
             "Подтверждение",
             f"Вы уверены, что хотите временно исключить '{symbol}' из торговли до следующего перезапуска?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.Yes:
             logger.warning(f"GUI: Символ '{symbol}' добавлен в черный список.")
@@ -2014,9 +2014,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Внимание", "Не выбрана ни одна модель для разжалования.")
             return
         model_id_item = self.models_model.index(selected_indexes[0].row(), 0)
-        model_id = int(self.models_model.data(model_id_item, Qt.DisplayRole))
+        model_id = int(self.models_model.data(model_id_item, Qt.ItemDataRole.DisplayRole))
         status_item = self.models_model.index(selected_indexes[0].row(), 4)
-        status = self.models_model.data(status_item, Qt.DisplayRole)
+        status = self.models_model.data(status_item, Qt.ItemDataRole.DisplayRole)
         if status != "Чемпион":
             QMessageBox.information(self, "Информация", "Выбранная модель не является чемпионом.")
             return
@@ -2024,8 +2024,8 @@ class MainWindow(QMainWindow):
             self,
             "Подтверждение",
             f"Вы уверены, что хотите разжаловать модель #{model_id}?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.Yes:
             success = self.trading_system.demote_champion(model_id)
@@ -2125,8 +2125,8 @@ class MainWindow(QMainWindow):
             self,
             "Подтверждение",
             "Вы уверены, что хотите применить обновление и перезапустить систему?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.Yes:
             self.update_status_label.setText("Применение обновления...")
@@ -2152,7 +2152,7 @@ class MainWindow(QMainWindow):
             return
         ticket_item = self.history_model.index(index.row(), 0)
         try:
-            ticket = int(self.history_model.data(ticket_item, Qt.DisplayRole))
+            ticket = int(self.history_model.data(ticket_item, Qt.ItemDataRole.DisplayRole))
         except (ValueError, TypeError):
             return
         self.good_trade_button.setEnabled(False)
@@ -2300,8 +2300,8 @@ class MainWindow(QMainWindow):
                 self,
                 "Подтверждение",
                 f"Вы уверены, что хотите закрыть ВСЕ открытые позиции по рынку?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.Yes:
                 logger.warning("[GUI-Action] Подтверждено закрытие ВСЕХ позиций")
@@ -2334,9 +2334,13 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Внимание", "Не выбрана ни одна позиция.")
                 return
             ticket_item = self.positions_model.index(selected_indexes[0].row(), 0)
-            ticket = int(self.positions_model.data(ticket_item, Qt.DisplayRole))
+            ticket = int(self.positions_model.data(ticket_item, Qt.ItemDataRole.DisplayRole))
             reply = QMessageBox.question(
-                self, "Подтверждение", f"Закрыть позицию #{ticket} по рынку?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                self,
+                "Подтверждение",
+                f"Закрыть позицию #{ticket} по рынку?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.Yes:
                 logger.info(f"[GUI-Action] Подтверждено закрытие позиции #{ticket}")
@@ -2880,11 +2884,11 @@ class MainWindow(QMainWindow):
             self,
             "Подтверждение закрытия",
             "Вы действительно хотите закрыть торговую систему?\n\nВсе активные сделки будут сохранены, но мониторинг остановится.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.No:
+        if reply == QMessageBox.StandardButton.No:
             logger.info("Закрытие окна отменено пользователем.")
             event.ignore()
             return
@@ -2896,10 +2900,10 @@ class MainWindow(QMainWindow):
 
             # --- 2. Виджет ожидания ---
             msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Information)
+            msg.setIcon(QMessageBox.Icon.Information)
             msg.setText("Завершение работы...")
             msg.setInformativeText("Пожалуйста, подождите, пока все фоновые потоки будут остановлены.")
-            msg.setStandardButtons(QMessageBox.NoButton)
+            msg.setStandardButtons(QMessageBox.StandardButton.NoButton)
             msg.show()
             QApplication.processEvents()
 
