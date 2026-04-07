@@ -499,6 +499,10 @@ class TradingSystem(QObject):
         )
         logger.info("✅ HotReloadManager инициализирован")
 
+        # Запускаем мониторинг обновлений (проверка каждые 5 минут)
+        self.hot_reload_manager.start_monitoring(interval=300)
+        logger.info("✅ Мониторинг обновлений запущен (каждые 5 минут)")
+
         logger.critical("INIT STEP 7/8: Core Services initialized.")
 
         # CRITICAL: Инициализация Safety Monitor

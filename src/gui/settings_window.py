@@ -1175,6 +1175,8 @@ class SettingsWindow(QDialog):
         manager = self._get_hot_reload_manager()
 
         if not manager:
+            self.update_status_label.setText("❌ Менеджер обновлений не инициализирован")
+            self.update_status_label.setStyleSheet("color: #ff5555;")
             return
 
         try:
@@ -1183,7 +1185,9 @@ class SettingsWindow(QDialog):
             # Обновляем текущую версию
             if status.get("local_commit"):
                 short_commit = status["local_commit"][:8]
-                self.update_current_version_label.setText(short_commit)
+                self.update_current_version_label.setText(f"v{short_commit}")
+            else:
+                self.update_current_version_label.setText("Неизвестно")
 
             # Обновляем статус мониторинга
             if status.get("monitoring"):
@@ -1195,12 +1199,15 @@ class SettingsWindow(QDialog):
                 self.update_monitoring_status_label.setStyleSheet("color: #ff5555;")
                 self.update_toggle_monitoring_button.setText("▶️ Включить мониторинг")
 
-            # Обновляем время последней проверки
-            if status.get("last_check"):
-                last_check = datetime.fromtimestamp(status["last_check"])
+            # Обновляем время последней проверки (показываем реальное время проверки)
+            last_check_ts = status.get("last_check")
+            if last_check_ts and last_check_ts > 0:
+                from datetime import datetime
+
+                last_check = datetime.fromtimestamp(last_check_ts)
                 self.update_last_check_label.setText(last_check.strftime("%H:%M:%S"))
             else:
-                self.update_last_check_label.setText("Н/Д")
+                self.update_last_check_label.setText("Ещё не проверялось")
 
             # Проверяем наличие обновлений
             if status.get("has_updates"):
@@ -1214,6 +1221,8 @@ class SettingsWindow(QDialog):
 
         except Exception as e:
             logger.error(f"[SettingsWindow Updates] Ошибка: {e}")
+            self.update_status_label.setText(f"❌ Ошибка: {str(e)[:50]}")
+            self.update_status_label.setStyleSheet("color: #ff5555;")
 
     def _on_check_updates_clicked(self):
         """Обработчик кнопки проверки обновлений."""

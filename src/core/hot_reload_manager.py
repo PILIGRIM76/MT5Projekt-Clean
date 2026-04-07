@@ -100,6 +100,7 @@ class HotReloadManager:
 
     def check_for_updates(self) -> bool:
         """Проверка наличия обновлений."""
+        self._last_check_time = time.time()
         current_commit = self._get_current_commit()
         if current_commit and current_commit != self._last_commit:
             logger.info(f"🔄 Доступна новая версия: {current_commit[:8]}")
@@ -327,5 +328,5 @@ class HotReloadManager:
             "remote_commit": remote_commit,
             "has_updates": local_commit != remote_commit if (local_commit and remote_commit) else False,
             "monitoring": self._monitoring,
-            "last_check": time.time(),
+            "last_check": getattr(self, "_last_check_time", None) or time.time(),
         }
