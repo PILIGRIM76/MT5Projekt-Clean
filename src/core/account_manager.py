@@ -51,15 +51,18 @@ class AccountManager:
         """Обновляет информацию о счете и определяет его тип."""
         acc = mt5.account_info()
         
-        # Если не удалось получить инфо, пробуем инициализировать MT5
+        # Если не удалось получить инфо, пробуем проверить соединение через менеджер
         if acc is None:
-            logger.debug("[AccountManager] Нет связи с терминалом. Попытка инициализации через MT5ConnectionManager...")
+            logger.debug("[AccountManager] Нет связи с терминалом. Проверка статуса подключения...")
             manager = MT5ConnectionManager.get_instance()
-            if not manager.initialize():
+            if not manager.is_connected():
+                logger.warning("[AccountManager] MT5 не подключен. Данные счета недоступны.")
                 return False
-        
-        # Повторная попытка после инициализации
-        acc = mt5.account_info()
+            # Если менеджер говорит что подключен, но account_info() возвращает None
+            # возможно проблема в правах или терминал занят. Пробуем еще раз через секунду
+            import time
+            time.sleep(0.5)
+            acc = mt5.account_info()
         if acc is None:
             return False
 

@@ -100,13 +100,16 @@ class MT5ConnectionManager:
                         server=server,
                         timeout=timeout,
                     )
-                else:
+                elif login:
                     result = mt5.initialize(
                         login=login,
                         password=password,
                         server=server,
                         timeout=timeout,
                     )
+                else:
+                    # Пробуем подключиться к уже запущенному терминалу без параметров
+                    result = mt5.initialize()
                 
                 if result:
                     self._initialized = True
