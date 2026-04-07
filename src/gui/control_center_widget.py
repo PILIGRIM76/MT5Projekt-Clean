@@ -125,7 +125,13 @@ class ControlCenterWidget(QWidget):
         # Обновляем данные в таблице в соответствии с новым режимом
         if hasattr(self, "_last_market_data") and self._last_market_data:
             if self.signals_radio.isChecked():
-                self.update_trading_signals_table(self._last_market_data)
+                # Проверяем, что это реальные торговые сигналы, а не данные сканера
+                if self._last_market_data and "rank" not in self._last_market_data[0]:
+                    self.update_trading_signals_table(self._last_market_data)
+                else:
+                    logger.debug("[ModeChange] Данные — сканер (есть rank), таблица сигналов очищена")
+                    # Очищаем таблицу сигналов
+                    self.market_table.setRowCount(0)
             else:
                 processed_data = self.prepare_control_center_data(self._last_market_data)
                 self.update_market_table(processed_data)
@@ -162,6 +168,7 @@ class ControlCenterWidget(QWidget):
         self.market_table = QTableWidget()
         self.market_table.setColumnCount(7)
         self.market_table.setHorizontalHeaderLabels(["Символ", "Тип", "Цена", "Изм. %", "RSI", "Волатильность", "Режим"])
+        self.market_table.setRowCount(0)  # Начальная очистка
         self.market_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.market_table.setAlternatingRowColors(True)
         self.market_table.setStyleSheet("alternate-background-color: #44475a; background-color: #282a36; color: #f8f8f2;")
