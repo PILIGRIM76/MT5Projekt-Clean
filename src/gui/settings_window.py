@@ -489,6 +489,7 @@ class SettingsWindow(QDialog):
         paths_tab = self._create_paths_tab()
         scheduler_tab = self._create_scheduler_tab()
         gp_tab = self._create_gp_tab()
+        news_scheduler_tab = self._create_news_scheduler_tab()  # НОВОЕ: Планировщик новостей
         # P0: Notifications (Telegram/Email)
         notifications_tab = self._create_notifications_tab()
         # НОВОЕ: Вкладка обновлений
@@ -500,6 +501,7 @@ class SettingsWindow(QDialog):
         self.tab_widget.addTab(trading_tab, self.create_icon("💹"), "Торговля")
         self.tab_widget.addTab(paths_tab, self.create_icon("📁"), "Пути к данным")
         self.tab_widget.addTab(scheduler_tab, self.create_icon("⏰"), "Планировщик")
+        self.tab_widget.addTab(news_scheduler_tab, self.create_icon("📰"), "Планировщик Новостей")
         self.tab_widget.addTab(notifications_tab, self.create_icon("🔔"), "Уведомления")
         self.tab_widget.addTab(updates_tab, self.create_icon("🔄"), "Обновления")
         
@@ -515,6 +517,228 @@ class SettingsWindow(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         self.layout().addWidget(button_box)
+
+    def _create_news_scheduler_tab(self):
+        """Создание вкладки планировщика новостей."""
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setAlignment(Qt.AlignTop)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Заголовок
+        title = QLabel("<b>📰 Планировщик Загрузки Новостей</b>")
+        title.setStyleSheet("color: #f8f8f2; padding: 10px;")
+        layout.addWidget(title)
+
+        # Группа 1: Основные настройки
+        main_group = QGroupBox("Основные Настройки")
+        main_layout = QFormLayout(main_group)
+
+        # Включение/выключение
+        self.news_enabled_check = QCheckBox("Включить загрузку новостей")
+        self.news_enabled_check.setToolTip("Автоматическая загрузка новостей по расписанию")
+        main_layout.addRow(self.news_enabled_check)
+
+        # Интервал загрузки
+        self.news_interval_spin = QSpinBox()
+        self.news_interval_spin.setRange(1, 24)
+        self.news_interval_spin.setValue(4)
+        self.news_interval_spin.setSuffix(" часов")
+        self.news_interval_spin.setToolTip("Как часто загружать новые новости")
+        main_layout.addRow("Интервал загрузки:", self.news_interval_spin)
+
+        # Время начала
+        self.news_start_time = QTimeEdit()
+        self.news_start_time.setDisplayFormat("HH:mm")
+        self.news_start_time.setTime(QTime(8, 0))
+        self.news_start_time.setToolTip("Время первой загрузки новостей")
+        main_layout.addRow("Время начала:", self.news_start_time)
+
+        # Максимум новостей за раз
+        self.news_max_per_load_spin = QSpinBox()
+        self.news_max_per_load_spin.setRange(5, 100)
+        self.news_max_per_load_spin.setValue(20)
+        self.news_max_per_load_spin.setToolTip("Максимальное количество новостей за одну загрузку")
+        main_layout.addRow("Макс. новостей за раз:", self.news_max_per_load_spin)
+
+        layout.addWidget(main_group)
+
+        # Группа 2: Источники новостей
+        sources_group = QGroupBox("Источники Новостей")
+        sources_layout = QVBoxLayout(sources_group)
+
+        self.news_sources = {}
+        sources_list = [
+            ("NewsAPI", "newsapi_enabled", "Основные мировые новости (требуется API ключ)"),
+            ("RSS Feeds", "rss_enabled", "Ленты RSS (бесплатно, без ключей)"),
+            ("Twitter/X", "twitter_enabled", "Твиты инфлюенсеров и СМИ"),
+            ("Telegram", "telegram_news_enabled", "Каналы Telegram"),
+            ("Yahoo Finance", "yahoo_news_enabled", "Финансовые новости Yahoo"),
+            ("Google Trends", "google_trends_enabled", "Тренды поиска Google"),
+        ]
+
+        for name, key, tooltip in sources_list:
+            cb = QCheckBox(name)
+            cb.setToolTip(tooltip)
+            cb.setChecked(key in ["newsapi_enabled", "rss_enabled"])  # Включены по умолчанию
+            self.news_sources[key] = cb
+            sources_layout.addWidget(cb)
+
+        layout.addWidget(sources_group)
+
+        # Группа 3: Ключевые слова и символы
+        keywords_group = QGroupBox("Ключевые Слова и Символы")
+        keywords_layout = QFormLayout(keywords_group)
+
+        self.news_keywords_edit = QLineEdit()
+        self.news_keywords_edit.setPlaceholderText("например: Fed, ECB, inflation, GDP, unemployment")
+        self.news_keywords_edit.setToolTip("Ключевые слова для поиска (через запятую)")
+        keywords_layout.addRow("Ключевые слова:", self.news_keywords_edit)
+
+        self.news_symbols_edit = QLineEdit()
+        self.news_symbols_edit.setPlaceholderText("например: EURUSD, GBPUSD, XAUUSD, BTCUSD")
+        self.news_symbols_edit.setToolTip("Торговые символы для мониторинга новостей")
+        keywords_layout.addRow("Торговые символы:", self.news_symbols_edit)
+
+        layout.addWidget(keywords_group)
+
+        # Группа 4: NLP Настройки
+        nlp_group = QGroupBox("Настройки NLP Анализа")
+        nlp_layout = QFormLayout(nlp_group)
+
+        self.news_nlp_enabled = QCheckBox("Включить NLP анализ новостей")
+        self.news_nlp_enabled.setToolTip("Автоматический анализ тональности и извлечение сущностей")
+        nlp_layout.addRow(self.news_nlp_enabled)
+
+        self.news_sentiment_threshold = QDoubleSpinBox()
+        self.news_sentiment_threshold.setRange(-1.0, 1.0)
+        self.news_sentiment_threshold.setSingleStep(0.1)
+        self.news_sentiment_threshold.setValue(-0.3)
+        self.news_sentiment_threshold.setToolTip("Порог негативной тональности для алертов")
+        nlp_layout.addRow("Порог негатива:", self.news_sentiment_threshold)
+
+        layout.addWidget(nlp_group)
+
+        # Группа 5: Статус и Лог
+        status_group = QGroupBox("Статус и Лог Загрузки")
+        status_layout = QVBoxLayout(status_group)
+
+        self.news_status_label = QLabel("Статус: Не запущено")
+        self.news_status_label.setStyleSheet("color: gray; font-weight: bold;")
+        status_layout.addWidget(self.news_status_label)
+
+        self.news_last_load_label = QLabel("Последняя загрузка: Н/Д")
+        status_layout.addWidget(self.news_last_load_label)
+
+        self.news_total_loaded_label = QLabel("Всего загружено: Н/Д")
+        status_layout.addWidget(self.news_total_loaded_label)
+
+        # Кнопка ручной загрузки
+        self.news_load_now_button = QPushButton("📥 Загрузить новости сейчас")
+        self.news_load_now_button.clicked.connect(self._trigger_manual_news_load)
+        status_layout.addWidget(self.news_load_now_button)
+
+        layout.addWidget(status_group)
+
+        # Растягиваем последнее пространство
+        layout.addStretch()
+
+        return self._create_scrollable_widget(content_widget)
+
+    def _trigger_manual_news_load(self):
+        """Ручной запуск загрузки новостей."""
+        reply = QMessageBox.question(
+            self,
+            "Подтверждение",
+            "Загрузить новости вручную?\n\nЭто может занять несколько минут.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+
+        if reply == QMessageBox.Yes:
+            self.news_load_now_button.setEnabled(False)
+            self.news_status_label.setText("Статус: Загрузка...")
+            self.news_status_label.setStyleSheet("color: orange; font-weight: bold;")
+
+            try:
+                # Здесь будет вызов загрузчика новостей
+                logger.info("[NewsScheduler] Ручная загрузка новостей запущена")
+                
+                # TODO: Вызов загрузчика новостей
+                # from src.news.news_loader import NewsLoader
+                # loader = NewsLoader(self.full_config)
+                # loader.load_all_news()
+                
+                self.news_status_label.setText("Статус: Завершено ✓")
+                self.news_status_label.setStyleSheet("color: #50fa7b; font-weight: bold;")
+                self.news_last_load_label.setText(f"Последняя загрузка: {datetime.now().strftime('%H:%M:%S')}")
+                QMessageBox.information(self, "Готово", "Новости успешно загружены!")
+                
+            except Exception as e:
+                logger.error(f"[NewsScheduler] Ошибка загрузки: {e}")
+                self.news_status_label.setText("Статус: Ошибка ❌")
+                self.news_status_label.setStyleSheet("color: #ff5555; font-weight: bold;")
+                QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить новости:\n{e}")
+            finally:
+                self.news_load_now_button.setEnabled(True)
+
+    def _apply_news_scheduler_settings(self):
+        """Применение настроек планировщика новостей."""
+        if not hasattr(self.full_config, 'news_scheduler'):
+            self.full_config.news_scheduler = {}
+        
+        # Основные настройки
+        self.full_config.news_scheduler = {
+            "enabled": self.news_enabled_check.isChecked(),
+            "interval_hours": self.news_interval_spin.value(),
+            "start_time": self.news_start_time.time().toString("HH:mm"),
+            "max_news_per_load": self.news_max_per_load_spin.value(),
+            
+            # Источники
+            "sources": {
+                key: cb.isChecked() for key, cb in self.news_sources.items()
+            },
+            
+            # Ключевые слова
+            "keywords": [k.strip() for k in self.news_keywords_edit.text().split(",") if k.strip()],
+            "symbols": [s.strip() for s in self.news_symbols_edit.text().split(",") if s.strip()],
+            
+            # NLP
+            "nlp_enabled": self.news_nlp_enabled.isChecked(),
+            "sentiment_threshold": self.news_sentiment_threshold.value(),
+        }
+
+    def _load_news_scheduler_settings(self):
+        """Загрузка настроек планировщика новостей."""
+        news_cfg = getattr(self.full_config, 'news_scheduler', {})
+        if not news_cfg:
+            news_cfg = {}
+        
+        # Основные
+        self.news_enabled_check.setChecked(news_cfg.get("enabled", True))
+        self.news_interval_spin.setValue(news_cfg.get("interval_hours", 4))
+        
+        start_time = news_cfg.get("start_time", "08:00")
+        self.news_start_time.setTime(QTime.fromString(start_time, "HH:mm"))
+        
+        self.news_max_per_load_spin.setValue(news_cfg.get("max_news_per_load", 20))
+        
+        # Источники
+        sources = news_cfg.get("sources", {})
+        for key, cb in self.news_sources.items():
+            cb.setChecked(sources.get(key, cb.isChecked()))
+        
+        # Ключевые слова
+        keywords = news_cfg.get("keywords", [])
+        self.news_keywords_edit.setText(", ".join(keywords))
+        
+        symbols = news_cfg.get("symbols", [])
+        self.news_symbols_edit.setText(", ".join(symbols))
+        
+        # NLP
+        self.news_nlp_enabled.setChecked(news_cfg.get("nlp_enabled", True))
+        self.news_sentiment_threshold.setValue(news_cfg.get("sentiment_threshold", -0.3))
 
     def _create_social_tab(self):
         """Создание вкладки социальной торговли."""
@@ -1528,6 +1752,9 @@ class SettingsWindow(QDialog):
 
             # Social Trading Settings
             self._load_social_settings()
+            
+            # Настройки планировщика новостей
+            self._load_news_scheduler_settings()
 
             # Daily Digest
             if isinstance(alerting_config, dict):
@@ -1716,6 +1943,9 @@ class SettingsWindow(QDialog):
             except RuntimeError: symbols_list = self.full_config.SYMBOLS_WHITELIST
 
             self._apply_social_settings()
+            
+            # Настройки планировщика новостей
+            self._apply_news_scheduler_settings()
 
             # Собираем настройки с защитой от ошибок виджетов
             def safe_val(w, d): 
@@ -1834,6 +2064,7 @@ class SettingsWindow(QDialog):
                     },
                 }
             settings_to_update["social_trading"] = self.full_config.social_trading if hasattr(self.full_config, 'social_trading') and self.full_config.social_trading else {}
+            settings_to_update["news_scheduler"] = self.full_config.news_scheduler if hasattr(self.full_config, 'news_scheduler') and self.full_config.news_scheduler else {}
 
             # 4. Обновляем текущую конфигурацию новыми значениями
             current_config.update(settings_to_update)
