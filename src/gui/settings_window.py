@@ -566,7 +566,10 @@ class SettingsWindow(QDialog):
         symbols_str = self.social_symbols_edit.text()
         allowed_symbols = [s.strip().upper() for s in symbols_str.split(",") if s.strip()]
 
-        self.settings.social_trading = {
+        if not hasattr(self.full_config, 'social_trading'):
+            self.full_config.social_trading = {}
+            
+        self.full_config.social_trading = {
             "enabled": enabled,
             "role": role,
             "risk_multiplier": risk,
@@ -576,7 +579,12 @@ class SettingsWindow(QDialog):
 
     def _load_social_settings(self):
         """Загрузка настроек социальной торговли."""
-        social_cfg = self.settings.social_trading if hasattr(self.settings, 'social_trading') and self.settings.social_trading else {}
+        social_cfg = None
+        if hasattr(self.full_config, 'social_trading'):
+            social_cfg = self.full_config.social_trading
+        
+        if not social_cfg:
+            social_cfg = {}
         
         self.social_enabled_check.setChecked(social_cfg.get("enabled", False))
         
