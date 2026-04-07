@@ -2511,6 +2511,11 @@ class MainWindow(QMainWindow):
         logger.info(f"[GUI-Balance] update_balance вызван: balance={balance}, equity={equity}")
         self.balance_label.setText(f"Баланс: {balance:.2f}")
         self.equity_label.setText(f"Эквити: {equity:.2f}")
+
+        # Принудительное обновление виджетов
+        self.balance_label.update()
+        self.equity_label.update()
+
         logger.info(f"[GUI-Balance] balance_label и equity_label обновлены")
 
         # Рассчитываем и обновляем открытый PnL (разница между эквити и балансом)
@@ -2524,6 +2529,7 @@ class MainWindow(QMainWindow):
             color = "#50fa7b" if open_pnl >= 0 else "#ff5555"
             pnl_text = f"<span style='font-weight: bold; color:{color}'>{open_pnl:+.2f} ({open_pnl_pct:+.2f}%)</span>"
             self.open_pnl_label.setText(pnl_text)
+            self.open_pnl_label.update()
             logger.info(f"[GUI-Balance] open_pnl_label обновлён: {pnl_text}")
         else:
             logger.warning("[GUI-Balance] open_pnl_label не найден!")

@@ -202,6 +202,18 @@ class AutoUpdater:
             self.update_pending = True
             # НЕ блокируем торговый цикл! Только GUI уведомление
             # trading_system.update_pending = True  # ← УДАЛЕНО: это блокировало торговлю
+
+            # АВТОМАТИЧЕСКИЙ СБРОС флага через 60 секунд чтобы не блокировать мониторинг
+            def auto_reset_pending():
+                import time
+
+                time.sleep(60)
+                self.update_pending = False
+                if self.trading_system:
+                    self.trading_system.update_pending = False
+                logger.info("[AutoUpdater] Флаг update_pending автоматически сброшен через 60 сек")
+
+            Thread(target=auto_reset_pending, daemon=True).start()
         else:
             # Обновлений нет — сбрасываем флаг чтобы разблокировать торговый цикл
             logger.info(status_text)

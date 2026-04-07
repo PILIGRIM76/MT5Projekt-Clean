@@ -819,11 +819,16 @@ class TradingSystem(QObject):
                 if phase in ["observer_mode", "emergency_stop"]:
                     logger.warning(f"[run_cycle] Graceful Degradation фаза: {phase}, снижаю активность")
         # Проверки перед запуском
-        if self.stop_event.is_set() or not self.is_heavy_init_complete or self.update_pending:
+        if self.stop_event.is_set() or not self.is_heavy_init_complete:
             logger.warning(
-                f"[run_cycle] Пропуск: stop_event={self.stop_event.is_set()}, heavy_init={self.is_heavy_init_complete}, update_pending={self.update_pending}"
+                f"[run_cycle] Пропуск: stop_event={self.stop_event.is_set()}, heavy_init={self.is_heavy_init_complete}"
             )
             return
+
+        # ИСПРАВЛЕНИЕ: update_pending больше не блокирует цикл мониторинга!
+        # Баланс и позиции должны обновляться даже если есть pending update
+        if self.update_pending:
+            logger.debug(f"[run_cycle] Update pending, но продолжаем обновление баланса/позиций")
 
         try:
             logger.info("[run_cycle] Запуск performance timer")
@@ -2293,6 +2298,12 @@ class TradingSystem(QObject):
 
                     try:
                         account_info = mt5.account_info()
+
+                        # DEBUG: Логируем каждую итерацию мониторинга (INFO чтобы видеть в логах)
+                        logger.info(
+                            f"[Monitoring-Debug] account_info={account_info is not None}, lock_acquired={lock_acquired}"
+                        )
+
                         if account_info:
                             # Оптимизация: логирование баланса только при изменении > 0.1% или раз в 60 сек
                             should_log = False
@@ -2317,6 +2328,10 @@ class TradingSystem(QObject):
                                 self._last_logged_balance = account_info.balance
                                 self._last_balance_log_time = current_time
 
+                            # DEBUG: Логируем каждую попытку обновления баланса
+                            logger.debug(
+                                f"[Monitoring-Debug] Вызываю update_balance: {account_info.balance}, {account_info.equity}"
+                            )
                             self._safe_gui_update("update_balance", account_info.balance, account_info.equity)
                             self._last_known_balance = account_info.balance
                             self._last_known_equity = account_info.equity
