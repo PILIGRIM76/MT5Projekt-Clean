@@ -98,6 +98,17 @@ class ControlCenterWidget(QWidget):
                 # Режим берём из правильного поля
                 "regime": item.get("regime", "Unknown"),
             }
+            # Сохраняем поля торговых сигналов если они есть
+            if "signal_type" in item:
+                processed_item["signal_type"] = item["signal_type"]
+            if "strategy" in item:
+                processed_item["strategy"] = item["strategy"]
+            if "timeframe" in item:
+                processed_item["timeframe"] = item["timeframe"]
+            if "timestamp" in item:
+                processed_item["timestamp"] = item["timestamp"]
+            if "entry_price" in item:
+                processed_item["entry_price"] = item["entry_price"]
             processed_data.append(processed_item)
 
         logger.info(
@@ -477,16 +488,14 @@ class ControlCenterWidget(QWidget):
     @Slot(list)
     def update_trading_signals_table(self, data: list):
         """Обновляет таблицу торговых сигналов."""
-        logger.info(f"[TradingSignals] update_trading_signals_table вызван с {len(data) if data else 0} элементами")
         if not data:
-            logger.warning("[TradingSignals] Данные пустые, пропускаю")
             return
-        logger.info(f"[TradingSignals] Первый элемент: {data[0]}")
 
-        # Проверяем тип данных — если это данные сканера (нет 'signal_type'), пропускаем
+        # Проверяем тип данных — если это данные сканера (нет 'signal_type'), очищаем таблицу
         first_item = data[0]
         if "signal_type" not in first_item:
-            logger.debug("[TradingSignals] Это данные сканера (нет signal_type), а не торговые сигналы — пропускаю")
+            logger.debug("[TradingSignals] Данные сканера (нет signal_type) — таблица сигналов очищена")
+            self.market_table.setRowCount(0)
             return
 
         # Сохраняем последние данные для возможного переключения режимов
