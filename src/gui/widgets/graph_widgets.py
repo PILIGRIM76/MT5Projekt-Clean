@@ -18,6 +18,7 @@ class GraphBackend(QObject):
 
     data_loaded = Signal(object)
     indicators_loaded = Signal(object)
+    graphDataUpdated = Signal(dict)
 
     def __init__(self, view: Any) -> None:
         super().__init__()
