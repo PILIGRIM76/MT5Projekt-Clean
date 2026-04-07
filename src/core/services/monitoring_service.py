@@ -214,9 +214,9 @@ class MonitoringService(BaseService):
                 if current_time - self._last_heavy_check_time > self._heavy_check_interval:
                     self._perform_heavy_check()
                     self._last_heavy_check_time = current_time
-
             finally:
-                mt5.shutdown()
+                # Безопасное завершение сессии MT5
+                pass
 
         except Exception as e:
             self._logger.error(f"Ошибка MT5 проверки: {e}", exc_info=True)
