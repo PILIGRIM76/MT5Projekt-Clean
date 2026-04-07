@@ -82,13 +82,14 @@ def train_symbol_model(symbol: str) -> dict:
         import MetaTrader5 as mt5
 
         from src.core.config_loader import load_config
+        from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
         from src.db.database_manager import DatabaseManager
         from src.ml.auto_trainer import AutoTrainer
 
         # Инициализируем MT5 (обязательно для загрузки данных если их нет в БД)
-        if not mt5.initialize():
+        if not mt5_ensure_connected():
             config_tmp = load_config()
-            if not mt5.initialize(
+            if not mt5_initialize(
                 path=config_tmp.MT5_PATH,
                 login=int(config_tmp.MT5_LOGIN),
                 password=config_tmp.MT5_PASSWORD,

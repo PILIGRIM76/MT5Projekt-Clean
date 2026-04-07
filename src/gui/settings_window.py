@@ -43,9 +43,10 @@ from PySide6.QtWidgets import (
 
 from src.core.config_loader import load_config
 from src.core.config_models import Settings
-from src.db.database_manager import DefiMetrics
 from src.core.config_writer import write_config
+from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
 from src.core.secrets_manager import get_secrets_manager
+from src.db.models import DefiMetrics
 from src.utils.scheduler_manager import SchedulerManager
 
 from .api_tester import ApiTester
@@ -71,10 +72,9 @@ class ConnectionTester(QThread):
             if not all([login, password, server, path]):
                 self.result_ready.emit(False, "Заполните все поля.")
                 return
-            if not mt5.initialize(path=path, login=login, password=password, server=server, timeout=5000):
+            if not mt5_initialize(path=path, login=login, password=password, server=server, timeout=5000):
                 err_code, err_msg = mt5.last_error()
                 self.result_ready.emit(False, f"Ошибка MT5: {err_msg}")
-                mt5.shutdown()
                 return
             account_info = mt5.account_info()
             if account_info is None:
@@ -506,7 +506,7 @@ class SettingsWindow(QDialog):
         self.tab_widget.addTab(news_scheduler_tab, self.create_icon("📰"), "Планировщик Новостей")
         self.tab_widget.addTab(notifications_tab, self.create_icon("🔔"), "Уведомления")
         self.tab_widget.addTab(updates_tab, self.create_icon("🔄"), "Обновления")
-        
+
         # НОВОЕ: Вкладка Копирование Сделок (в самом конце для заметности)
         try:
             social_tab = self._create_social_tab()
@@ -652,14 +652,14 @@ class SettingsWindow(QDialog):
         self.defi_enabled_check.setChecked(True)
         self.defi_enabled_check.setToolTip("Автоматическая загрузка TVL и APY из DeFiLlama")
         defi_header.addWidget(self.defi_enabled_check)
-        
+
         self.defi_interval_spin = QSpinBox()
         self.defi_interval_spin.setRange(1, 24)
         self.defi_interval_spin.setValue(6)
         self.defi_interval_spin.setSuffix(" ч")
         self.defi_interval_spin.setToolTip("Интервал обновления DeFi метрик")
         defi_header.addWidget(self.defi_interval_spin)
-        
+
         self.defi_load_btn = QPushButton("🔄 Обновить DeFi")
         self.defi_load_btn.clicked.connect(self._trigger_manual_defi_load)
         defi_header.addWidget(self.defi_load_btn)
@@ -702,17 +702,17 @@ class SettingsWindow(QDialog):
             try:
                 # Здесь будет вызов загрузчика новостей
                 logger.info("[NewsScheduler] Ручная загрузка новостей запущена")
-                
+
                 # TODO: Вызов загрузчика новостей
                 # from src.news.news_loader import NewsLoader
                 # loader = NewsLoader(self.full_config)
                 # loader.load_all_news()
-                
+
                 self.news_status_label.setText("Статус: Завершено ✓")
                 self.news_status_label.setStyleSheet("color: #50fa7b; font-weight: bold;")
                 self.news_last_load_label.setText(f"Последняя загрузка: {datetime.now().strftime('%H:%M:%S')}")
                 QMessageBox.information(self, "Готово", "Новости успешно загружены!")
-                
+
             except Exception as e:
                 logger.error(f"[NewsScheduler] Ошибка загрузки: {e}")
                 self.news_status_label.setText("Статус: Ошибка ❌")
@@ -726,25 +726,30 @@ class SettingsWindow(QDialog):
         self.defi_load_btn.setEnabled(False)
         self.defi_status_label.setText("Статус: Загрузка...")
         self.defi_status_label.setStyleSheet("color: orange;")
-        
+
         # Запуск в отдельном потоке
         import threading
+
         def run_defi_load():
             try:
-                if self.trading_system and hasattr(self.trading_system, 'db_manager'):
+                if self.trading_system and hasattr(self.trading_system, "db_manager"):
                     from src.data_enrichment.defi_data_loader import DefiDataLoader
+
                     loader = DefiDataLoader(self.trading_system.db_manager)
                     results = loader.load_all()
-                    
+
                     total = sum(results.values())
                     # Обновляем UI через QTimer
                     from PySide6.QtCore import QTimer
+
                     QTimer.singleShot(0, lambda: self._update_defi_gui_success(total))
                 else:
                     from PySide6.QtCore import QTimer
+
                     QTimer.singleShot(0, lambda: self._update_defi_gui_error("TradingSystem не инициализирован"))
             except Exception as e:
                 from PySide6.QtCore import QTimer
+
                 QTimer.singleShot(0, lambda: self._update_defi_gui_error(str(e)))
 
         threading.Thread(target=run_defi_load, daemon=True).start()
@@ -762,17 +767,21 @@ class SettingsWindow(QDialog):
 
     def _refresh_defi_list(self):
         """Обновить список Топ APY из БД."""
-        if self.trading_system and hasattr(self.trading_system, 'db_manager'):
+        if self.trading_system and hasattr(self.trading_system, "db_manager"):
             try:
                 session = self.trading_system.db_manager.Session()
                 # Берем топ-5 APY за последние сутки
                 from datetime import timedelta
+
                 since = datetime.utcnow() - timedelta(days=1)
-                metrics = session.query(DefiMetrics).filter(
-                    DefiMetrics.metric_type == "supply_apy",
-                    DefiMetrics.timestamp > since
-                ).order_by(DefiMetrics.value.desc()).limit(5).all()
-                
+                metrics = (
+                    session.query(DefiMetrics)
+                    .filter(DefiMetrics.metric_type == "supply_apy", DefiMetrics.timestamp > since)
+                    .order_by(DefiMetrics.value.desc())
+                    .limit(5)
+                    .all()
+                )
+
                 self.defi_top_apy_list.clear()
                 if metrics:
                     for m in metrics:
@@ -781,71 +790,67 @@ class SettingsWindow(QDialog):
                         self.defi_top_apy_list.addItem(text)
                 else:
                     self.defi_top_apy_list.addItem("Нет свежих данных (нажмите Обновить)")
-                    
+
             except Exception:
                 self.defi_top_apy_list.addItem("Ошибка чтения БД")
 
     def _apply_news_scheduler_settings(self):
         """Применение настроек планировщика новостей."""
-        if not hasattr(self.full_config, 'news_scheduler'):
+        if not hasattr(self.full_config, "news_scheduler"):
             self.full_config.news_scheduler = {}
-        
+
         # Основные настройки
-        self.full_config.news_scheduler.update({
-            "enabled": self.news_enabled_check.isChecked(),
-            "interval_hours": self.news_interval_spin.value(),
-            "start_time": self.news_start_time.time().toString("HH:mm"),
-            "max_news_per_load": self.news_max_per_load_spin.value(),
-            
-            # Источники
-            "sources": {
-                key: cb.isChecked() for key, cb in self.news_sources.items()
-            },
-            
-            # Ключевые слова
-            "keywords": [k.strip() for k in self.news_keywords_edit.text().split(",") if k.strip()],
-            "symbols": [s.strip() for s in self.news_symbols_edit.text().split(",") if s.strip()],
-            
-            # NLP
-            "nlp_enabled": self.news_nlp_enabled.isChecked(),
-            "sentiment_threshold": self.news_sentiment_threshold.value(),
-            
-            # DeFi
-            "defi_enabled": self.defi_enabled_check.isChecked(),
-            "defi_interval_hours": self.defi_interval_spin.value(),
-        })
+        self.full_config.news_scheduler.update(
+            {
+                "enabled": self.news_enabled_check.isChecked(),
+                "interval_hours": self.news_interval_spin.value(),
+                "start_time": self.news_start_time.time().toString("HH:mm"),
+                "max_news_per_load": self.news_max_per_load_spin.value(),
+                # Источники
+                "sources": {key: cb.isChecked() for key, cb in self.news_sources.items()},
+                # Ключевые слова
+                "keywords": [k.strip() for k in self.news_keywords_edit.text().split(",") if k.strip()],
+                "symbols": [s.strip() for s in self.news_symbols_edit.text().split(",") if s.strip()],
+                # NLP
+                "nlp_enabled": self.news_nlp_enabled.isChecked(),
+                "sentiment_threshold": self.news_sentiment_threshold.value(),
+                # DeFi
+                "defi_enabled": self.defi_enabled_check.isChecked(),
+                "defi_interval_hours": self.defi_interval_spin.value(),
+            }
+        )
 
     def _load_news_scheduler_settings(self):
         """Загрузка настроек планировщика новостей."""
-        news_cfg = getattr(self.full_config, 'news_scheduler', {})
+        news_cfg = getattr(self.full_config, "news_scheduler", {})
         if not news_cfg:
             news_cfg = {}
-        
+
         # Основные
         self.news_enabled_check.setChecked(news_cfg.get("enabled", True))
         self.news_interval_spin.setValue(news_cfg.get("interval_hours", 4))
-        
+
         start_time = news_cfg.get("start_time", "08:00")
         self.news_start_time.setTime(QTime.fromString(start_time, "HH:mm"))
-        
+
         self.news_max_per_load_spin.setValue(news_cfg.get("max_news_per_load", 20))
-        
+
         # Источники
         sources = news_cfg.get("sources", {})
         for key, cb in self.news_sources.items():
             cb.setChecked(sources.get(key, cb.isChecked()))
-        
+
         # Ключевые слова
         keywords = news_cfg.get("keywords", [])
         self.news_keywords_edit.setText(", ".join(keywords))
-        
+
         symbols = news_cfg.get("symbols", [])
         self.news_symbols_edit.setText(", ".join(symbols))
-        
+
         # NLP
         self.news_nlp_enabled.setChecked(news_cfg.get("nlp_enabled", True))
         self.news_sentiment_threshold.setValue(news_cfg.get("sentiment_threshold", -0.3))
-        
+
         # DeFi
         self.defi_enabled_check.setChecked(news_cfg.get("defi_enabled", True))
         self.defi_interval_spin.setValue(news_cfg.get("defi_interval_hours", 6))
@@ -931,9 +936,9 @@ class SettingsWindow(QDialog):
         symbols_str = self.social_symbols_edit.text()
         allowed_symbols = [s.strip().upper() for s in symbols_str.split(",") if s.strip()]
 
-        if not hasattr(self.full_config, 'social_trading'):
+        if not hasattr(self.full_config, "social_trading"):
             self.full_config.social_trading = {}
-            
+
         self.full_config.social_trading = {
             "enabled": enabled,
             "role": role,
@@ -942,20 +947,20 @@ class SettingsWindow(QDialog):
             "master_port": master_port,
             "risk_multiplier": risk,
             "max_lot_per_trade": max_lot,
-            "allowed_symbols": allowed_symbols
+            "allowed_symbols": allowed_symbols,
         }
 
     def _load_social_settings(self):
         """Загрузка настроек социальной торговли."""
         social_cfg = None
-        if hasattr(self.full_config, 'social_trading'):
+        if hasattr(self.full_config, "social_trading"):
             social_cfg = self.full_config.social_trading
-        
+
         if not social_cfg:
             social_cfg = {}
-        
+
         self.social_enabled_check.setChecked(social_cfg.get("enabled", False))
-        
+
         role = social_cfg.get("role", "master")
         index = self.social_role_combo.findData(role)
         if index >= 0:
@@ -971,7 +976,7 @@ class SettingsWindow(QDialog):
 
         self.social_risk_spin.setValue(social_cfg.get("risk_multiplier", 1.0))
         self.social_max_lot_spin.setValue(social_cfg.get("max_lot_per_trade", 1.0))
-        
+
         symbols = social_cfg.get("allowed_symbols", [])
         self.social_symbols_edit.setText(", ".join(symbols))
 
@@ -1671,7 +1676,7 @@ class SettingsWindow(QDialog):
         self.max_open_positions_spinbox.setValue(self.full_config.MAX_OPEN_POSITIONS)
         self.allow_weekend_trading_checkbox.setChecked(self.full_config.ALLOW_WEEKEND_TRADING)
         try:
-            if hasattr(self, 'gp_pop_spin'):
+            if hasattr(self, "gp_pop_spin"):
                 self.gp_pop_spin.setValue(self.full_config.GP_POPULATION_SIZE)
                 self.gp_gen_spin.setValue(self.full_config.GP_GENERATIONS)
         except RuntimeError as e:
@@ -1863,7 +1868,7 @@ class SettingsWindow(QDialog):
 
             # Social Trading Settings
             self._load_social_settings()
-            
+
             # Настройки планировщика новостей
             self._load_news_scheduler_settings()
 
@@ -2044,29 +2049,35 @@ class SettingsWindow(QDialog):
         # --- ЕДИНАЯ ЛОГИКА СОХРАНЕНИЯ settings.json ---
         try:
             current_config = load_config().model_dump()
-            
+
             # Собираем символы
             symbols_list = []
             try:
                 for row in range(self.symbols_table.rowCount()):
                     item = self.symbols_table.item(row, 0)
-                    if item: symbols_list.append(item.text())
-            except RuntimeError: symbols_list = self.full_config.SYMBOLS_WHITELIST
+                    if item:
+                        symbols_list.append(item.text())
+            except RuntimeError:
+                symbols_list = self.full_config.SYMBOLS_WHITELIST
 
             self._apply_social_settings()
-            
+
             # Настройки планировщика новостей
             self._apply_news_scheduler_settings()
 
             # Собираем настройки с защитой от ошибок виджетов
-            def safe_val(w, d): 
-                try: return w.value() if hasattr(w, 'value') else w.isChecked() 
-                except RuntimeError: return d
+            def safe_val(w, d):
+                try:
+                    return w.value() if hasattr(w, "value") else w.isChecked()
+                except RuntimeError:
+                    return d
 
             settings_to_update = {
                 "RISK_PERCENTAGE": safe_val(self.risk_percentage_spinbox, self.full_config.RISK_PERCENTAGE),
                 "RISK_REWARD_RATIO": safe_val(self.risk_reward_ratio_spinbox, self.full_config.RISK_REWARD_RATIO),
-                "MAX_DAILY_DRAWDOWN_PERCENT": safe_val(self.max_daily_drawdown_spinbox, self.full_config.MAX_DAILY_DRAWDOWN_PERCENT),
+                "MAX_DAILY_DRAWDOWN_PERCENT": safe_val(
+                    self.max_daily_drawdown_spinbox, self.full_config.MAX_DAILY_DRAWDOWN_PERCENT
+                ),
                 "MAX_OPEN_POSITIONS": safe_val(self.max_open_positions_spinbox, self.full_config.MAX_OPEN_POSITIONS),
                 "SYMBOLS_WHITELIST": symbols_list,
                 "ALLOW_WEEKEND_TRADING": safe_val(self.allow_weekend_trading_checkbox, self.full_config.ALLOW_WEEKEND_TRADING),
@@ -2103,37 +2114,42 @@ class SettingsWindow(QDialog):
                     },
                 },
             }
-            settings_to_update.update({
-                "GP_POPULATION_SIZE": safe_val(self.gp_pop_spin, self.full_config.GP_POPULATION_SIZE),
-                "GP_GENERATIONS": safe_val(self.gp_gen_spin, self.full_config.GP_GENERATIONS),
-            })
+            settings_to_update.update(
+                {
+                    "GP_POPULATION_SIZE": safe_val(self.gp_pop_spin, self.full_config.GP_POPULATION_SIZE),
+                    "GP_GENERATIONS": safe_val(self.gp_gen_spin, self.full_config.GP_GENERATIONS),
+                }
+            )
             settings_to_update["vector_db"] = {
-                    "enabled": self.full_config.vector_db.enabled,
-                    "path": self._get_relative_vector_db_path(),
-                    "collection_name": self.full_config.vector_db.collection_name,
-                    "embedding_model": self.full_config.vector_db.embedding_model,
-                    "cleanup_enabled": self.full_config.vector_db.cleanup_enabled,
-                    "max_age_days": self.full_config.vector_db.max_age_days,
-                    "cleanup_interval_hours": self.full_config.vector_db.cleanup_interval_hours,
-                }
+                "enabled": self.full_config.vector_db.enabled,
+                "path": self._get_relative_vector_db_path(),
+                "collection_name": self.full_config.vector_db.collection_name,
+                "embedding_model": self.full_config.vector_db.embedding_model,
+                "cleanup_enabled": self.full_config.vector_db.cleanup_enabled,
+                "max_age_days": self.full_config.vector_db.max_age_days,
+                "cleanup_interval_hours": self.full_config.vector_db.cleanup_interval_hours,
+            }
             settings_to_update["auto_retraining"] = {
-                    "enabled": self.auto_retrain_checkbox.isChecked(),
-                    "schedule_time": self.auto_retrain_time_edit.time().toString("hh:mm"),
-                    "interval_hours": self.auto_retrain_interval_spin.value(),
-                    "max_symbols": self.auto_retrain_max_symbols_spin.value(),
-                    "max_workers": self.auto_retrain_max_workers_spin.value(),
-                }
+                "enabled": self.auto_retrain_checkbox.isChecked(),
+                "schedule_time": self.auto_retrain_time_edit.time().toString("hh:mm"),
+                "interval_hours": self.auto_retrain_interval_spin.value(),
+                "max_symbols": self.auto_retrain_max_symbols_spin.value(),
+                "max_workers": self.auto_retrain_max_workers_spin.value(),
+            }
             settings_to_update["trading_mode"] = {
-                    "current_mode": self.trading_mode_toggle.get_mode() if hasattr(self, "trading_mode_toggle") else "paper",
-                    "enabled": True,
-                }
+                "current_mode": self.trading_mode_toggle.get_mode() if hasattr(self, "trading_mode_toggle") else "paper",
+                "enabled": True,
+            }
             settings_to_update["PROFIT_TARGET_MODE"] = self.profit_target_mode_combo.currentText()
-            settings_to_update.update({
+            settings_to_update.update(
+                {
                     "PROFIT_TARGET_MANUAL_PERCENT": self.profit_target_manual_spin.value(),
                     "REENTRY_COOLDOWN_AFTER_PROFIT": self.reentry_profit_spin.value(),
                     "REENTRY_COOLDOWN_AFTER_LOSS": self.reentry_loss_spin.value(),
-                })
-            settings_to_update.update({
+                }
+            )
+            settings_to_update.update(
+                {
                     # Новые настройки контроля прибыли и интенсивности
                     "MAX_PROFIT_PER_TRADE_PERCENT": self.max_profit_close_spin.value(),
                     "PROFIT_MODE": self.profit_mode_combo.currentText(),
@@ -2141,41 +2157,50 @@ class SettingsWindow(QDialog):
                     "TRADE_INTERVAL_SECONDS": self.trade_interval_spin.value(),
                     "REENTRY_SAME_PAIR_MODE": self.reentry_same_pair_combo.currentText(),
                     "REENTRY_SAME_PAIR_COOLDOWN_MINUTES": self.reentry_same_pair_cooldown_spin.value(),
-                })
-            settings_to_update["alerting"] = {
-                    "enabled": self.telegram_enabled_checkbox.isChecked() or self.email_enabled_checkbox.isChecked(),
-                    "channels": {
-                        "telegram": {
-                            "enabled": self.telegram_enabled_checkbox.isChecked(),
-                            "bot_token_env": "TELEGRAM_BOT_TOKEN",
-                            "chat_id_env": "TELEGRAM_CHAT_ID",
-                        },
-                        "email": {
-                            "enabled": self.email_enabled_checkbox.isChecked(),
-                            "smtp_server": self.email_smtp_edit.text(),
-                            "smtp_port": self.email_port_edit.value(),
-                            "use_tls": True,
-                            "from_email_env": "ALERT_EMAIL_FROM",
-                            "password_env": "ALERT_EMAIL_PASSWORD",
-                            "recipients_env": "ALERT_EMAIL_RECIPIENTS",
-                        },
-                        "push": {"enabled": False, "user_key_env": "PUSHOVER_USER_KEY", "api_token_env": "PUSHOVER_API_TOKEN"},
-                    },
-                    "rate_limit": {"max_per_minute": 10, "cooldown_seconds": 60},
-                    "quiet_hours": {
-                        "enabled": self.quiet_hours_enabled_checkbox.isChecked(),
-                        "start": self.quiet_hours_start_edit.time().toString("HH:mm"),
-                        "end": self.quiet_hours_end_edit.time().toString("HH:mm"),
-                        "timezone": "UTC",
-                    },
-                    "daily_digest": {
-                        "enabled": self.digest_enabled_checkbox.isChecked(),
-                        "time": self.digest_time_edit.time().toString("HH:mm"),
-                        "timezone": "UTC",
-                    },
                 }
-            settings_to_update["social_trading"] = self.full_config.social_trading if hasattr(self.full_config, 'social_trading') and self.full_config.social_trading else {}
-            settings_to_update["news_scheduler"] = self.full_config.news_scheduler if hasattr(self.full_config, 'news_scheduler') and self.full_config.news_scheduler else {}
+            )
+            settings_to_update["alerting"] = {
+                "enabled": self.telegram_enabled_checkbox.isChecked() or self.email_enabled_checkbox.isChecked(),
+                "channels": {
+                    "telegram": {
+                        "enabled": self.telegram_enabled_checkbox.isChecked(),
+                        "bot_token_env": "TELEGRAM_BOT_TOKEN",
+                        "chat_id_env": "TELEGRAM_CHAT_ID",
+                    },
+                    "email": {
+                        "enabled": self.email_enabled_checkbox.isChecked(),
+                        "smtp_server": self.email_smtp_edit.text(),
+                        "smtp_port": self.email_port_edit.value(),
+                        "use_tls": True,
+                        "from_email_env": "ALERT_EMAIL_FROM",
+                        "password_env": "ALERT_EMAIL_PASSWORD",
+                        "recipients_env": "ALERT_EMAIL_RECIPIENTS",
+                    },
+                    "push": {"enabled": False, "user_key_env": "PUSHOVER_USER_KEY", "api_token_env": "PUSHOVER_API_TOKEN"},
+                },
+                "rate_limit": {"max_per_minute": 10, "cooldown_seconds": 60},
+                "quiet_hours": {
+                    "enabled": self.quiet_hours_enabled_checkbox.isChecked(),
+                    "start": self.quiet_hours_start_edit.time().toString("HH:mm"),
+                    "end": self.quiet_hours_end_edit.time().toString("HH:mm"),
+                    "timezone": "UTC",
+                },
+                "daily_digest": {
+                    "enabled": self.digest_enabled_checkbox.isChecked(),
+                    "time": self.digest_time_edit.time().toString("HH:mm"),
+                    "timezone": "UTC",
+                },
+            }
+            settings_to_update["social_trading"] = (
+                self.full_config.social_trading
+                if hasattr(self.full_config, "social_trading") and self.full_config.social_trading
+                else {}
+            )
+            settings_to_update["news_scheduler"] = (
+                self.full_config.news_scheduler
+                if hasattr(self.full_config, "news_scheduler") and self.full_config.news_scheduler
+                else {}
+            )
 
             # 4. Обновляем текущую конфигурацию новыми значениями
             current_config.update(settings_to_update)
@@ -3547,10 +3572,12 @@ class SettingsWindow(QDialog):
                         )
                         # Обновляем статус в GUI потокобезопасным способом через QTimer
                         from PySide6.QtCore import QTimer
+
                         QTimer.singleShot(0, lambda: self._on_training_finished(success=True))
                     except Exception as e:
                         logger.error(f"Ошибка при ручном переобучении: {e}", exc_info=True)
                         from PySide6.QtCore import QTimer
+
                         QTimer.singleShot(0, lambda: self._on_training_finished(success=False, error=str(e)))
 
                 training_thread = threading.Thread(target=run_training, daemon=True)
@@ -3579,7 +3606,7 @@ class SettingsWindow(QDialog):
             self.auto_retrain_status_label.setText(f"Статус: ошибка ❌")
             self.auto_retrain_status_label.setStyleSheet("color: #ff5555;")
             QMessageBox.critical(self, "Ошибка", f"Не удалось завершить обучение:\n{error}")
-        
+
         # Возвращаем кнопку в активное состояние
         self.manual_retrain_button.setEnabled(True)
 

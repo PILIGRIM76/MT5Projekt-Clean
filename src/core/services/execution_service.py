@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 import MetaTrader5 as mt5
 
 from src.core.config_models import Settings
+from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
 from src.core.services.base_service import BaseService
 from src.core.services.trade_executor import TradeExecutor
 from src.data_models import SignalType, TradeSignal
@@ -173,7 +174,7 @@ class ExecutionService(BaseService):
     async def _check_mt5_connection(self) -> bool:
         """Проверка подключения к MT5."""
         with self.mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH, timeout=5000):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH, timeout=5000):
                 raise ConnectionError(f"Не удалось подключиться к MT5: {mt5.last_error()}")
             mt5.shutdown()
         return True
@@ -186,7 +187,7 @@ class ExecutionService(BaseService):
     async def _get_balance(self) -> float:
         """Получение баланса счёта."""
         with self.mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 return 0.0
             try:
                 account_info = mt5.account_info()
@@ -199,7 +200,7 @@ class ExecutionService(BaseService):
     async def _count_positions(self) -> int:
         """Подсчёт открытых позиций."""
         with self.mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 return 0
             try:
                 positions = mt5.positions_get()
@@ -319,7 +320,7 @@ class ExecutionService(BaseService):
 
         # Получение всех позиций
         with self.mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 return [{"success": False, "error": "MT5 connection failed"}]
 
             try:
@@ -389,7 +390,7 @@ class ExecutionService(BaseService):
 
         def _get_positions():
             with self.mt5_lock:
-                if not mt5.initialize(path=self.config.MT5_PATH):
+                if not mt5_ensure_connected(path=self.config.MT5_PATH):
                     return []
                 try:
                     positions = mt5.positions_get()

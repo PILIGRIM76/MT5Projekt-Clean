@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from src.core.config_models import Settings
+from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
 from src.data_models import NewsItem
 
 logger = logging.getLogger(__name__)
@@ -115,7 +116,7 @@ class DataProvider:
         valid_symbols = []
 
         with self.mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error("Не удалось подключиться к MT5 для проверки символов.")
                 return requested_symbols  # Возвращаем как есть, если нет связи
 
@@ -163,7 +164,7 @@ class DataProvider:
         # 1. Поиск прямой или обратной пары
         def _get_rate_from_mt5(pair: str) -> Optional[float]:
             with self.mt5_lock:
-                if not mt5.initialize(path=self.config.MT5_PATH):
+                if not mt5_ensure_connected(path=self.config.MT5_PATH):
                     return None
                 try:
                     tick = mt5.symbol_info_tick(pair)
@@ -326,7 +327,7 @@ class DataProvider:
         for attempt in range(self.max_retries):
             rates = None
             with self.mt5_lock:
-                if not mt5.initialize(path=self.config.MT5_PATH):
+                if not mt5_ensure_connected(path=self.config.MT5_PATH):
                     continue
                 try:
                     # --- ДОБАВЛЕНО: Принудительный выбор символа ---
@@ -421,7 +422,7 @@ class DataProvider:
         # ОПТИМИЗАЦИЯ: Кэшируем symbol_info, чтобы не запрашивать каждый раз
         symbol_info = None
         with self.mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error(f"[{symbol}] Не удалось инициализировать MT5 для проверки символа.")
                 return None
             try:
@@ -479,7 +480,7 @@ class DataProvider:
                 return None
 
             try:
-                if not mt5.initialize(path=self.config.MT5_PATH):
+                if not mt5_ensure_connected(path=self.config.MT5_PATH):
                     logger.error(f"get_historical_data: initialize() failed, error code = {mt5.last_error()}")
                     mt5.shutdown()
                     return None
@@ -535,7 +536,7 @@ class DataProvider:
         max_timestamp_in_batch = self.last_news_timestamp
 
         with self.mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error("DataProvider (get_mt5_news): Не удалось подключиться к MT5.")
                 return []
 
@@ -582,7 +583,7 @@ class DataProvider:
         Получает минимальный размер лота для символа из MT5.
         """
         with self.mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error(f"[get_minimum_lot_size] Не удалось инициализировать MT5 для {symbol}.")
                 return None
 

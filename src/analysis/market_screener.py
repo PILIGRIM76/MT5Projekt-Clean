@@ -7,6 +7,7 @@ import MetaTrader5 as mt5
 import pandas as pd
 
 from src.core.config_models import Settings
+from src.core.mt5_connection_manager import mt5_ensure_connected
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class MarketScreener:
         liq_weight = self.config.screener_weights.liquidity
 
         with self.mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error("MarketScreener: Не удалось подключиться к MT5 для расчета ликвидности.")
                 return [], []
 

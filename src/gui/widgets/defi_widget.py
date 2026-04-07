@@ -6,13 +6,11 @@ DeFi Dashboard Widget — Отображение метрик DeFi проток�
 import logging
 from datetime import datetime, timedelta
 
-from PySide6.QtWidgets import (
-    QGroupBox, QVBoxLayout, QHBoxLayout, QLabel, 
-    QListWidget, QListWidgetItem, QPushButton, QWidget
-)
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont
-from src.db.database_manager import DefiMetrics
+from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget
+
+from src.db.models import DefiMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +20,7 @@ class DeFiWidget(QGroupBox):
     Виджет для отображения лучших DeFi доходностей и TVL.
     Подключается к БД и обновляется автоматически.
     """
-    
+
     # Сигналы
     refresh_requested = Signal()
 
@@ -45,9 +43,9 @@ class DeFiWidget(QGroupBox):
                 color: #50fa7b;
             }
         """)
-        
+
         self._init_ui()
-        
+
         # Таймер автообновления (запускается в set_db_manager)
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.refresh_data)
@@ -61,9 +59,9 @@ class DeFiWidget(QGroupBox):
         self.status_label = QLabel("⚪ Подключение...")
         self.status_label.setStyleSheet("color: #8be9fd; font-size: 12px;")
         header.addWidget(self.status_label)
-        
+
         header.addStretch()
-        
+
         refresh_btn = QPushButton("🔄")
         refresh_btn.setFixedSize(30, 30)
         refresh_btn.setToolTip("Обновить данные")
@@ -106,12 +104,12 @@ class DeFiWidget(QGroupBox):
         """Установить менеджер БД и запустить обновление."""
         logger.info(f"[DeFiWidget] Установка db_manager: {db_manager is not None}")
         self.db_manager = db_manager
-        
+
         # Запускаем таймер (раз в 5 минут)
         if not self.update_timer.isActive():
             self.update_timer.start(300000)
             logger.info("[DeFiWidget] Таймер автообновления запущен")
-        
+
         # Сразу загружаем данные
         self.refresh_data()
 
@@ -130,12 +128,18 @@ class DeFiWidget(QGroupBox):
             # 1. Топ APY (за последние 24 часа, исключая подозрительно высокие > 1000%)
             since = datetime.utcnow() - timedelta(hours=24)
             logger.info(f"[DeFiWidget] Запрос APY с {since}")
-            
-            top_yields = session.query(DefiMetrics).filter(
-                DefiMetrics.metric_type == "supply_apy",
-                DefiMetrics.timestamp > since,
-                DefiMetrics.value < 1000.0  # Фильтр скама/ошибок
-            ).order_by(DefiMetrics.value.desc()).limit(10).all()
+
+            top_yields = (
+                session.query(DefiMetrics)
+                .filter(
+                    DefiMetrics.metric_type == "supply_apy",
+                    DefiMetrics.timestamp > since,
+                    DefiMetrics.value < 1000.0,  # Фильтр скама/ошибок
+                )
+                .order_by(DefiMetrics.value.desc())
+                .limit(10)
+                .all()
+            )
 
             logger.info(f"[DeFiWidget] Найдено {len(top_yields)} записей APY")
 
@@ -143,23 +147,31 @@ class DeFiWidget(QGroupBox):
             for m in top_yields:
                 # Формируем красивую строку
                 color = "#50fa7b"
-                if m.value > 20: color = "#ffb86c" # Высокий риск
-                if m.value > 50: color = "#ff5555" # Очень высокий риск
-                
+                if m.value > 20:
+                    color = "#ffb86c"  # Высокий риск
+                if m.value > 50:
+                    color = "#ff5555"  # Очень высокий риск
+
                 item_text = f"{m.protocol.upper()} | {m.chain} | {m.asset}"
                 val_text = f"APY: {m.value:.2f}%"
-                
+
                 item = QListWidgetItem(f"{item_text}\n{val_text}")
                 item.setForeground(QColor(color))
                 self.yields_list.addItem(item)
 
             # 2. Топ Lending Rates (Supply APY для Aave/Compound)
-            top_lending = session.query(DefiMetrics).filter(
-                DefiMetrics.metric_type == "supply_apy",
-                DefiMetrics.timestamp > since,
-                DefiMetrics.protocol.in_(["aave-v3", "aave-v2", "compound-v3", "compound-v2"]),
-                DefiMetrics.value < 100.0
-            ).order_by(DefiMetrics.value.desc()).limit(5).all()
+            top_lending = (
+                session.query(DefiMetrics)
+                .filter(
+                    DefiMetrics.metric_type == "supply_apy",
+                    DefiMetrics.timestamp > since,
+                    DefiMetrics.protocol.in_(["aave-v3", "aave-v2", "compound-v3", "compound-v2"]),
+                    DefiMetrics.value < 100.0,
+                )
+                .order_by(DefiMetrics.value.desc())
+                .limit(5)
+                .all()
+            )
 
             self.lending_list.clear()
             for m in top_lending:
@@ -168,12 +180,12 @@ class DeFiWidget(QGroupBox):
                 item = QListWidgetItem(f"{item_text}\n{val_text}")
                 item.setForeground(QColor("#8be9fd"))
                 self.lending_list.addItem(item)
-            
+
             # Обновляем статус
             self.status_label.setText("🟢 Подключено")
             self.status_label.setStyleSheet("color: #50fa7b;")
             self.last_update_label.setText(f"Обновлено: {datetime.now().strftime('%H:%M:%S')}")
-            
+
             if not top_yields:
                 self.yields_list.addItem("Нет данных за 24ч. Нажмите 🔄 или запустите загрузку в Настройках.")
             else:

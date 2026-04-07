@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from src.core.config_models import Settings
+from src.core.mt5_connection_manager import mt5_ensure_connected
 from src.core.services.base_service import BaseService
 from src.data.data_provider import DataProvider
 
@@ -156,7 +157,7 @@ class DataService(BaseService):
         import MetaTrader5 as mt5
 
         with self._mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH, timeout=5000):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH, timeout=5000):
                 raise ConnectionError(f"Не удалось подключиться к MT5: {mt5.last_error()}")
             mt5.shutdown()
 

@@ -30,6 +30,7 @@ except ImportError:
     mt5 = None
 
 from src.core.config_models import Settings
+from src.core.mt5_connection_manager import mt5_ensure_connected
 from src.db.database_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ class DataCollector:
             return False
 
         try:
-            if not mt5.initialize(path=self.mt5_path):
+            if not mt5_ensure_connected(path=self.mt5_path):
                 logger.error(f"Ошибка инициализации MT5: {mt5.last_error()}")
                 return False
 

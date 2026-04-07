@@ -509,5 +509,35 @@
       }
     }
   },
-  "ORCHESTRATOR_MODEL_PATH": "F:/Enjen/orchestrator"
+  "ORCHESTRATOR_MODEL_PATH": "F:/Enjen/orchestrator",
+  "social_trading": {
+    "enabled": false,
+    "role": "master",
+    "mode": "local",
+    "master_host": "localhost",
+    "master_port": 5555,
+    "risk_multiplier": 1.0,
+    "max_lot_per_trade": 1.0,
+    "allowed_symbols": []
+  },
+  "news_scheduler": {
+    "enabled": true,
+    "interval_hours": 4,
+    "start_time": "08:00",
+    "max_news_per_load": 20,
+    "sources": {
+      "newsapi_enabled": true,
+      "rss_enabled": true,
+      "twitter_enabled": false,
+      "telegram_news_enabled": false,
+      "yahoo_news_enabled": true,
+      "google_trends_enabled": false
+    },
+    "keywords": [],
+    "symbols": [],
+    "nlp_enabled": true,
+    "sentiment_threshold": -0.9,
+    "defi_enabled": true,
+    "defi_interval_hours": 1
+  }
 }

@@ -23,6 +23,7 @@ from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QDialog, QGridLayout, QHBoxLayout, QPushButton, QTextEdit, QVBoxLayout
 
 from src.core.config_models import Settings
+from src.core.mt5_connection_manager import mt5_ensure_connected
 from src.data.data_provider import DataProvider
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
 from src.strategies.strategy_loader import StrategyLoader
@@ -59,7 +60,7 @@ def run_backtest_process(
     try:
         # 1. Инициализация конфигурации и подключение к MT5
         config = Settings(**config_dict)
-        if not mt5.initialize(path=config.MT5_PATH):
+        if not mt5_ensure_connected(path=config.MT5_PATH):
             raise ConnectionError("Не удалось подключиться к MetaTrader 5.")
 
         start_dt = datetime.combine(start_date, datetime.min.time())

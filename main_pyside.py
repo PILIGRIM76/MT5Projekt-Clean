@@ -92,6 +92,7 @@ from src.analysis.event_driven_backtester import EventDrivenBacktester
 from src.analysis.system_backtester import SystemBacktester
 from src.core.config_loader import load_config
 from src.core.config_models import Settings
+from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
 from src.core.trading_system import TradingSystem
 from src.data.data_provider import DataProvider
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
@@ -324,7 +325,7 @@ def run_backtest_process(
     try:
         # 1. Инициализация конфигурации и подключение к MT5
         config = Settings(**config_dict)
-        if not mt5.initialize(path=config.MT5_PATH):
+        if not mt5_ensure_connected(path=config.MT5_PATH):
             raise ConnectionError("Не удалось подключиться к MetaTrader 5.")
 
         start_dt = datetime.combine(start_date, datetime.min.time())
@@ -565,7 +566,7 @@ class PySideTradingSystem(QObject):
     def connect_to_terminal_adapter(self) -> tuple[bool, str]:
         with self.core_system.mt5_lock:
             logger.info("Попытка подключения к MetaTrader 5 через адаптер...")
-            if not mt5.initialize(
+            if not mt5_initialize(
                 path=self.config.MT5_PATH,
                 login=int(self.config.MT5_LOGIN),
                 password=self.config.MT5_PASSWORD,
@@ -738,7 +739,7 @@ class MainWindow(QMainWindow):
         self.on_kg_toggle()
 
         # 4. Инициализация DeFi Widget
-        if hasattr(self, 'defi_widget') and hasattr(self.core_system, 'db_manager'):
+        if hasattr(self, "defi_widget") and hasattr(self.core_system, "db_manager"):
             logger.info("[DeFi] Подключение к БД...")
             self.defi_widget.set_db_manager(self.core_system.db_manager)
 
@@ -3347,9 +3348,9 @@ class MainWindow(QMainWindow):
     def on_heavy_initialization_finished(self):
         """Слот, который безопасно включает кнопку запуска после загрузки моделей."""
         self.start_button.setEnabled(True)
-        
+
         # Инициализация DeFi Widget (подключение к БД)
-        if hasattr(self, 'defi_widget') and hasattr(self.trading_system.core_system, 'db_manager'):
+        if hasattr(self, "defi_widget") and hasattr(self.trading_system.core_system, "db_manager"):
             logger.info("[DeFi] Подключение к БД...")
             self.defi_widget.set_db_manager(self.trading_system.core_system.db_manager)
 

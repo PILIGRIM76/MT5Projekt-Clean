@@ -14,6 +14,7 @@ from scipy.stats import norm
 from src.analysis.anomaly_detector import AnomalyDetector
 from src.analysis.stress_tester import StressTester
 from src.core.config_models import Settings
+from src.core.mt5_connection_manager import mt5_ensure_connected
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
 from src.data_models import SignalType, TradeSignal
 from src.risk.volatility_forecaster import VolatilityForecaster
@@ -30,7 +31,7 @@ class RiskEngine:
         querier: Optional[KnowledgeGraphQuerier] = None,
         mt5_lock: threading.Lock = None,
         is_simulation: bool = False,
-        account_manager=None
+        account_manager=None,
     ):
         self.config = config
         self.risk_config = config.risk
@@ -291,7 +292,7 @@ class RiskEngine:
 
         # --- Использование mt5_lock и инициализация MT5 ---
         with self.mt5_lock:
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error("check_daily_drawdown: Не удалось инициализировать MT5.")
                 return True  # Возвращаем True, чтобы не блокировать торговлю из-за ошибки проверки
             try:
@@ -576,7 +577,7 @@ class RiskEngine:
         # 3. Расчет объема лота
         with self.mt5_lock:
             # --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 1: Проверка инициализации MT5 ---
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error(
                     f"[{symbol}] БЛОКИРОВКА: Не удалось инициализировать MT5 для расчета лота. Путь: {self.config.MT5_PATH}"
                 )
@@ -620,12 +621,14 @@ class RiskEngine:
                     logger.warning(f"[{symbol}] volume_step был None/0. Установлено безопасное значение: {step}")
                 # Также убедимся, что lot_size - float
                 lot_size = float(lot_size)
-                
+
                 # АДАПТИВНОСТЬ: Проверка на минимальный лот через AccountManager
                 if self.account_manager:
                     lot_size = self.account_manager.adjust_lot_for_min(symbol, lot_size)
                     if lot_size == 0.0:
-                        logger.warning(f"[{symbol}] АДАПТИВНЫЙ РИСК: Невозможно открыть позицию (недостаточно маржи для мин. лота)")
+                        logger.warning(
+                            f"[{symbol}] АДАПТИВНЫЙ РИСК: Невозможно открыть позицию (недостаточно маржи для мин. лота)"
+                        )
                         return None, None
 
                 # ----------------------------------------------------------------------

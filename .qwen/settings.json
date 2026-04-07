@@ -57,7 +57,9 @@
       "WebFetch(shillerdata.com)",
       "WebFetch(www.kaggle.com)",
       "WebFetch(stooq.com)",
-      "Bash(pip index *)"
+      "Bash(pip index *)",
+      "Bash(d *)",
+      "Bash(@if *)"
     ]
   },
   "$version": 3

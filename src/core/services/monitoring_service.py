@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import MetaTrader5 as mt5
 
+from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
 from src.core.services.base_service import BaseService, HealthStatus
 
 if TYPE_CHECKING:
@@ -103,7 +104,7 @@ class MonitoringService(BaseService):
 
                 # Основная проверка с MT5
                 self._perform_mt5_check(current_time)
-                
+
                 # Логируем статус каждые 5 минут
                 if self._iteration_count % 300 == 0:  # 300 секунд = 5 минут
                     mt5_initialized = mt5.terminal_info() if self.trading_system.running else None
@@ -138,9 +139,9 @@ class MonitoringService(BaseService):
             lock_acquired = True
 
             # Инициализация MT5 - сначала мягкое подключение
-            if not mt5.initialize(path=self.trading_system.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.trading_system.config.MT5_PATH):
                 # Если не вышло, пробуем полную авторизацию
-                if not mt5.initialize(
+                if not mt5_initialize(
                     path=self.trading_system.config.MT5_PATH,
                     login=int(self.trading_system.config.MT5_LOGIN),
                     password=self.trading_system.config.MT5_PASSWORD,
@@ -181,7 +182,7 @@ class MonitoringService(BaseService):
                         # Попытка авто-перезапуска MT5
                         self._logger.warning(f"[Monitoring] MT5 не отвечает. Код ошибки: {err_code}")
                         self._logger.info("[Monitoring] Попытка авто-перезапуска MT5...")
-                        
+
                         if self._restart_mt5():
                             self._logger.info("[Monitoring] ✓ MT5 перезапущен успешно!")
                             # Сбрасываем флаги ошибок
@@ -319,45 +320,38 @@ class MonitoringService(BaseService):
     def _restart_mt5(self) -> bool:
         """
         Авто-перезапуск MT5 терминала при обнаружении закрытия.
-        
+
         Returns:
             bool: True если перезапуск успешен
         """
         try:
             mt5_path = self.trading_system.config.MT5_PATH
-            
+
             # Проверяем, существует ли файл
             if not os.path.exists(mt5_path):
                 self._logger.error(f"[MT5-Restart] Файл MT5 не найден: {mt5_path}")
                 return False
-            
+
             # Закрываем все существующие процессы MT5
             self._logger.info("[MT5-Restart] Закрытие существующих процессов MT5...")
             try:
-                subprocess.run(
-                    ["taskkill", "/F", "/IM", "terminal64.exe"],
-                    capture_output=True,
-                    timeout=10
-                )
+                subprocess.run(["taskkill", "/F", "/IM", "terminal64.exe"], capture_output=True, timeout=10)
                 time.sleep(2)  # Ждем завершения
             except Exception as e:
                 self._logger.warning(f"[MT5-Restart] Ошибка при закрытии MT5: {e}")
-            
+
             # Запускаем MT5 в фоновом режиме
             self._logger.info(f"[MT5-Restart] Запуск MT5: {mt5_path}")
             try:
-                subprocess.Popen(
-                    [mt5_path],
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
+                subprocess.Popen([mt5_path], creationflags=subprocess.CREATE_NO_WINDOW)
                 time.sleep(5)  # Ждем запуска терминала
             except Exception as e:
                 self._logger.error(f"[MT5-Restart] Ошибка запуска MT5: {e}")
                 return False
-            
+
             # Пробуем подключиться
             self._logger.info("[MT5-Restart] Попытка подключения к MT5...")
-            if mt5.initialize(
+            if mt5_initialize(
                 path=mt5_path,
                 login=int(self.trading_system.config.MT5_LOGIN),
                 password=self.trading_system.config.MT5_PASSWORD,
@@ -369,7 +363,7 @@ class MonitoringService(BaseService):
                 err_code = mt5.last_error()
                 self._logger.error(f"[MT5-Restart] ✗ MT5 не подключился после запуска. Ошибка: {err_code}")
                 return False
-                
+
         except Exception as e:
             self._logger.error(f"[MT5-Restart] Критическая ошибка перезапуска: {e}", exc_info=True)
             return False
