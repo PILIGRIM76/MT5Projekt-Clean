@@ -2511,6 +2511,7 @@ class MainWindow(QMainWindow):
         logger.info(f"[GUI-Balance] update_balance вызван: balance={balance}, equity={equity}")
         self.balance_label.setText(f"Баланс: {balance:.2f}")
         self.equity_label.setText(f"Эквити: {equity:.2f}")
+        logger.info(f"[GUI-Balance] balance_label и equity_label обновлены")
 
         # Рассчитываем и обновляем открытый PnL (разница между эквити и балансом)
         open_pnl = equity - balance

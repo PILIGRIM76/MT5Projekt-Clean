@@ -3554,6 +3554,10 @@ class TradingSystem(QObject):
 
         self._last_gui_updates[method_name] = current_time
 
+        # Логирование для отладки update_balance
+        if method_name == "update_balance":
+            logger.debug(f"[GUI-Debug] _safe_gui_update вызван для update_balance: args={args}")
+
         if self.gui:
             try:
                 # Проверка что bridge существует
