@@ -48,10 +48,9 @@ class DeFiWidget(QGroupBox):
         
         self._init_ui()
         
-        # Таймер автообновления (раз в 5 минут)
+        # Таймер автообновления (запускается в set_db_manager)
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.refresh_data)
-        self.update_timer.start(300000) 
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -104,8 +103,16 @@ class DeFiWidget(QGroupBox):
         layout.addWidget(self.last_update_label)
 
     def set_db_manager(self, db_manager):
-        """Установить менеджер БД (для связи после инициализации)."""
+        """Установить менеджер БД и запустить обновление."""
+        logger.info(f"[DeFiWidget] Установка db_manager: {db_manager is not None}")
         self.db_manager = db_manager
+        
+        # Запускаем таймер (раз в 5 минут)
+        if not self.update_timer.isActive():
+            self.update_timer.start(300000)
+            logger.info("[DeFiWidget] Таймер автообновления запущен")
+        
+        # Сразу загружаем данные
         self.refresh_data()
 
     def refresh_data(self):
