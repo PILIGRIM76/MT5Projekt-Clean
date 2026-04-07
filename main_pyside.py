@@ -1058,8 +1058,8 @@ class MainWindow(QMainWindow):
         self.pnl_week_label = QLabel("Неделя: N/A")
         self.pnl_month_label = QLabel("Месяц: N/A")
 
-        # Метка для открытого PnL (незакрытые позиции)
-        self.open_pnl_label = QLabel("Открытый: N/A")
+        # Метка для открытого PnL (незакрытые позиции) — только значение
+        self.open_pnl_label = QLabel("N/A")
         self.open_pnl_label.setToolTip("Текущая прибыль/убыток по НЕзакрытым позициям (Equity - Balance).")
         self.open_pnl_label.setStyleSheet("font-weight: bold; color: #8be9fd;")
 
@@ -1078,6 +1078,7 @@ class MainWindow(QMainWindow):
         self.pnl_month_label.setToolTip(
             "Чистая прибыль/убыток (PnL) по закрытым сделкам с начала текущего месяца (1-е число 00:00 UTC)."
         )
+        self.open_pnl_label.setToolTip("Текущая прибыль/убыток по НЕзакрытым позициям (Equity - Balance).")
 
         # Подсказки для Максимальной Просадки (Drawdown)
         self.dd_day_label.setToolTip("Максимальная просадка (Max Drawdown) по закрытым сделкам с начала текущего дня.")
@@ -1095,7 +1096,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.pnl_day_label, 0, 1)
         layout.addWidget(self.pnl_week_label, 0, 2)
         layout.addWidget(self.pnl_month_label, 0, 3)
-        layout.addWidget(self.open_pnl_label, 0, 4)  # Открытый PnL
+
+        # Открытый PnL — заголовок над значением
+        layout.addWidget(QLabel("Открыто:"), 0, 4)
+        layout.addWidget(self.open_pnl_label, 1, 4)
 
         # Изменим метку для ясности
         layout.addWidget(QLabel("Max DD (%):"), 1, 0)
@@ -2386,9 +2390,7 @@ class MainWindow(QMainWindow):
         # Обновляем метку открытого PnL (незакрытые позиции)
         if hasattr(self, "open_pnl_label"):
             color = "#50fa7b" if open_pnl >= 0 else "#ff5555"
-            pnl_text = (
-                f"<span style='font-weight: bold; color:{color}'>Открытый: {open_pnl:+.2f} ({open_pnl_pct:+.2f}%)</span>"
-            )
+            pnl_text = f"<span style='font-weight: bold; color:{color}'>{open_pnl:+.2f} ({open_pnl_pct:+.2f}%)</span>"
             self.open_pnl_label.setText(pnl_text)
 
     def add_log_message(self, text: str, color: QColor):
