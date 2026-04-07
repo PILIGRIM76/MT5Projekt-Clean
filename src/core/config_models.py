@@ -554,3 +554,6 @@ class Settings(BaseModel):
     crypto_exchanges: CryptoExchangesSettings = Field(
         default_factory=CryptoExchangesSettings, description="Настройки крипто-бирж (ccxt)"
     )
+    social_trading: Dict[str, Any] = Field(
+        default_factory=dict, description="Настройки социальной торговли (копирование сделок)"
+    )
