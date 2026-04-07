@@ -435,7 +435,7 @@ class SettingsWindow(QDialog):
 
         super().__init__(parent)
         self.setWindowTitle("Настройки Системы")
-        self.setMinimumSize(900, 750)  # Увеличенный размер (было 700x550)
+        self.setMinimumSize(1200, 850)  # Расширено для отображения всех вкладок (было 900x750)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setModal(True)
 

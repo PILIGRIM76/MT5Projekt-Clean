@@ -557,3 +557,6 @@ class Settings(BaseModel):
     social_trading: Dict[str, Any] = Field(
         default_factory=dict, description="Настройки социальной торговли (копирование сделок)"
     )
+    news_scheduler: Dict[str, Any] = Field(
+        default_factory=dict, description="Настройки планировщика загрузки новостей"
+    )
