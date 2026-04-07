@@ -37,6 +37,21 @@ class AutoUpdater:
         )
         logger.info(f"Проверка обновлений каждые {check_interval_hours} час(ов)")
 
+        # Отправляем начальный статус в GUI
+        self._send_initial_status()
+
+    def _send_initial_status(self):
+        """Отправляет начальный статус обновлений в GUI."""
+        if self.bridge is not None:
+            try:
+                if hasattr(self.bridge, "update_status_changed"):
+                    mode_text = "Git (Dev)" if self.is_dev_mode else "GitHub Releases"
+                    initial_msg = f"Режим обновлений: {mode_text}. Проверка каждые {int(self.check_interval_sec/3600)}ч."
+                    self.bridge.update_status_changed.emit(initial_msg, False)
+                    logger.info(f"[UPDATE] Начальный статус отправлен в GUI: {initial_msg}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки начального статуса: {e}")
+
     def _check_if_dev_mode(self) -> bool:
         """Проверяет, запущена ли программа в dev-режиме (с Git) или как установленная версия."""
         # Проверяем наличие .git папки
@@ -187,22 +202,22 @@ class AutoUpdater:
             self.update_pending = True
             # НЕ блокируем торговый цикл! Только GUI уведомление
             # trading_system.update_pending = True  # ← УДАЛЕНО: это блокировало торговлю
-
-            # Отправляем сигнал в GUI
-            if self.bridge is not None:
-                try:
-                    if hasattr(self.bridge, "update_status_changed"):
-                        self.bridge.update_status_changed.emit(status_text, True)
-                except Exception as e:
-                    logger.error(f"Ошибка отправки сигнала в GUI: {e}")
-            else:
-                logger.info(f"GUI Bridge не подключен. Статус: {status_text}")
         else:
             # Обновлений нет — сбрасываем флаг чтобы разблокировать торговый цикл
             logger.info(status_text)
             self.update_pending = False
             if self.trading_system:
                 self.trading_system.update_pending = False
+
+        # Отправляем сигнал в GUI в обоих случаях
+        if self.bridge is not None:
+            try:
+                if hasattr(self.bridge, "update_status_changed"):
+                    self.bridge.update_status_changed.emit(status_text, update_available)
+            except Exception as e:
+                logger.error(f"Ошибка отправки сигнала в GUI: {e}")
+        else:
+            logger.info(f"GUI Bridge не подключен. Статус: {status_text}")
 
     def apply_update_and_restart(self):
         """Применяет обновление (универсальный метод)."""
