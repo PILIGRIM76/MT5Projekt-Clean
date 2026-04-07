@@ -636,7 +636,7 @@ class TradingSystem(QObject):
             "Uptime": self.uptime_thread,
             "Orchestrator": self.orchestrator_thread,
             "DB Writer": self.db_writer_thread,
-            "XAI Worker": self.xai_worker_thread,
+            # "XAI Worker": self.xai_worker_thread,  # 🔧 OPTIMIZATION: Запускается лениво (по требованию GUI)
             "Training": self.training_thread,
             "VectorDB Cleanup": self.vector_db_cleanup_thread,
             "Symbol Monitor": self.symbol_monitor_thread,
@@ -2061,6 +2061,25 @@ class TradingSystem(QObject):
                 logger.error(f"Ошибка в потоке-обработчике XAI: {e}", exc_info=True)
         logger.info("Поток-обработчик XAI-задач завершен.")
 
+    def start_xai_worker_on_demand(self):
+        """
+        🔧 OPTIMIZATION: Запускает XAI Worker только по требованию (ленивая загрузка).
+        Вызывается из GUI при открытии вкладки XAI.
+        """
+        if hasattr(self, "xai_worker_thread") and self.xai_worker_thread and self.xai_worker_thread.is_alive():
+            logger.info("[XAI-OnDemand] XAI Worker уже запущен, пропускаю.")
+            return
+
+        if not self.running:
+            logger.warning("[XAI-OnDemand] Система не запущена, невозможно запустить XAI Worker.")
+            return
+
+        logger.info("[XAI-OnDemand] Запуск XAI Worker по требованию...")
+        self.xai_worker_thread = threading.Thread(target=self._xai_worker_loop, daemon=True, name="XAIWorkerThread")
+        self.xai_worker_thread.start()
+        self.thread_status_updated.emit("XAI Worker", "RUNNING")
+        logger.info("[XAI-OnDemand] XAI Worker успешно запущен.")
+
     def initiate_emergency_shutdown(self):
         if not self.running:
             logger.warning("Команда аварийной остановки проигнорирована, система не запущена.")
@@ -3346,7 +3365,9 @@ class TradingSystem(QObject):
 
     def start_orchestrator_loop(self):
         logger.info("=== Запуск цикла Оркестратора ===")
-        orchestrator_interval = 60 * 5
+        # 🔧 OPTIMIZATION: Интервал увеличен до 30 минут (1800 сек), чтобы снизить нагрузку на CPU
+        # Оркестратору не нужно пересчитывать веса стратегий каждые 5 минут
+        orchestrator_interval = 60 * 30
         while not self.stop_event.is_set():
             try:
                 self.orchestrator.run_cycle()
