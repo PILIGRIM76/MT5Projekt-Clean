@@ -251,6 +251,177 @@ class CandleData(Base):
         return f"<CandleData(symbol='{self.symbol}', timeframe='{self.timeframe}', timestamp={self.timestamp})>"
 
 
+# ===================================================================
+# НОВЫЕ ТАБЛИЦЫ ДЛЯ ОБОГАЩЕНИЯ ДАННЫХ (Yahoo Finance + другие источники)
+# ===================================================================
+
+class FundamentalData(Base):
+    """
+    Фундаментальные данные компаний из Yahoo Finance.
+    P/E, EPS, Market Cap, дивиденды и т.д.
+    """
+    __tablename__ = "fundamental_data"
+    
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True, comment="Тикер компании")
+    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True, comment="Дата получения данных")
+    
+    # Оценочные метрики
+    pe_ratio = Column(Float, nullable=True, comment="P/E Ratio")
+    forward_pe = Column(Float, nullable=True, comment="Forward P/E")
+    peg_ratio = Column(Float, nullable=True, comment="PEG Ratio")
+    price_to_book = Column(Float, nullable=True, comment="Price to Book")
+    price_to_sales = Column(Float, nullable=True, comment="Price to Sales")
+    enterprise_value = Column(Float, nullable=True, comment="Enterprise Value")
+    ev_to_revenue = Column(Float, nullable=True, comment="EV/Revenue")
+    ev_to_ebitda = Column(Float, nullable=True, comment="EV/EBITDA")
+    
+    # Финансовые метрики
+    eps = Column(Float, nullable=True, comment="Earnings Per Share")
+    revenue = Column(Float, nullable=True, comment="Выручка")
+    net_income = Column(Float, nullable=True, comment="Чистая прибыль")
+    profit_margin = Column(Float, nullable=True, comment="Маржа прибыли")
+    operating_margin = Column(Float, nullable=True, comment="Операционная маржа")
+    roe = Column(Float, nullable=True, comment="Return on Equity")
+    roa = Column(Float, nullable=True, comment="Return on Assets")
+    debt_to_equity = Column(Float, nullable=True, comment="Debt to Equity")
+    current_ratio = Column(Float, nullable=True, comment="Current Ratio")
+    
+    # Рыночные метрики
+    market_cap = Column(Float, nullable=True, comment="Рыночная капитализация")
+    shares_outstanding = Column(Float, nullable=True, comment="Количество акций")
+    float_shares = Column(Float, nullable=True, comment="Float Shares")
+    
+    # Дивиденды
+    dividend_yield = Column(Float, nullable=True, comment="Дивидендная доходность")
+    dividend_rate = Column(Float, nullable=True, comment="Дивидендная ставка")
+    payout_ratio = Column(Float, nullable=True, comment="Payout Ratio")
+    five_year_avg_dividend_yield = Column(Float, nullable=True, comment="Средняя див. доходность за 5 лет")
+    
+    # Аналитики
+    target_mean_price = Column(Float, nullable=True, comment="Средняя целевая цена")
+    target_high_price = Column(Float, nullable=True, comment="Максимальная целевая цена")
+    target_low_price = Column(Float, nullable=True, comment="Минимальная целевая цена")
+    recommendation_mean = Column(Float, nullable=True, comment="Средняя рекомендация (1=Buy, 5=Sell)")
+    number_of_analyst_opinions = Column(Integer, nullable=True, comment="Количество аналитиков")
+    
+    def __repr__(self):
+        return f"<FundamentalData(symbol='{self.symbol}', PE={self.pe_ratio}, Cap={self.market_cap})>"
+
+
+class EarningsCalendar(Base):
+    """
+    Календарь отчетов компаний (Earnings Dates).
+    """
+    __tablename__ = "earnings_calendar"
+    
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    earnings_date = Column(DateTime, nullable=False, index=True, comment="Дата отчета")
+    eps_estimate = Column(Float, nullable=True, comment="Ожидаемый EPS")
+    eps_actual = Column(Float, nullable=True, comment="Фактический EPS")
+    revenue_estimate = Column(Float, nullable=True, comment="Ожидаемая выручка")
+    reported_revenue = Column(Float, nullable=True, comment="Фактическая выручка")
+    surprise_percent = Column(Float, nullable=True, comment="Процент сюрприза")
+    quarter = Column(String, nullable=True, comment="Квартал (Q1, Q2, etc.)")
+    year = Column(Integer, nullable=True)
+    
+    def __repr__(self):
+        return f"<EarningsCalendar(symbol='{self.symbol}', date={self.earnings_date})>"
+
+
+class InsiderTrades(Base):
+    """
+    Данные о торговлях инсайдеров (из SEC EDGAR).
+    """
+    __tablename__ = "insider_trades"
+    
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    insider_name = Column(String, nullable=True, comment="Имя инсайдера")
+    position = Column(String, nullable=True, comment="Должность (CEO, CFO, etc.)")
+    transaction_type = Column(String, nullable=False, comment="P=Purchase, S=Sale")
+    shares = Column(Integer, nullable=True, comment="Количество акций")
+    price_per_share = Column(Float, nullable=True, comment="Цена за акцию")
+    total_value = Column(Float, nullable=True, comment="Общая стоимость")
+    shares_owned_after = Column(Integer, nullable=True, comment="Акции после сделки")
+    filing_date = Column(DateTime, nullable=False, index=True, comment="Дата подачи формы")
+    transaction_date = Column(DateTime, nullable=True, comment="Дата сделки")
+    
+    def __repr__(self):
+        return f"<InsiderTrades(symbol='{self.symbol}', type='{self.transaction_type}', value={self.total_value})>"
+
+
+class MarketSentiment(Base):
+    """
+    Индексы настроений рынка (Fear & Greed, VIX, и т.д.).
+    """
+    __tablename__ = "market_sentiment"
+    
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, nullable=False, index=True, comment="Время записи")
+    
+    # CNN Fear & Greed Index
+    fear_greed_index = Column(Integer, nullable=True, comment="0-100 (0=Extreme Fear, 100=Extreme Greed)")
+    fear_greed_classification = Column(String, nullable=True, comment="Extreme Fear, Fear, Neutral, Greed, Extreme Greed")
+    
+    # VIX (Volatility Index)
+    vix = Column(Float, nullable=True, comment="Индекс волатильности CBOE")
+    vix_52_week_high = Column(Float, nullable=True)
+    vix_52_week_low = Column(Float, nullable=True)
+    
+    # Put/Call Ratio
+    put_call_ratio = Column(Float, nullable=True, comment=">1 = Bearish, <1 = Bullish")
+    
+    # AAII Sentiment Survey
+    aii_bullish_percent = Column(Float, nullable=True)
+    aii_bearish_percent = Column(Float, nullable=True)
+    aii_neutral_percent = Column(Float, nullable=True)
+    
+    # Обобщенный сигнал
+    overall_sentiment_score = Column(Float, nullable=True, comment="-1.0 (Bearish) to +1.0 (Bullish)")
+    
+    def __repr__(self):
+        return f"<MarketSentiment(F&G={self.fear_greed_index}, VIX={self.vix})>"
+
+
+class GoogleTrends(Base):
+    """
+    Данные Google Trends для ключевых слов, связанных с рынком.
+    """
+    __tablename__ = "google_trends"
+    
+    id = Column(Integer, primary_key=True)
+    keyword = Column(String, nullable=False, index=True, comment="Поисковый запрос")
+    timestamp = Column(DateTime, nullable=False, index=True, comment="Время записи")
+    interest_score = Column(Integer, nullable=False, comment="0-100 (100 = максимум)")
+    related_queries = Column(Text, nullable=True, comment="JSON со связанными запросами")
+    region = Column(String, nullable=True, comment="Регион (Worldwide, US, etc.)")
+    
+    __table_args__ = (UniqueConstraint("keyword", "timestamp", "region", name="_trends_keyword_time_region"),)
+    
+    def __repr__(self):
+        return f"<GoogleTrends(keyword='{self.keyword}', score={self.interest_score})>"
+
+
+class DataEnrichmentLog(Base):
+    """
+    Лог загрузки внешних данных.
+    """
+    __tablename__ = "data_enrichment_log"
+    
+    id = Column(Integer, primary_key=True)
+    source = Column(String, nullable=False, index=True, comment="Источник данных (Yahoo, FRED, etc.)")
+    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    status = Column(String, nullable=False, comment="SUCCESS, FAILED, PARTIAL")
+    records_fetched = Column(Integer, nullable=True, comment="Количество записей")
+    error_message = Column(Text, nullable=True, comment="Сообщение об ошибке")
+    duration_seconds = Column(Float, nullable=True, comment="Время загрузки")
+    
+    def __repr__(self):
+        return f"<DataEnrichmentLog(source='{self.source}', status='{self.status}')>"
+
+
 class DatabaseManager:
     def __init__(self, config: Settings, write_queue: queue.Queue):
         db_folder = Path(config.DATABASE_FOLDER)
