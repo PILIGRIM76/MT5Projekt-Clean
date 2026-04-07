@@ -1,7 +1,7 @@
 # src/social/subscriber.py
 """
 Подписчик торговых сигналов.
-Принимает сигналы от Мастера через SQLite БД, адаптирует риски и исполняет сделки.
+Поддерживает как локальный (SQLite), так и сетевой (ZeroMQ) режимы.
 """
 
 import asyncio
@@ -9,8 +9,9 @@ import logging
 import time
 import math
 import MetaTrader5 as mt5
-from typing import Dict
+from typing import Dict, Optional
 from .bus import trade_db
+from .network_transport import ZMQTradeSubscriber, ZMQ_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -20,39 +21,73 @@ class TradeSubscriber:
         self.is_running = False
         self.task = None
         self.active_trades: Dict[int, int] = {}  # {master_ticket: follower_ticket}
-        self.signal_emitter = signal_emitter  # Для отправки статуса в GUI
-
-        # Настройки из конфига
+        self.signal_emitter = signal_emitter
+        
+        # Социальные настройки
         social_cfg = getattr(config, 'social_trading', {})
         self.risk_multiplier = social_cfg.get('risk_multiplier', 1.0)
-        self.max_lot = social_cfg.get('max_lot_per_trade', 0.1)
+        self.max_lot = social_cfg.get('max_lot_per_trade', 1.0)
         self.allowed_symbols = social_cfg.get('allowed_symbols', [])
+        
+        # Настройки режима работы
+        self.mode = social_cfg.get('mode', 'local')  # 'local', 'network', 'hybrid'
+        self.master_host = social_cfg.get('master_host', 'localhost')
+        self.master_port = social_cfg.get('master_port', 5555)
+        
+        # Сетевой подписчик (ZeroMQ)
+        self.zmq_subscriber: Optional[ZMQTradeSubscriber] = None
 
     async def start(self):
-        """Запуск прослушивания шины."""
+        """Запуск подписчика."""
         if self.is_running:
             return
 
-        logger.info("[SocialSubscriber] Запуск подписчика...")
+        logger.info(f"[SocialSubscriber] Запуск в режиме: {self.mode}")
         self.is_running = True
-        self.task = asyncio.create_task(self._listen_loop())
+
+        # 1. Запуск локального режима (SQLite)
+        if self.mode in ['local', 'hybrid']:
+            self.task = asyncio.create_task(self._local_listen_loop())
+            logger.info("[SocialSubscriber] Локальный режим активен")
+
+        # 2. Запуск сетевого режима (ZeroMQ)
+        if self.mode in ['network', 'hybrid']:
+            if ZMQ_AVAILABLE:
+                self.zmq_subscriber = ZMQTradeSubscriber(
+                    master_host=self.master_host,
+                    master_port=self.master_port,
+                    on_signal=self._on_zmq_signal
+                )
+                if self.zmq_subscriber.start():
+                    logger.info(f"[SocialSubscriber] Сетевой режим активен: {self.master_host}:{self.master_port}")
+                else:
+                    logger.error("[SocialSubscriber] Не удалось запустить сетевой режим")
+            else:
+                logger.error("[SocialSubscriber] ZeroMQ недоступен, сетевой режим невозможен")
+
         if self.signal_emitter:
             self.signal_emitter.emit("✅ Подписчик активен")
+        
         logger.info("[SocialSubscriber] Подписчик запущен и ожидает сигналы...")
 
     async def stop(self):
         """Остановка подписчика."""
         self.is_running = False
+        
         if self.task:
             self.task.cancel()
             try:
                 await self.task
             except asyncio.CancelledError:
                 pass
+        
+        if self.zmq_subscriber:
+            self.zmq_subscriber.stop()
+        
         logger.info("[SocialSubscriber] Подписчик остановлен")
 
-    async def _listen_loop(self):
-        """Основной цикл обработки сигналов."""
+    async def _local_listen_loop(self):
+        """Цикл прослушивания локальных сигналов (SQLite)."""
         while self.is_running:
             try:
                 signals = trade_db.get_new_signals()
@@ -60,12 +95,34 @@ class TradeSubscriber:
                     await self._process_signal(sig)
                     trade_db.mark_processed(sig['db_id'])
                 
-                await asyncio.sleep(0.5) # Полсекунды задержка
+                await asyncio.sleep(0.5)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"[SocialSubscriber] Ошибка в цикле: {e}", exc_info=True)
+                logger.error(f"[SocialSubscriber] Ошибка в локальном цикле: {e}", exc_info=True)
                 await asyncio.sleep(1)
+
+    def _on_zmq_signal(self, signal_data: dict):
+        """Обработка сигнала от ZeroMQ (вызывается из отдельного потока)."""
+        try:
+            # Преобразуем в формат, совместимый с локальным
+            signal = {
+                'db_id': 0,  # Для сетевых сигналов нет db_id
+                'master_ticket': signal_data.get('ticket'),
+                'action': signal_data.get('action'),
+                'symbol': signal_data.get('symbol'),
+                'type': signal_data.get('type'),
+                'volume': signal_data.get('volume'),
+                'price': signal_data.get('price'),
+                'sl': signal_data.get('sl'),
+                'tp': signal_data.get('tp'),
+                'timestamp': signal_data.get('timestamp')
+            }
+            
+            # Запускаем обработку в asyncio
+            asyncio.run_coroutine_threadsafe(self._process_signal(signal), asyncio.get_event_loop())
+        except Exception as e:
+            logger.error(f"[ZMQ] Ошибка обработки сигнала: {e}")
 
     async def _process_signal(self, signal):
         """Обработка входящего сигнала."""

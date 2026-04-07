@@ -531,6 +531,29 @@ class SettingsWindow(QDialog):
         self.social_role_combo.addItem("Подписчик (Копирование)", "follower")
         layout.addRow("Роль:", self.social_role_combo)
 
+        # Группа: Режим работы
+        self.social_mode_combo = QComboBox()
+        self.social_mode_combo.addItem("🏠 Локальный (один ПК)", "local")
+        self.social_mode_combo.addItem("🌐 Сетевой (через интернет)", "network")
+        self.social_mode_combo.addItem("🔄 Гибридный (оба режима)", "hybrid")
+        layout.addRow("Режим работы:", self.social_mode_combo)
+
+        # Группа: Настройки сети (для сетевого/гибридного режима)
+        self.social_network_group = QGroupBox("Настройки сети (ZeroMQ)")
+        net_layout = QFormLayout()
+        self.social_network_group.setLayout(net_layout)
+
+        self.social_master_host_edit = QLineEdit("localhost")
+        self.social_master_host_edit.setPlaceholderText("IP адрес Мастера")
+        net_layout.addRow("IP адрес Мастера:", self.social_master_host_edit)
+
+        self.social_master_port_spin = QSpinBox()
+        self.social_master_port_spin.setRange(1000, 65535)
+        self.social_master_port_spin.setValue(5555)
+        net_layout.addRow("Порт:", self.social_master_port_spin)
+
+        layout.addRow(self.social_network_group)
+
         # Группа: Настройки Подписчика
         self.social_sub_group = QGroupBox("Настройки Подписчика")
         sub_layout = QFormLayout()
@@ -565,6 +588,9 @@ class SettingsWindow(QDialog):
         """Применение настроек социальной торговли."""
         enabled = self.social_enabled_check.isChecked()
         role = self.social_role_combo.currentData()
+        mode = self.social_mode_combo.currentData()
+        master_host = self.social_master_host_edit.text()
+        master_port = self.social_master_port_spin.value()
         risk = self.social_risk_spin.value()
         max_lot = self.social_max_lot_spin.value()
         symbols_str = self.social_symbols_edit.text()
@@ -576,6 +602,9 @@ class SettingsWindow(QDialog):
         self.full_config.social_trading = {
             "enabled": enabled,
             "role": role,
+            "mode": mode,
+            "master_host": master_host,
+            "master_port": master_port,
             "risk_multiplier": risk,
             "max_lot_per_trade": max_lot,
             "allowed_symbols": allowed_symbols
@@ -596,6 +625,14 @@ class SettingsWindow(QDialog):
         index = self.social_role_combo.findData(role)
         if index >= 0:
             self.social_role_combo.setCurrentIndex(index)
+
+        mode = social_cfg.get("mode", "local")
+        index = self.social_mode_combo.findData(mode)
+        if index >= 0:
+            self.social_mode_combo.setCurrentIndex(index)
+
+        self.social_master_host_edit.setText(social_cfg.get("master_host", "localhost"))
+        self.social_master_port_spin.setValue(social_cfg.get("master_port", 5555))
 
         self.social_risk_spin.setValue(social_cfg.get("risk_multiplier", 1.0))
         self.social_max_lot_spin.setValue(social_cfg.get("max_lot_per_trade", 1.0))
