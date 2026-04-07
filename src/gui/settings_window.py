@@ -1332,11 +1332,19 @@ class SettingsWindow(QDialog):
 
     def _get_hot_reload_manager(self):
         """Получение HotReloadManager."""
-        if self.trading_system:
-            if hasattr(self.trading_system, "core_system") and self.trading_system.core_system:
-                return self.trading_system.core_system.hot_reload_manager
-            elif hasattr(self.trading_system, "hot_reload_manager"):
-                return self.trading_system.hot_reload_manager
+        try:
+            # self.trading_system это MainWindow
+            # MainWindow.trading_system это PySideTradingSystem
+            # PySideTradingSystem.core_system это TradingSystem
+            # TradingSystem.hot_reload_manager это HotReloadManager
+            if self.trading_system:
+                if hasattr(self.trading_system, "trading_system") and self.trading_system.trading_system:
+                    main_window = self.trading_system
+                    adapter = main_window.trading_system
+                    if hasattr(adapter, "core_system") and adapter.core_system:
+                        return adapter.core_system.hot_reload_manager
+        except Exception as e:
+            logger.error(f"[SettingsWindow] Ошибка получения HotReloadManager: {e}")
         return None
 
     def _create_gp_tab(self):
