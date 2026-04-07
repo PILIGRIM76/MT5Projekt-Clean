@@ -35,8 +35,8 @@ from sqlalchemy.orm import aliased, declarative_base, sessionmaker
 
 from src.core.config_models import Settings
 from src.db.models import (
-    Base,
     ActiveDirective,
+    Base,
     CandleData,
     DataEnrichmentLog,
     DefiMetrics,
@@ -74,13 +74,39 @@ class RestrictedUnpickler(pickle.Unpickler):
     Ограниченный unpickler, разрешающий загрузку только безопасных классов.
     Защищает от Remote Code Execution (RCE) через вредоносные pickle-файлы.
     """
+
     ALLOWED_MODULES = {
-        'sklearn.preprocessing': {'StandardScaler', 'MinMaxScaler', 'RobustScaler'},
-        'numpy': {'ndarray', 'dtype', 'float64', 'int64', 'float32', 'int32'},
-        'collections': {'OrderedDict'},
-        'torch._utils': {'_rebuild_tensor_v2'},
-        'torch': {'FloatStorage', 'HalfStorage', 'LongStorage'},
-        '_codecs': {'encode'},
+        # Sklearn скалеры (разные версии модулей)
+        "sklearn.preprocessing": {"StandardScaler", "MinMaxScaler", "RobustScaler"},
+        "sklearn.preprocessing._data": {"StandardScaler", "MinMaxScaler", "RobustScaler"},
+        # LightGBM модели
+        "lightgbm": {"Booster", "LGBMClassifier", "LGBMRegressor"},
+        "lightgbm.sklearn": {"LGBMClassifier", "LGBMRegressor"},
+        "lightgbm.basic": {"Booster"},
+        # Numpy
+        "numpy": {"ndarray", "dtype", "float64", "int64", "float32", "int32"},
+        "numpy.core.multiarray": {"_reconstruct"},
+        "numpy.core": {"_reconstruct"},
+        "numpy._core.multiarray": {"_reconstruct"},
+        "numpy._core": {"_reconstruct"},
+        # Torch
+        "collections": {"OrderedDict"},
+        "torch._utils": {"_rebuild_tensor_v2"},
+        "torch": {
+            "FloatStorage",
+            "HalfStorage",
+            "LongStorage",
+            "DoubleStorage",
+            "IntStorage",
+            "ShortStorage",
+            "CharStorage",
+            "ByteStorage",
+            "BoolStorage",
+        },
+        "torch.storage": {"_load_from_bytes"},
+        "_codecs": {"encode"},
+        # Copyreg для десериализации
+        "copyreg": {"_reconstruct_ex"},
     }
 
     def find_class(self, module, name):
@@ -92,6 +118,8 @@ class RestrictedUnpickler(pickle.Unpickler):
 def safe_pickle_loads(data: bytes):
     """Безопасная замена pickle.loads"""
     return RestrictedUnpickler(io.BytesIO(data)).load()
+
+
 # -----------------------------------------------
 
 
@@ -385,7 +413,7 @@ class DatabaseManager:
             total_saved = 0
 
             for i in range(0, len(candles), batch_size):
-                batch = candles[i:i + batch_size]
+                batch = candles[i : i + batch_size]
 
                 # Получаем существующие timestamps для проверки дубликатов
                 timestamps = [c["timestamp"] for c in batch]
@@ -426,15 +454,16 @@ class DatabaseManager:
 
                 # Batch update существующих
                 for uc in update_candles:
-                    session.query(CandleData).filter_by(
-                        symbol=symbol, timeframe=timeframe, timestamp=uc["timestamp"]
-                    ).update({
-                        "open": uc["open"],
-                        "high": uc["high"],
-                        "low": uc["low"],
-                        "close": uc["close"],
-                        "tick_volume": uc["tick_volume"],
-                    }, synchronize_session=False)
+                    session.query(CandleData).filter_by(symbol=symbol, timeframe=timeframe, timestamp=uc["timestamp"]).update(
+                        {
+                            "open": uc["open"],
+                            "high": uc["high"],
+                            "low": uc["low"],
+                            "close": uc["close"],
+                            "tick_volume": uc["tick_volume"],
+                        },
+                        synchronize_session=False,
+                    )
 
                 total_saved += len(update_candles)
 
