@@ -45,6 +45,33 @@ except ImportError:
     lgb = None
 
 logger = logging.getLogger(__name__)
+
+# --- БЕЗОПАСНАЯ ДЕСЕРИАЛИЗАЦИЯ (Защита от RCE) ---
+class RestrictedUnpickler(pickle.Unpickler):
+    """
+    Ограниченный unpickler, разрешающий загрузку только безопасных классов.
+    Защищает от Remote Code Execution (RCE) через вредоносные pickle-файлы.
+    """
+    # Разрешённые модули и классы (только для ML-моделей и скалеров)
+    ALLOWED_MODULES = {
+        'sklearn.preprocessing': {'StandardScaler', 'MinMaxScaler', 'RobustScaler'},
+        'numpy': {'ndarray', 'dtype', 'float64', 'int64', 'float32', 'int32'},
+        'collections': {'OrderedDict'},
+        'torch._utils': {'_rebuild_tensor_v2'},
+        'torch': {'FloatStorage', 'HalfStorage', 'LongStorage'},
+        '_codecs': {'encode'},  # Для строк
+    }
+
+    def find_class(self, module, name):
+        if module in self.ALLOWED_MODULES and name in self.ALLOWED_MODULES[module]:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(f"🚫 Запрещён класс: {module}.{name} (защита от RCE)")
+
+def safe_pickle_loads(data: bytes):
+    """Безопасная замена pickle.loads"""
+    return RestrictedUnpickler(io.BytesIO(data)).load()
+# -----------------------------------------------
+
 Base = declarative_base()
 
 
@@ -523,10 +550,10 @@ class DatabaseManager:
                             continue
 
                         buffer = io.BytesIO(model_record.model_data)
-                        model.load_state_dict(torch.load(buffer, map_location="cpu"))
+                        model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
                         model.eval()
                     elif lgb and "LightGBM" in m_type:
-                        model = pickle.loads(model_record.model_data)
+                        model = safe_pickle_loads(model_record.model_data)
                 except Exception as e:
                     logger.error(f"Не удалось загрузить модель {m_type} для {symbol}: {e}")
                     continue
@@ -543,13 +570,13 @@ class DatabaseManager:
                 return None, None, None
 
             try:
-                x_scaler = pickle.loads(scaler_record.x_scaler_data)
+                x_scaler = safe_pickle_loads(scaler_record.x_scaler_data)
             except Exception as e:
                 logger.error(f"[{symbol}] Не удалось загрузить x_scaler: {e}")
                 return None, None, None
 
             try:
-                y_scaler = pickle.loads(scaler_record.y_scaler_data)
+                y_scaler = safe_pickle_loads(scaler_record.y_scaler_data)
                 # Проверяем что y_scaler не None (pickle может распаковать None без ошибки)
                 if y_scaler is None:
                     logger.warning(f"[{symbol}] y_scaler распакован как None. Используем x_scaler как fallback")
@@ -2162,11 +2189,11 @@ class DatabaseManager:
 
                 buffer = io.BytesIO(model_record.model_data)
                 # Загрузка state_dict с явным указанием map_location
-                model.load_state_dict(torch.load(buffer, map_location="cpu"))
+                model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
                 model.eval()
 
             elif "LightGBM" in model_record.model_type:
-                model = pickle.loads(model_record.model_data)
+                model = safe_pickle_loads(model_record.model_data)
 
             else:
                 logger.error(f"Неподдерживаемый тип модели для загрузки: {model_record.model_type}")
@@ -2177,8 +2204,8 @@ class DatabaseManager:
                 "model_type": model_record.model_type,
                 "symbol": model_record.symbol,
                 "features": features,
-                "x_scaler": pickle.loads(scaler_record.x_scaler_data),
-                "y_scaler": pickle.loads(scaler_record.y_scaler_data),
+                "x_scaler": safe_pickle_loads(scaler_record.x_scaler_data),
+                "y_scaler": safe_pickle_loads(scaler_record.y_scaler_data),
             }
 
         except Exception as e:
