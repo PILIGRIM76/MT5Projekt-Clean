@@ -207,7 +207,6 @@ check_and_run_setup()
 
 os.environ["CURL_CA_BUNDLE"] = ""
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 matplotlib.use("Agg")
 
 # ===================================================================
@@ -484,7 +483,7 @@ class MainWindow(QMainWindow):
 
         # --- Верхняя панель: Статистика и Управление ---
         top_frame = QFrame()
-        top_frame.setFrameShape(QFrame.StyledPanel)
+        top_frame.setFrameShape(QFrame.Shape.StyledPanel)
         top_layout = QHBoxLayout(top_frame)
 
         # Статистика
@@ -528,10 +527,10 @@ class MainWindow(QMainWindow):
         self.vdb_results_table = QTableWidget()
         self.vdb_results_table.setColumnCount(4)
         self.vdb_results_table.setHorizontalHeaderLabels(["Сходство", "Источник", "Дата", "Фрагмент текста"])
-        self.vdb_results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self.vdb_results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.vdb_results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.vdb_results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.vdb_results_table.setAlternatingRowColors(True)
-        self.vdb_results_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.vdb_results_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self.vdb_results_table)
 
         # Подключение сигналов
@@ -1158,9 +1157,9 @@ class MainWindow(QMainWindow):
         self.positions_model = GenericTableModel([], self.positions_headers)
         self.positions_table.setModel(self.positions_model)
         header_pos = self.positions_table.horizontalHeader()
-        header_pos.setSectionResizeMode(QHeaderView.ResizeToContents)
-        header_pos.setSectionResizeMode(1, QHeaderView.Stretch)
-        header_pos.setSectionResizeMode(2, QHeaderView.Stretch)
+        header_pos.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header_pos.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header_pos.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         positions_tab_layout.addLayout(positions_control_layout)
         positions_tab_layout.addWidget(self.positions_table)
         tab_widget.addTab(positions_tab_widget, "Открытые Позиции")
@@ -1186,9 +1185,9 @@ class MainWindow(QMainWindow):
         self.history_table.setModel(self.history_model)
 
         header_hist = self.history_table.horizontalHeader()
-        header_hist.setSectionResizeMode(QHeaderView.ResizeToContents)
-        header_hist.setSectionResizeMode(6, QHeaderView.Stretch)  # Время закр.
-        header_hist.setSectionResizeMode(7, QHeaderView.Stretch)  # Стратегия
+        header_hist.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header_hist.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)  # Время закр.
+        header_hist.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Стратегия
 
         tab_widget.addTab(self.history_table, "История Сделок")
 
@@ -1533,8 +1532,8 @@ class MainWindow(QMainWindow):
         self.rd_headers = ["Поколение", "Лучший Fitness", "Конфигурация стратегии"]
         self.rd_model = RDTableModel(self.rd_headers)
         self.rd_table.setModel(self.rd_model)
-        self.rd_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.rd_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.rd_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.rd_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         rd_layout.addLayout(rd_controls_layout)
         rd_layout.addWidget(self.rd_table)
         right_widget.addTab(rd_tab_widget, "R&D Центр")
@@ -1553,8 +1552,8 @@ class MainWindow(QMainWindow):
         self.directives_headers = ["Директива", "Значение", "Причина", "Действует до"]
         self.directives_model = GenericTableModel([], self.directives_headers)
         self.directives_table.setModel(self.directives_model)
-        self.directives_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.directives_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.directives_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.directives_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         reflexion_layout.addWidget(QLabel("<b>Активные Директивы Системы</b>"))
         reflexion_layout.addLayout(reflexion_controls_layout)
         reflexion_layout.addWidget(self.directives_table)
@@ -1574,8 +1573,8 @@ class MainWindow(QMainWindow):
         self.models_headers = ["ID", "Символ", "Тип", "Версия", "Статус", "Sharpe", "Profit Factor", "Дата обучения"]
         self.models_model = GenericTableModel([], self.models_headers)
         self.models_table.setModel(self.models_model)
-        self.models_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.models_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.models_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.models_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         model_manager_layout.addLayout(mm_controls_layout)
         model_manager_layout.addWidget(self.models_table)
         right_widget.addTab(model_manager_tab, "Менеджер Моделей")
