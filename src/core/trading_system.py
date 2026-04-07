@@ -119,6 +119,7 @@ class TradingSystem(QObject):
     knowledge_graph_updated = Signal(str)
     thread_status_updated = Signal(str, str)
     long_task_status_updated = Signal(str, str, bool)
+    social_status_updated = Signal(str)  # НОВОЕ: Сигнал статуса социальной торговли
     drift_data_updated = Signal(float, str, float, bool)
 
     def __init__(self, config: Settings, gui=None, sound_manager=None, bridge=None):
@@ -441,7 +442,7 @@ class TradingSystem(QObject):
         logger.info("Secrets Manager инициализирован")
         
         # P0: Инициализация Social Trading (Копирование сделок)
-        self.social_subscriber = TradeSubscriber(self.config)
+        self.social_subscriber = TradeSubscriber(self.config, signal_emitter=self.social_status_updated)
         logger.info("Social Trading Subscriber инициализирован")
 
         self.strategy_optimizer = StrategyOptimizer(self.config, self.data_provider)
@@ -973,6 +974,24 @@ class TradingSystem(QObject):
             except Exception as e:
                 logger.error(f"[VectorDB] Критическая ошибка при обработке новостей: {e}", exc_info=True)
                 # Продолжаем работу системы даже при ошибке обработки новостей
+
+            # --- Обогащение DeFi данными (Бесплатно) ---
+            # Проверяем конфиг и время последней загрузки
+            news_sched = getattr(self.config, 'news_scheduler', {})
+            if news_sched.get('defi_enabled', True):
+                try:
+                    # Загружаем раз в N часов (по умолчанию 6)
+                    defi_interval = news_sched.get('defi_interval_hours', 6) * 3600
+                    
+                    last_defi_load = getattr(self, '_last_defi_load_time', 0)
+                    current_time = standard_time.time()
+                    
+                    if current_time - last_defi_load > defi_interval:
+                        logger.info("[DeFi] Запуск фоновой загрузки DeFi метрик...")
+                        await self._refresh_defi_data_background()
+                        self._last_defi_load_time = current_time
+                except Exception as defi_err:
+                    logger.debug(f"[DeFi] Ошибка фонового обогащения: {defi_err}")
 
             # --- ИСПРАВЛЕНИЕ: Блок вынесен из-под if all_items ---
 
@@ -3339,6 +3358,21 @@ class TradingSystem(QObject):
         except Exception as e:
             logger.error(f"Ошибка получения статистики БД: {e}")
             return {"error": str(e), "multi_db_enabled": True}
+
+    async def _refresh_defi_data_background(self):
+        """Фоновая загрузка DeFi метрик."""
+        try:
+            # Запускаем в пуле потоков, чтобы не блокировать асинхронный цикл
+            await asyncio.to_thread(self._load_defi_data_sync)
+            logger.info("[DeFi] Фоновая загрузка метрик завершена успешно")
+        except Exception as e:
+            logger.error(f"[DeFi] Ошибка фоновой загрузки: {e}")
+
+    def _load_defi_data_sync(self):
+        """Синхронная обертка для загрузчика DeFi."""
+        from src.data_enrichment.defi_data_loader import DefiDataLoader
+        loader = DefiDataLoader(self.db_manager)
+        return loader.load_all()
 
     def _safe_gui_update(self, method_name: str, *args, **kwargs):
         # Оптимизация: уменьшаем частоту обновлений GUI

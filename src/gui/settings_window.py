@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -42,6 +43,7 @@ from PySide6.QtWidgets import (
 
 from src.core.config_loader import load_config
 from src.core.config_models import Settings
+from src.db.database_manager import DefiMetrics
 from src.core.config_writer import write_config
 from src.core.secrets_manager import get_secrets_manager
 from src.utils.scheduler_manager import SchedulerManager
@@ -641,6 +643,42 @@ class SettingsWindow(QDialog):
 
         layout.addWidget(status_group)
 
+        # Группа 6: DeFi Данные
+        defi_group = QGroupBox("DeFi Метрики (Бесплатно)")
+        defi_layout = QVBoxLayout(defi_group)
+
+        defi_header = QHBoxLayout()
+        self.defi_enabled_check = QCheckBox("Включить обогащение DeFi данными")
+        self.defi_enabled_check.setChecked(True)
+        self.defi_enabled_check.setToolTip("Автоматическая загрузка TVL и APY из DeFiLlama")
+        defi_header.addWidget(self.defi_enabled_check)
+        
+        self.defi_interval_spin = QSpinBox()
+        self.defi_interval_spin.setRange(1, 24)
+        self.defi_interval_spin.setValue(6)
+        self.defi_interval_spin.setSuffix(" ч")
+        self.defi_interval_spin.setToolTip("Интервал обновления DeFi метрик")
+        defi_header.addWidget(self.defi_interval_spin)
+        
+        self.defi_load_btn = QPushButton("🔄 Обновить DeFi")
+        self.defi_load_btn.clicked.connect(self._trigger_manual_defi_load)
+        defi_header.addWidget(self.defi_load_btn)
+        defi_layout.addLayout(defi_header)
+
+        self.defi_status_label = QLabel("Статус: Нет данных")
+        self.defi_status_label.setStyleSheet("color: gray;")
+        defi_layout.addWidget(self.defi_status_label)
+
+        self.defi_top_apy_label = QLabel("Топ APY (Последние данные):")
+        defi_layout.addWidget(self.defi_top_apy_label)
+
+        self.defi_top_apy_list = QListWidget()
+        self.defi_top_apy_list.setMaximumHeight(120)
+        self.defi_top_apy_list.setStyleSheet("background-color: #1e1e1e; color: #50fa7b;")
+        defi_layout.addWidget(self.defi_top_apy_list)
+
+        layout.addWidget(defi_group)
+
         # Растягиваем последнее пространство
         layout.addStretch()
 
@@ -683,13 +721,77 @@ class SettingsWindow(QDialog):
             finally:
                 self.news_load_now_button.setEnabled(True)
 
+    def _trigger_manual_defi_load(self):
+        """Ручной запуск загрузки DeFi данных."""
+        self.defi_load_btn.setEnabled(False)
+        self.defi_status_label.setText("Статус: Загрузка...")
+        self.defi_status_label.setStyleSheet("color: orange;")
+        
+        # Запуск в отдельном потоке
+        import threading
+        def run_defi_load():
+            try:
+                if self.trading_system and hasattr(self.trading_system, 'db_manager'):
+                    from src.data_enrichment.defi_data_loader import DefiDataLoader
+                    loader = DefiDataLoader(self.trading_system.db_manager)
+                    results = loader.load_all()
+                    
+                    total = sum(results.values())
+                    # Обновляем UI через QTimer
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, lambda: self._update_defi_gui_success(total))
+                else:
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, lambda: self._update_defi_gui_error("TradingSystem не инициализирован"))
+            except Exception as e:
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, lambda: self._update_defi_gui_error(str(e)))
+
+        threading.Thread(target=run_defi_load, daemon=True).start()
+
+    def _update_defi_gui_success(self, total):
+        self.defi_status_label.setText(f"Статус: Успешно ({total} метрик)")
+        self.defi_status_label.setStyleSheet("color: #50fa7b;")
+        self.defi_load_btn.setEnabled(True)
+        self._refresh_defi_list()
+
+    def _update_defi_gui_error(self, error):
+        self.defi_status_label.setText(f"Статус: Ошибка - {error}")
+        self.defi_status_label.setStyleSheet("color: #ff5555;")
+        self.defi_load_btn.setEnabled(True)
+
+    def _refresh_defi_list(self):
+        """Обновить список Топ APY из БД."""
+        if self.trading_system and hasattr(self.trading_system, 'db_manager'):
+            try:
+                session = self.trading_system.db_manager.Session()
+                # Берем топ-5 APY за последние сутки
+                from datetime import timedelta
+                since = datetime.utcnow() - timedelta(days=1)
+                metrics = session.query(DefiMetrics).filter(
+                    DefiMetrics.metric_type == "supply_apy",
+                    DefiMetrics.timestamp > since
+                ).order_by(DefiMetrics.value.desc()).limit(5).all()
+                
+                self.defi_top_apy_list.clear()
+                if metrics:
+                    for m in metrics:
+                        # Протокол: Актив - APY%
+                        text = f"{m.protocol.upper()} | {m.asset} → {m.value:.2f}%"
+                        self.defi_top_apy_list.addItem(text)
+                else:
+                    self.defi_top_apy_list.addItem("Нет свежих данных (нажмите Обновить)")
+                    
+            except Exception:
+                self.defi_top_apy_list.addItem("Ошибка чтения БД")
+
     def _apply_news_scheduler_settings(self):
         """Применение настроек планировщика новостей."""
         if not hasattr(self.full_config, 'news_scheduler'):
             self.full_config.news_scheduler = {}
         
         # Основные настройки
-        self.full_config.news_scheduler = {
+        self.full_config.news_scheduler.update({
             "enabled": self.news_enabled_check.isChecked(),
             "interval_hours": self.news_interval_spin.value(),
             "start_time": self.news_start_time.time().toString("HH:mm"),
@@ -707,7 +809,11 @@ class SettingsWindow(QDialog):
             # NLP
             "nlp_enabled": self.news_nlp_enabled.isChecked(),
             "sentiment_threshold": self.news_sentiment_threshold.value(),
-        }
+            
+            # DeFi
+            "defi_enabled": self.defi_enabled_check.isChecked(),
+            "defi_interval_hours": self.defi_interval_spin.value(),
+        })
 
     def _load_news_scheduler_settings(self):
         """Загрузка настроек планировщика новостей."""
@@ -739,6 +845,11 @@ class SettingsWindow(QDialog):
         # NLP
         self.news_nlp_enabled.setChecked(news_cfg.get("nlp_enabled", True))
         self.news_sentiment_threshold.setValue(news_cfg.get("sentiment_threshold", -0.3))
+        
+        # DeFi
+        self.defi_enabled_check.setChecked(news_cfg.get("defi_enabled", True))
+        self.defi_interval_spin.setValue(news_cfg.get("defi_interval_hours", 6))
+        self._refresh_defi_list()
 
     def _create_social_tab(self):
         """Создание вкладки социальной торговли."""
