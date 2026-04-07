@@ -40,6 +40,7 @@ from src.analysis.anomaly_detector import AnomalyDetector
 from src.analysis.drift_detector import ConceptDriftManager
 from src.analysis.gp_rd_manager import GPRDManager
 from src.analysis.market_regime_manager import MarketRegimeManager
+from src.analysis.defi_analyzer import DeFiAnalyzer
 from src.analysis.market_screener import MarketScreener
 from src.social.subscriber import TradeSubscriber
 from src.analysis.nlp_processor import CausalNLPProcessor
@@ -402,6 +403,10 @@ class TradingSystem(QObject):
         self.anomaly_detector = AnomalyDetector(self.config)
         self.blockchain_provider = BlockchainProvider(self.config)
         self.market_regime_manager = MarketRegimeManager(self.config)
+        
+        # P0: Инициализация DeFi Analyzer (анализ метрик DeFi для торговли)
+        self.defi_analyzer = DeFiAnalyzer(self.db_manager)
+        logger.info("DeFi Analyzer инициализирован")
         self.session_manager = SessionManager(self.config)
         self.market_screener = MarketScreener(self.config, self.mt5_lock)
         self.data_aggregator = MultiSourceDataAggregator(self.config)
@@ -2527,6 +2532,47 @@ class TradingSystem(QObject):
                     return
                 confirmed_signal, final_strategy_name, _, pred_input, entry_price = signal_result
 
+                # ===================================================================
+                # DEFI ANALYSIS (Варианты А, Б, В)
+                # ===================================================================
+                if hasattr(self, 'defi_analyzer'):
+                    try:
+                        # 1. Получаем оценку риска (Вариант А)
+                        defi_risk = self.defi_analyzer.get_risk_assessment(symbol)
+                        
+                        # 2. Получаем режим рынка (Вариант Б)
+                        defi_regime = self.defi_analyzer.get_market_regime()
+                        
+                        # 3. Блокировка при высоком риске (Вариант А)
+                        if defi_risk["risk_level"] in ["scam", "high"]:
+                            logger.warning(
+                                f"[{symbol}] 🚫 БЛОКИРОВКА DeFi: риск={defi_risk['risk_level']}, "
+                                f"APY={defi_risk['max_apy']:.1f}%, TVL=${defi_risk['tvl_usd']/1_000_000:.1f}M"
+                            )
+                            for warning in defi_risk["warnings"]:
+                                logger.warning(f"[{symbol}] ⚠️ {warning}")
+                            return  # Пропускаем сделку
+                        
+                        # 4. Корректировка размера позиции на основе DeFi (Вариант Б)
+                        defi_signals = self.defi_analyzer.get_trading_signals(symbol)
+                        if defi_signals["action"] == "avoid":
+                            logger.warning(f"[{symbol}] 🚫 DeFi сигнал: ИЗБЕГАТЬ")
+                            return
+                        elif defi_signals["action"] == "sell" and confirmed_signal.type.value == "BUY":
+                            logger.warning(f"[{symbol}] ⚠️ DeFi сигнал против сделки — снижаю уверенность")
+                            confirmed_signal.confidence *= 0.5  # Снижаем уверенность на 50%
+                        
+                        # 5. Логируем DeFi данные для анализа
+                        logger.info(
+                            f"[{symbol}] 📊 DeFi: APY={defi_risk['max_apy']:.1f}%, "
+                            f"TVL=${defi_risk['tvl_usd']/1_000_000:.1f}M ({defi_risk['tvl_trend']}), "
+                            f"Режим={defi_regime['regime']}, Сентимент={defi_regime['sentiment']}"
+                        )
+                        
+                    except Exception as defi_err:
+                        logger.debug(f"[{symbol}] Ошибка DeFi анализа: {defi_err}")
+                # ===================================================================
+
                 # Исправление: type может быть строкой или SignalType
                 signal_type_name = (
                     confirmed_signal.type
@@ -3358,6 +3404,25 @@ class TradingSystem(QObject):
         except Exception as e:
             logger.error(f"Ошибка получения статистики БД: {e}")
             return {"error": str(e), "multi_db_enabled": True}
+
+    def get_defi_features_for_ai(self, symbol: str = None) -> dict:
+        """
+        Получение DeFi признаков для AI моделей (Вариант В).
+
+        Вызывается из signal_service при генерации AI сигнала.
+
+        Returns:
+            Dict с числовыми признаками:
+            - defi_max_apy: Максимальная доходность
+            - defi_avg_apy: Средняя доходность
+            - defi_tvl_usd: TVL в USD
+            - defi_lending_rate: Средняя ставка кредитования
+            - defi_risk_score: Оценка риска (0-1)
+            - defi_sentiment_score: Сентимент (-1 до +1)
+        """
+        if hasattr(self, 'defi_analyzer'):
+            return self.defi_analyzer.get_ai_features(symbol)
+        return {}
 
     async def _refresh_defi_data_background(self):
         """Фоновая загрузка DeFi метрик."""
