@@ -79,6 +79,10 @@ class PySideTradingSystem(QObject):
         """Принудительный R&D цикл."""
         self.core_system.force_rd_cycle()
 
+    def add_directive(self, directive_type: str, reason: str, duration_hours: int, value: Any) -> None:
+        """Добавление директивы через прокси."""
+        self.core_system.add_directive(directive_type, reason, duration_hours, value)
+
     def stop(self):
         """Остановка системы."""
         self.core_system.initiate_graceful_shutdown()
