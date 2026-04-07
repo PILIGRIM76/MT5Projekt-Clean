@@ -1109,11 +1109,10 @@ class MainWindow(QMainWindow):
     def update_pnl_kpis(self, kpis: dict):
         """Обновляет метки PnL и Drawdown из закрытых сделок."""
 
-        def format_pnl(value, show_label=True):
+        def format_pnl(value):
             # Зеленый для прибыли, красный для убытка
             color = "#50fa7b" if value >= 0 else "#ff5555"
-            label = " (закрыто)" if show_label else ""
-            return f"<span style='font-weight: bold; color:{color}'>{value:+.2f}{label}</span>"
+            return f"<span style='font-weight: bold; color:{color}'>{value:+.2f}</span>"
 
         def format_dd(value):
             # Красный для просадки
