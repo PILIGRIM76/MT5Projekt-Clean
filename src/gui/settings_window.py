@@ -1298,8 +1298,12 @@ class SettingsWindow(QDialog):
         self.max_daily_drawdown_spinbox.setValue(self.full_config.MAX_DAILY_DRAWDOWN_PERCENT)
         self.max_open_positions_spinbox.setValue(self.full_config.MAX_OPEN_POSITIONS)
         self.allow_weekend_trading_checkbox.setChecked(self.full_config.ALLOW_WEEKEND_TRADING)
-        self.gp_pop_spin.setValue(self.full_config.GP_POPULATION_SIZE)
-        self.gp_gen_spin.setValue(self.full_config.GP_GENERATIONS)
+        try:
+            if hasattr(self, 'gp_pop_spin'):
+                self.gp_pop_spin.setValue(self.full_config.GP_POPULATION_SIZE)
+                self.gp_gen_spin.setValue(self.full_config.GP_GENERATIONS)
+        except RuntimeError as e:
+            logger.warning(f"Пропуск настройки GP (виджет удалён): {e}")
 
         self.symbols_table.setRowCount(0)
         for symbol in self.full_config.SYMBOLS_WHITELIST:
