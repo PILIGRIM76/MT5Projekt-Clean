@@ -30,7 +30,7 @@ class PySideTradingSystem(QObject):
         super().__init__()
         self.config = config
         self.bridge = bridge
-        self.core_system = TradingSystem(config=config, gui=self, sound_manager=sound_manager, bridge=bridge)
+        self.core_system: TradingSystem = TradingSystem(config=config, gui=self, sound_manager=sound_manager, bridge=bridge)
 
         self._connect_core_signals()
         self._proxy_core_methods()

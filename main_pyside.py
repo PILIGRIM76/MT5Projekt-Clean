@@ -572,13 +572,13 @@ class MainWindow(QMainWindow):
             self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
 
     def _on_vector_db_search(self):
-        query = self.vdb_search_input.text().strip()
+        query = self.vdb_query_edit.text().strip()
         if not query:
             return
 
-        self.vdb_search_btn.setEnabled(False)
-        self.vdb_search_btn.setText("Поиск...")
-        self.vdb_table.setRowCount(0)
+        self.vdb_search_button.setEnabled(False)
+        self.vdb_search_button.setText("Поиск...")
+        self.vdb_results_table.setRowCount(0)
 
         # Запускаем поиск в отдельном потоке через TradingSystem
         threading.Thread(target=self.trading_system.core_system.search_vector_db, args=(query,), daemon=True).start()
@@ -586,8 +586,8 @@ class MainWindow(QMainWindow):
     # --- СЛОТ ДЛЯ ОБНОВЛЕНИЯ ТАБЛИЦЫ РЕЗУЛЬТАТОВ ---
     @Slot(list)
     def update_vector_db_table(self, results: list):
-        self.vdb_search_btn.setEnabled(True)
-        self.vdb_search_btn.setText("Найти в Базе Знаний")
+        self.vdb_search_button.setEnabled(True)
+        self.vdb_search_button.setText("Найти в Базе Знаний")
 
         if not results:
             QMessageBox.information(self, "Поиск", "Ничего не найдено.")
@@ -597,11 +597,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", results[0]["error"])
             return
 
-        self.vdb_table.setRowCount(len(results))
+        self.vdb_results_table.setRowCount(len(results))
         for i, item in enumerate(results):
             # Сходство (Distance)
             dist_item = QTableWidgetItem(f"{float(item.get('distance', 0)):.4f}")
-            dist_item.setTextAlignment(Qt.AlignCenter)
+            dist_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             # Источник
             source_item = QTableWidgetItem(str(item.get("source", "N/A")))
@@ -617,10 +617,10 @@ class MainWindow(QMainWindow):
             # Полный текст в подсказке
             text_item.setToolTip(str(item.get("full_text", "")))
 
-            self.vdb_table.setItem(i, 0, dist_item)
-            self.vdb_table.setItem(i, 1, source_item)
-            self.vdb_table.setItem(i, 2, date_item)
-            self.vdb_table.setItem(i, 3, text_item)
+            self.vdb_results_table.setItem(i, 0, dist_item)
+            self.vdb_results_table.setItem(i, 1, source_item)
+            self.vdb_results_table.setItem(i, 2, date_item)
+            self.vdb_results_table.setItem(i, 3, text_item)
 
     def _run_vector_db_search(self):
         query = self.vdb_query_edit.text().strip()
@@ -959,7 +959,7 @@ class MainWindow(QMainWindow):
         title_label.setText('<font color="#FFD700">Genesis--Piligrim Evolution v10.0: The Reflexive Core</font>')
 
         # 3. Настраиваем внешний вид: выравнивание по центру, крупный жирный шрифт
-        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("font-size: 14pt; font-weight: bold; padding: 5px;")
 
         # 4. Добавляем метку в самый верх нашего окна
@@ -1607,7 +1607,7 @@ class MainWindow(QMainWindow):
 
         # 3. Создаем метку-заглушку
         self.kg_disabled_label = QLabel("Визуализация графа знаний отключена.\nАнализ связей в фоне продолжается.")
-        self.kg_disabled_label.setAlignment(Qt.AlignCenter)
+        self.kg_disabled_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.kg_disabled_label.setStyleSheet("font-size: 14px; color: gray; padding: 20px; border: 2px dashed #444;")
 
         # 4. Добавляем виджеты в layout
@@ -1649,7 +1649,7 @@ class MainWindow(QMainWindow):
         xai_tab_widget = QWidget()
         xai_layout = QVBoxLayout(xai_tab_widget)
         self.xai_label = QLabel("Кликните на сделку в 'Истории Сделок' для анализа")
-        self.xai_label.setAlignment(Qt.AlignCenter)
+        self.xai_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.xai_web_view = QWebEngineView()
         self.xai_web_view.setHtml(
             "<html><body style='background-color:#282a36;'><h3 style='color:#f8f8f2; text-align:center;'>Ожидание данных...</h3></body></html>"
@@ -1830,7 +1830,7 @@ class MainWindow(QMainWindow):
         self.control_center_tab.settings_changed.connect(self.on_runtime_settings_changed)
         self.kg_enabled_checkbox.stateChanged.connect(self.on_kg_toggle)
         self.bridge.orchestrator_allocation_updated.connect(self.update_orchestrator_panel)
-        self.bridge.heavy_initialization_finished.connect(self.on_heavy_initialization_finished)
+        self.bridge.heavy_initialization_finished.connect(self.on_heavy_initialization_finished_slot)
 
         self.bridge.pnl_kpis_updated.connect(self.update_pnl_kpis)
 
@@ -3077,7 +3077,7 @@ class MainWindow(QMainWindow):
         self.update_status("Настройки применены", is_error=False)
 
     @Slot()
-    def on_heavy_initialization_finished(self):
+    def on_heavy_initialization_finished_slot(self):
         """Слот, который безопасно включает кнопку запуска после загрузки моделей."""
         self.start_button.setEnabled(True)
 
