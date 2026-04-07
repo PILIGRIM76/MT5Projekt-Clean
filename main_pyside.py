@@ -1869,9 +1869,6 @@ class MainWindow(QMainWindow):
 
         # НОВЫЕ: Подключение сигналов для визуализации переобучения
         self.bridge.model_accuracy_updated.connect(self.update_model_accuracy_chart, Qt.ConnectionType.QueuedConnection)
-
-        # Инициализация информации об обновлениях
-        QTimer.singleShot(1000, self._update_version_and_monitoring_info)
         self.bridge.retrain_progress_updated.connect(self.update_retrain_progress_chart, Qt.ConnectionType.QueuedConnection)
         logger.info("[GUI] Сигналы model_accuracy_updated и retrain_progress_updated подключены")
 
@@ -2217,40 +2214,56 @@ class MainWindow(QMainWindow):
     def _update_version_and_monitoring_info(self):
         """Обновляет информацию о версии, мониторинге и последней проверке."""
         try:
-            # Получаем HotReloadManager через адаптер
-            if hasattr(self.trading_system, "trading_system") and self.trading_system.trading_system:
-                adapter = self.trading_system.trading_system
-                if hasattr(adapter, "core_system") and adapter.core_system:
-                    manager = adapter.core_system.hot_reload_manager
-                    if manager:
-                        status = manager.get_update_status()
+            # self.trading_system это PySideTradingSystem
+            # PySideTradingSystem.core_system это TradingSystem
+            # TradingSystem.hot_reload_manager это HotReloadManager
+            if not hasattr(self, "trading_system") or not self.trading_system:
+                logger.debug("[MainWindow] trading_system ещё не установлен")
+                return
 
-                        # Текущая версия
-                        local_commit = status.get("local_commit")
-                        if local_commit:
-                            self.update_version_label.setText(f"📦 Версия: v{local_commit[:8]}")
-                        else:
-                            self.update_version_label.setText("📦 Версия: N/A")
+            adapter = self.trading_system
+            logger.debug(f"[MainWindow] adapter найден: {type(adapter).__name__}")
 
-                        # Мониторинг
-                        if status.get("monitoring"):
-                            self.update_monitoring_label.setText("👁️ Мониторинг: ✅ Активен")
-                            self.update_monitoring_label.setStyleSheet("color: #50fa7b;")
-                        else:
-                            self.update_monitoring_label.setText("👁️ Мониторинг: ❌ Не активен")
-                            self.update_monitoring_label.setStyleSheet("color: #ff5555;")
+            if hasattr(adapter, "core_system") and adapter.core_system:
+                manager = adapter.core_system.hot_reload_manager
+                logger.debug(f"[MainWindow] manager найден: {type(manager).__name__ if manager else 'None'}")
 
-                        # Последняя проверка
-                        last_check_ts = status.get("last_check")
-                        if last_check_ts and last_check_ts > 0:
-                            from datetime import datetime
+                if manager:
+                    status = manager.get_update_status()
+                    logger.debug(f"[MainWindow] status получен: {list(status.keys())}")
 
-                            last_check = datetime.fromtimestamp(last_check_ts)
-                            self.update_last_check_label.setText(f"⏰ Последняя проверка: {last_check.strftime('%H:%M:%S')}")
-                        else:
-                            self.update_last_check_label.setText("⏰ Последняя проверка: Ещё не проверялось")
+                    # Текущая версия
+                    local_commit = status.get("local_commit")
+                    if local_commit:
+                        self.update_version_label.setText(f"📦 Версия: v{local_commit[:8]}")
+                        logger.debug(f"[MainWindow] Версия: v{local_commit[:8]}")
+                    else:
+                        self.update_version_label.setText("📦 Версия: N/A")
+                        logger.debug("[MainWindow] local_commit отсутствует")
+
+                    # Мониторинг
+                    if status.get("monitoring"):
+                        self.update_monitoring_label.setText("👁️ Мониторинг: ✅ Активен")
+                        self.update_monitoring_label.setStyleSheet("color: #50fa7b;")
+                    else:
+                        self.update_monitoring_label.setText("👁️ Мониторинг: ❌ Не активен")
+                        self.update_monitoring_label.setStyleSheet("color: #ff5555;")
+
+                    # Последняя проверка
+                    last_check_ts = status.get("last_check")
+                    if last_check_ts and last_check_ts > 0:
+                        from datetime import datetime
+
+                        last_check = datetime.fromtimestamp(last_check_ts)
+                        self.update_last_check_label.setText(f"⏰ Последняя проверка: {last_check.strftime('%H:%M:%S')}")
+                    else:
+                        self.update_last_check_label.setText("⏰ Последняя проверка: Ещё не проверялось")
+                else:
+                    logger.warning("[MainWindow] hot_reload_manager = None")
+            else:
+                logger.warning("[MainWindow] adapter.core_system отсутствует")
         except Exception as e:
-            logger.error(f"[MainWindow] Ошибка обновления информации об обновлениях: {e}")
+            logger.error(f"[MainWindow] Ошибка обновления информации об обновлениях: {e}", exc_info=True)
 
     def on_initialization_failed(self):
         self.start_button.setEnabled(True)
@@ -2356,6 +2369,9 @@ class MainWindow(QMainWindow):
 
         # Включаем кнопку "Остановка", так как система успешно запущена
         self.stop_button.setEnabled(True)
+
+        # ОБНОВЛЕНИЕ ИНФОРМАЦИИ ОБ ОБНОВЛЕНИЯХ (после полной инициализации, с задержкой 3 сек)
+        QTimer.singleShot(3000, self._update_version_and_monitoring_info)
 
         success, message = self.trading_system.connect_to_terminal_adapter()
 
