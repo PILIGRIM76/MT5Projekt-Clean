@@ -50,6 +50,7 @@ class HotReloadManager:
         self._stop_event = threading.Event()
         self._last_commit = None
         self._monitor_thread = None
+        self._last_check_time = 0  # Время последней проверки обновлений
 
         # Модули для hot-reload
         self._reloadable_modules = []
@@ -328,5 +329,5 @@ class HotReloadManager:
             "remote_commit": remote_commit,
             "has_updates": local_commit != remote_commit if (local_commit and remote_commit) else False,
             "monitoring": self._monitoring,
-            "last_check": getattr(self, "_last_check_time", None) or time.time(),
+            "last_check": self._last_check_time if self._last_check_time > 0 else None,
         }
