@@ -52,7 +52,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPainterPath, QPixmap, QTextCharFormat
+from PySide6.QtGui import QAction, QColor, QIcon, QPainterPath, QTextCharFormat
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
@@ -480,7 +480,6 @@ class PySideTradingSystem(QObject):
         # --- ДОБАВЛЕННЫЕ ПОДКЛЮЧЕНИЯ (WEB.3 и другие) ---
         self.core_system.thread_status_updated.connect(self.bridge.thread_status_updated)
         self.core_system.long_task_status_updated.connect(self.bridge.long_task_status_updated)
-        self.core_system.social_status_updated.connect(self.bridge.social_status_updated)
         self.core_system.drift_data_updated.connect(self.bridge.drift_data_updated)
         # --------------------------------------------------------------------
 
@@ -644,9 +643,6 @@ class MainWindow(QMainWindow):
         else:
             logger.warning(f"Файл иконки не найден по пути: {icon_path}")
 
-        # Кэш для иконок (общий для всех экземпляров)
-        self._icon_pixmap_cache = {}
-
         # Настройка панели уведомлений
         self.notification_bar = QFrame()
         self.notification_bar.setObjectName("NotificationBar")
@@ -663,7 +659,7 @@ class MainWindow(QMainWindow):
         self.is_graph_ready = False
         self.graph_data_queue = []
         self.scheduler_manager = SchedulerManager()
-        self.settings_window = SettingsWindow(self.scheduler_manager, self.config, self.trading_system, self)
+        self.settings_window = SettingsWindow(self.scheduler_manager, self.config, self)
         self.settings_window.scheduler_status_updated.connect(self.update_thread_status_widget)
 
         self.setGeometry(100, 100, 1600, 900)
@@ -680,15 +676,10 @@ class MainWindow(QMainWindow):
         self.connect_signals()
         self.apply_style("Темная")
 
-        # Настройка таймера статуса (оптимизация: 2 мин вместо 1 мин)
+        # Настройка таймера статуса
         self.status_update_timer = QTimer(self)
         self.status_update_timer.timeout.connect(self.update_scheduler_status_display)
-        self.status_update_timer.start(120 * 1000)
-
-        # Таймер для обновления статуса обновлений (оптимизирован: 30 сек вместо 10 сек)
-        self.update_status_bar_timer = QTimer(self)
-        self.update_status_bar_timer.timeout.connect(self._update_update_box_info)
-        self.update_status_bar_timer.start(30 * 1000)  # 30 секунд
+        self.status_update_timer.start(60 * 1000)
 
         self.update_scheduler_status_display()
         # Предполагаем, что kg_enabled_checkbox существует после _init_widgets
@@ -714,18 +705,6 @@ class MainWindow(QMainWindow):
         self.trading_system.core_system.initialize_heavy_components()
 
         logger.info("Тяжелая инициализация завершена.")
-
-        # Инициализация крипто-провайдеров (ccxt)
-        logger.info("Инициализация крипто-провайдеров (ccxt)...")
-        try:
-            import asyncio
-
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(self.trading_system.core_system.initialize_crypto_providers())
-            loop.close()
-            logger.info("Крипто-провайдеры инициализированы")
-        except Exception as e:
-            logger.warning(f"Не удалось инициализировать крипто-провайдеры: {e}")
 
         # Фаза 2: Запуск постоянных фоновых сервисов (Data Provider, Orchestrator, R&D)
         logger.info("Начало запуска всех фоновых сервисов...")
@@ -756,19 +735,12 @@ class MainWindow(QMainWindow):
         self.status_update_timer.start(60 * 1000)
         self.update_scheduler_status_display()
         self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
-        
-        # 4. Инициализация DeFi Widget
-        logger.info("[DeFi] Проверка инициализации DeFi Widget...")
-        if hasattr(self, 'defi_widget'):
-            logger.info("[DeFi] DeFi Widget найден")
-            if hasattr(self.core_system, 'db_manager'):
-                logger.info("[DeFi] db_manager найден, подключаем...")
-                self.defi_widget.set_db_manager(self.core_system.db_manager)
-            else:
-                logger.error("[DeFi] db_manager НЕ найден в core_system!")
-        else:
-            logger.error("[DeFi] DeFi Widget НЕ найден!")
         self.on_kg_toggle()
+
+        # 4. Инициализация DeFi Widget
+        if hasattr(self, 'defi_widget') and hasattr(self.core_system, 'db_manager'):
+            logger.info("[DeFi] Подключение к БД...")
+            self.defi_widget.set_db_manager(self.core_system.db_manager)
 
         if hasattr(self, "control_center_tab"):
             self.control_center_tab.load_initial_settings()
@@ -1207,17 +1179,6 @@ class MainWindow(QMainWindow):
             label.setStyleSheet(f"font-weight: bold; color: {color};")
             QApplication.processEvents()  # Принудительное обновление GUI
 
-    def update_social_status(self, status: str):
-        """Обновляет статус социальной торговли в UI."""
-        if hasattr(self, 'settings_window') and hasattr(self.settings_window, 'social_status_label'):
-            self.settings_window.social_status_label.setText(f"Статус: {status}")
-            if "активен" in status.lower() or "active" in status.lower():
-                self.settings_window.social_status_label.setStyleSheet("color: #50fa7b;")
-            elif "ошибка" in status.lower() or "error" in status.lower():
-                self.settings_window.social_status_label.setStyleSheet("color: #ff5555;")
-            else:
-                self.settings_window.social_status_label.setStyleSheet("color: #ffb86c;")
-
     def _create_thread_status_panel(self) -> QGroupBox:
         """Создает панель для отображения статуса фоновых потоков и задач."""
         group_box = QGroupBox("Статус Системы")
@@ -1279,24 +1240,6 @@ class MainWindow(QMainWindow):
             pg.setConfigOption("foreground", "#f8f8f2")
         logger.info(f"Применен стиль: {style_name}")
 
-    def create_icon(self, emoji: str, size: int = 32) -> QIcon:
-        """Создаёт QIcon из эмодзи с кэшированием."""
-        if emoji in self._icon_pixmap_cache:
-            return QIcon(self._icon_pixmap_cache[emoji])
-
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.TextAntialiasing)
-        font = painter.font()
-        font.setPixelSize(int(size * 0.75))
-        painter.setFont(font)
-        painter.drawText(pixmap.rect(), Qt.AlignCenter, emoji)
-        painter.end()
-
-        self._icon_pixmap_cache[emoji] = pixmap
-        return QIcon(pixmap)
-
     def _init_widgets(self):
         central_widget = QWidget()
         self.main_central_widget = central_widget
@@ -1325,7 +1268,6 @@ class MainWindow(QMainWindow):
         main_splitter.addWidget(left_panel)
         main_splitter.addWidget(right_panel)
         main_splitter.setSizes([650, 950])
-
         self.status_label = QLabel("Система не запущена.")
         self.statusBar().addWidget(self.status_label)
 
@@ -1359,80 +1301,12 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(self.observer_checkbox)
 
         update_box = QFrame()
-        update_box.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
-        update_box.setStyleSheet("""
-            QFrame {
-                background-color: #282a36;
-                border: 1px solid #44475a;
-                border-radius: 5px;
-                padding: 8px;
-            }
-        """)
         update_layout = QVBoxLayout(update_box)
-        update_layout.setSpacing(5)
-
-        # Заголовок блока
-        update_title = QLabel("🔄 Статус обновлений")
-        update_title.setStyleSheet("color: #bd93f9; font-weight: bold; font-size: 12px;")
-        update_layout.addWidget(update_title)
-
-        # Версия системы
-        self.version_label = QLabel(f"📦 Версия: v{__version__}")
-        self.version_label.setStyleSheet("color: #8be9fd; font-size: 11px;")
-        self.version_label.setToolTip("Текущая версия Genesis Trading System")
-        update_layout.addWidget(self.version_label)
-
-        # Статус обновлений
-        self.update_status_label = QLabel("Статус: Загрузка...")
-        self.update_status_label.setStyleSheet("color: #f8f8f2; font-size: 11px;")
-        update_layout.addWidget(self.update_status_label)
-
-        # Последняя проверка
-        self.update_last_check_label = QLabel("Последняя проверка: N/A")
-        self.update_last_check_label.setStyleSheet("color: #6272a4; font-size: 10px;")
-        update_layout.addWidget(self.update_last_check_label)
-
-        # Кнопка обновления
-        self.update_button = QPushButton("⬇️ Обновить и Перезапустить")
+        self.update_button = QPushButton("Обновить и Перезапустить")
         self.update_button.setEnabled(False)
-        self.update_button.setStyleSheet("""
-            QPushButton {
-                background-color: #50fa7b;
-                color: #282a36;
-                border: none;
-                padding: 8px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #69ff94;
-            }
-            QPushButton:disabled {
-                background-color: #44475a;
-                color: #6272a4;
-            }
-        """)
+        self.update_status_label = QLabel("Статус обновления: N/A")
         update_layout.addWidget(self.update_button)
-
-        # Кнопка документации
-        self.documentation_button = QPushButton("📖 Документация")
-        self.documentation_button.clicked.connect(self._on_show_documentation)
-        self.documentation_button.setStyleSheet("""
-            QPushButton {
-                background-color: #8be9fd;
-                color: #282a36;
-                border: none;
-                padding: 8px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #a8f0ff;
-            }
-        """)
-        update_layout.addWidget(self.documentation_button)
+        update_layout.addWidget(self.update_status_label)
 
         thread_status_box = self._create_thread_status_panel()
         # Для стилизации, если понадобится
@@ -1579,7 +1453,7 @@ class MainWindow(QMainWindow):
         header_pos.setSectionResizeMode(2, QHeaderView.Stretch)
         positions_tab_layout.addLayout(positions_control_layout)
         positions_tab_layout.addWidget(self.positions_table)
-        tab_widget.addTab(positions_tab_widget, self.create_icon("💼"), "Открытые Позиции")
+        tab_widget.addTab(positions_tab_widget, "Открытые Позиции")
 
         # --- ВКЛАДКА "ИСТОРИЯ СДЕЛОК" (с исправлениями) ---
         self.history_table = QTableView()
@@ -1606,7 +1480,7 @@ class MainWindow(QMainWindow):
         header_hist.setSectionResizeMode(6, QHeaderView.Stretch)  # Время закр.
         header_hist.setSectionResizeMode(7, QHeaderView.Stretch)  # Стратегия
 
-        tab_widget.addTab(self.history_table, self.create_icon("📜"), "История Сделок")
+        tab_widget.addTab(self.history_table, "История Сделок")
 
         # --- ОБЩИЙ ЛЕЙАУТ ---
         left_layout.addWidget(tab_widget)
@@ -1678,7 +1552,7 @@ class MainWindow(QMainWindow):
 
         # --- ВКЛАДКА "ОСНОВНОЙ ГРАФИК" ---
         self.chart_layout_widget = pg.GraphicsLayoutWidget()
-        right_widget.addTab(self.chart_layout_widget, self.create_icon("📊"), "Основной График")
+        right_widget.addTab(self.chart_layout_widget, "Основной График")
         self.price_plot = self.chart_layout_widget.addPlot(row=0, col=0)
 
         # Используем форматирование дат на нижней оси
@@ -1759,7 +1633,7 @@ class MainWindow(QMainWindow):
         # Загружаем начальные настройки для отображения
         self.control_center_tab.load_initial_settings()
         logger.info("[GUI] ControlCenterWidget инициализирован с настройками")
-        right_widget.addTab(self.control_center_tab, self.create_icon("🎛️"), "Центр Управления")
+        right_widget.addTab(self.control_center_tab, "Центр Управления")
 
         # --- ВКЛАДКА "АНАЛИТИКА" ---
         analytics_tab_widget = QWidget()
@@ -1795,17 +1669,15 @@ class MainWindow(QMainWindow):
         self.model_accuracy_data = {}
         logger.info("[GUI-Analytics] График точности инициализирован")
 
-        # График прогресса переобучения (оптимизация: авто-масштаб Y)
+        # График прогресса переобучения
         self.retrain_progress_widget = pg.PlotWidget(title="⏰ До переобучения (ч)")
         self.retrain_progress_plot = self.retrain_progress_widget.getPlotItem()
         self.retrain_progress_plot.showGrid(x=True, y=True, alpha=0.3)
         self.retrain_progress_plot.getAxis("bottom").setLabel("Символ")
-        # УБРАН setRange(0, 3) — теперь авто-масштабирование
+        self.retrain_progress_plot.getAxis("left").setRange(0, 3)
         self.retrain_progress_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="b")
         self.retrain_progress_plot.addItem(self.retrain_progress_bars)
-        # Линия порога переобучения (24ч — текущий интервал TRAINING_INTERVAL_SECONDS=172800)
-        self.retrain_threshold_line = pg.InfiniteLine(angle=0, pos=48.0, pen=pg.mkPen("y", width=2, style=Qt.DashLine))
-        self.retrain_progress_plot.addItem(self.retrain_threshold_line)
+        self.retrain_progress_plot.addItem(pg.InfiniteLine(angle=0, pos=1.0, pen=pg.mkPen("y", style=Qt.DashLine)))
         self.retrain_progress_data = {}
         logger.info("[GUI-Analytics] График прогресса инициализирован")
 
@@ -1872,24 +1744,24 @@ class MainWindow(QMainWindow):
         training_charts_layout = QVBoxLayout(training_charts_widget)
         training_charts_layout.addWidget(self.loss_plot_widget)
         training_charts_layout.addWidget(compact_charts_widget)
-        analytics_subtabs.addTab(training_charts_widget, self.create_icon("📈"), "Обучение")
+        analytics_subtabs.addTab(training_charts_widget, "📈 Обучение")
 
         # Подвкладка 2: Производительность
         performance_charts_widget = QWidget()
         performance_charts_layout = QVBoxLayout(performance_charts_widget)
         performance_charts_layout.addWidget(self.pnl_plot_widget)
         performance_charts_layout.addWidget(self.observer_pnl_plot_widget)
-        analytics_subtabs.addTab(performance_charts_widget, self.create_icon("💰"), "Производительность")
+        analytics_subtabs.addTab(performance_charts_widget, "💰 Производительность")
 
         # Подвкладка 3: Дрейф и аномалии
         drift_charts_widget = QWidget()
         drift_charts_layout = QVBoxLayout(drift_charts_widget)
         drift_charts_layout.addWidget(self.drift_plot_widget)
-        analytics_subtabs.addTab(drift_charts_widget, self.create_icon("🔍"), "Дрейф")
+        analytics_subtabs.addTab(drift_charts_widget, "🔍 Дрейф")
 
         analytics_layout.addWidget(analytics_subtabs)
 
-        right_widget.addTab(analytics_tab_widget, self.create_icon("📊"), "Аналитика")
+        right_widget.addTab(analytics_tab_widget, "📈 Аналитика")
 
         # --- ВКЛАДКА "СКАНЕР РЫНКА" ---
         scanner_widget = QWidget()
@@ -1925,7 +1797,7 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
 
-        right_widget.addTab(scanner_widget, self.create_icon("🔎"), "Сканер Рынка")
+        right_widget.addTab(scanner_widget, "Сканер Рынка")
 
         # --- ВКЛАДКА "ПАНЕЛЬ ОРКЕСТРАТОРА" ---
         orchestrator_tab = QWidget()
@@ -1938,7 +1810,7 @@ class MainWindow(QMainWindow):
         self.orchestrator_chart_widget.getAxis("left").setLabel("Доля капитала", units="%")
         self.orchestrator_chart_widget.getAxis("bottom").setTicks([[]])
         orchestrator_layout.addWidget(self.orchestrator_chart_widget)
-        right_widget.addTab(orchestrator_tab, self.create_icon("🧠"), "Панель Оркестратора")
+        right_widget.addTab(orchestrator_tab, "Панель Оркестратора")
 
         # --- ВКЛАДКА "R&D ЦЕНТР" ---
         rd_tab_widget = QWidget()
@@ -1955,7 +1827,7 @@ class MainWindow(QMainWindow):
         self.rd_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         rd_layout.addLayout(rd_controls_layout)
         rd_layout.addWidget(self.rd_table)
-        right_widget.addTab(rd_tab_widget, self.create_icon("🔬"), "R&D Центр")
+        right_widget.addTab(rd_tab_widget, "R&D Центр")
 
         # --- ВКЛАДКА "ЦЕНТР РЕФЛЕКСИИ" ---
         reflexion_tab_widget = QWidget()
@@ -1976,7 +1848,7 @@ class MainWindow(QMainWindow):
         reflexion_layout.addWidget(QLabel("<b>Активные Директивы Системы</b>"))
         reflexion_layout.addLayout(reflexion_controls_layout)
         reflexion_layout.addWidget(self.directives_table)
-        right_widget.addTab(reflexion_tab_widget, self.create_icon("🪞"), "Центр Рефлексии")
+        right_widget.addTab(reflexion_tab_widget, "Центр Рефлексии")
 
         # --- ВКЛАДКА "МЕНЕДЖЕР МОДЕЛЕЙ" ---
         model_manager_tab = QWidget()
@@ -1996,11 +1868,11 @@ class MainWindow(QMainWindow):
         self.models_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         model_manager_layout.addLayout(mm_controls_layout)
         model_manager_layout.addWidget(self.models_table)
-        right_widget.addTab(model_manager_tab, self.create_icon("🤖"), "Менеджер Моделей")
+        right_widget.addTab(model_manager_tab, "Менеджер Моделей")
 
         # --- ВКЛАДКА "DeFi МЕТРИКИ" ---
         self.defi_widget = DeFiWidget()
-        right_widget.addTab(self.defi_widget, self.create_icon("💎"), "DeFi Метрики")
+        right_widget.addTab(self.defi_widget, "💎 DeFi Метрики")
 
         # --- ВКЛАДКА "ГРАФ ЗНАНИЙ" ---
         knowledge_graph_tab = QWidget()
@@ -2058,11 +1930,11 @@ class MainWindow(QMainWindow):
             logger.error(f"Не найден файл для визуализации графа: {graph_html_path}")
             self.knowledge_graph_view.setHtml(f"<h3 style='color:red'>Файл не найден: {graph_html_path}</h3>")
 
-        right_widget.addTab(knowledge_graph_tab, self.create_icon("🕸️"), "Граф Знаний")
+        right_widget.addTab(knowledge_graph_tab, "Граф Знаний")
 
         # --- ВКЛАДКА "ВЕКТОРНАЯ БД (RAG)" ---
         vector_db_tab = self._create_vector_db_tab()
-        right_widget.addTab(vector_db_tab, self.create_icon("🗃️"), "Векторная БД (RAG)")
+        right_widget.addTab(vector_db_tab, "Векторная БД (RAG)")
 
         # --- ВКЛАДКА "АНАЛИЗ СДЕЛКИ (XAI)" ---
         xai_tab_widget = QWidget()
@@ -2089,7 +1961,7 @@ class MainWindow(QMainWindow):
         xai_layout.addWidget(self.xai_label)
         xai_layout.addWidget(self.xai_web_view)
         xai_layout.addWidget(feedback_panel)
-        right_widget.addTab(xai_tab_widget, self.create_icon("🔮"), "Анализ Сделки (XAI)")
+        right_widget.addTab(xai_tab_widget, "Анализ Сделки (XAI)")
 
         # --- ВКЛАДКА "БЭКТЕСТЕР" ---
         backtester_tab = QWidget()
@@ -2152,26 +2024,11 @@ class MainWindow(QMainWindow):
         results_splitter.setSizes([200, 400])
         backtester_layout.addWidget(controls_frame)
         backtester_layout.addWidget(results_splitter)
-        right_widget.addTab(backtester_tab, self.create_icon("⚙️"), "Бэктестер")
+        right_widget.addTab(backtester_tab, "Бэктестер")
 
         # Добавляем обработчик переключения вкладок для логирования
         right_widget.currentChanged.connect(self.on_tab_changed)
         logger.info("[GUI-Init] Все вкладки правой панели инициализированы")
-
-        # --- ВКЛАДКА "МОНИТОРИНГ БАЗ ДАННЫХ" ---
-        from src.gui.database_monitor_widget import DatabaseMonitorWidget
-
-        # Передаем trading_system и settings_window для обновления пути к БД
-        database_monitor_tab = DatabaseMonitorWidget(
-            trading_system=self.trading_system, settings_window=None  # Будет установлено позже через MainWindow
-        )
-        self.database_monitor_widget = database_monitor_tab  # Сохраняем ссылку для обновления
-        right_widget.addTab(database_monitor_tab, self.create_icon("🗄️"), "Базы Данных")
-
-        # --- ВКЛАДКА "МЕНЕДЖЕР ОБНОВЛЕНИЙ" ПЕРЕНЕСЕНА В НАСТРОЙКИ ---
-        # Обновления теперь доступны через Настройки -> Обновления
-        # Информация о версии отображается в статус-баре на главном экране
-        # ----------------------------------------------------------------
 
         return right_widget
 
@@ -2259,8 +2116,8 @@ class MainWindow(QMainWindow):
         self.bad_trade_button.clicked.connect(lambda: self.record_feedback(-1))
         self.bridge.orchestrator_allocation_updated.connect(self.update_orchestrator_panel)
         self.bridge.knowledge_graph_updated.connect(self.update_knowledge_graph)
+        self.bridge.observer_pnl_updated.connect(self.update_observer_pnl_chart)
         self.bridge.thread_status_updated.connect(self.update_thread_status)
-        self.bridge.social_status_updated.connect(self.update_social_status)
         self.control_center_tab.settings_changed.connect(self.on_runtime_settings_changed)
         self.kg_enabled_checkbox.stateChanged.connect(self.on_kg_toggle)
         self.bridge.orchestrator_allocation_updated.connect(self.update_orchestrator_panel)
@@ -2275,11 +2132,6 @@ class MainWindow(QMainWindow):
         # Подключаем торговые сигналы к отдельному методу в ControlCenterWidget
         if hasattr(self.bridge, "trading_signals_updated"):
             self.bridge.trading_signals_updated.connect(self.control_center_tab.update_trading_signals_table)
-
-        # Подключаем сигнал изменения пути к базе данных к виджету мониторинга
-        if hasattr(self, "database_monitor_widget") and hasattr(self, "settings_window"):
-            self.settings_window.database_path_changed.connect(self.database_monitor_widget.update_database_path)
-            logger.info("[GUI] Сигнал database_path_changed подключен к DatabaseMonitorWidget")
 
     @Slot()
     def on_observer_checkbox_clicked(self):
@@ -2524,7 +2376,7 @@ class MainWindow(QMainWindow):
         self.backtest_process.start()
         self.backtest_check_timer = QTimer(self)
         self.backtest_check_timer.timeout.connect(self.check_backtest_results)
-        self.backtest_check_timer.start(500)  # Оптимизация: 500мс вместо 100мс
+        self.backtest_check_timer.start(100)
 
     def check_backtest_results(self):
         try:
@@ -2791,50 +2643,6 @@ class MainWindow(QMainWindow):
         logger.info(f"[GUI-Status] Обновление статуса: '{message}', ошибка={is_error}")
         self.status_label.setText(message)
         self.status_label.setStyleSheet("color: red;" if is_error else "")
-
-    def _update_update_box_info(self):
-        """Обновляет информацию об обновлениях в блоке на главном экране."""
-        if not hasattr(self, "update_status_label"):
-            return
-
-        manager = None
-        if hasattr(self.trading_system, "core_system") and self.trading_system.core_system:
-            manager = self.trading_system.core_system.hot_reload_manager
-        elif hasattr(self.trading_system, "hot_reload_manager"):
-            manager = self.trading_system.hot_reload_manager
-
-        if not manager:
-            self.update_status_label.setText("Статус: Менеджер не инициализирован")
-            self.update_status_label.setStyleSheet("color: #ffb86c; font-size: 11px;")
-            return
-
-        try:
-            status = manager.get_update_status()
-
-            # Обновляем версию с commit
-            if status.get("local_commit"):
-                short_commit = status["local_commit"][:8]
-                self.version_label.setText(f"📦 Версия: v{__version__} ({short_commit})")
-                self.version_label.setToolTip(f"Commit: {status['local_commit']}")
-
-            # Обновляем время последней проверки
-            if status.get("last_check"):
-                last_check = datetime.fromtimestamp(status["last_check"])
-                self.update_last_check_label.setText(f"Последняя проверка: {last_check.strftime('%H:%M:%S')}")
-
-            # Обновляем статус обновлений
-            if status.get("has_updates"):
-                self.update_status_label.setText("🔔 Доступна новая версия!")
-                self.update_status_label.setStyleSheet("color: #ffb86c; font-size: 11px; font-weight: bold;")
-                self.update_button.setEnabled(True)
-            else:
-                self.update_status_label.setText("✅ Система актуальна")
-                self.update_status_label.setStyleSheet("color: #50fa7b; font-size: 11px;")
-                self.update_button.setEnabled(False)
-
-        except Exception as e:
-            self.update_status_label.setText(f"❌ Ошибка: {e}")
-            self.update_status_label.setStyleSheet("color: #ff5555; font-size: 11px;")
 
     def update_balance(self, balance, equity):
         # Убрано избыточное логирование (каждые 3 секунды)
@@ -3141,116 +2949,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"[GUI-ModelAccuracy] Ошибка при обновлении графика: {e}", exc_info=True)
 
-    # ========== Hot Reload Manager Handlers ==========
-
-    def _get_hot_reload_manager(self):
-        """Получение HotReloadManager."""
-        if hasattr(self.trading_system, "core_system") and self.trading_system.core_system:
-            return self.trading_system.core_system.hot_reload_manager
-        elif hasattr(self.trading_system, "hot_reload_manager"):
-            return self.trading_system.hot_reload_manager
-        return None
-
-    def _on_check_updates(self):
-        """Проверка наличия обновлений."""
-        logger.info("🔍 Проверка наличия обновлений...")
-        manager = self._get_hot_reload_manager()
-
-        if not manager:
-            logger.warning("⚠️ HotReloadManager не инициализирован")
-            self.update_status_label.setText("Статус: Менеджер не инициализирован")
-            self.update_status_label.setStyleSheet("color: #ffb86c; font-size: 11px;")
-            return
-
-        has_updates = manager.check_for_updates()
-        if has_updates:
-            self.update_status_label.setText("🔔 Доступна новая версия!")
-            self.update_status_label.setStyleSheet("color: #ffb86c; font-size: 11px; font-weight: bold;")
-            self.update_button.setEnabled(True)
-        else:
-            self.update_status_label.setText("✅ Система актуальна")
-            self.update_status_label.setStyleSheet("color: #50fa7b; font-size: 11px;")
-            self.update_button.setEnabled(False)
-
-    def _on_apply_update(self):
-        """Применение обновления."""
-        logger.info("⬇️ Применение обновления...")
-        manager = self._get_hot_reload_manager()
-
-        if not manager:
-            logger.warning("⚠️ HotReloadManager не инициализирован")
-            QMessageBox.warning(
-                self,
-                "Ошибка",
-                "Менеджер обновлений не инициализирован.\nДождитесь полной загрузки системы.",
-                QMessageBox.Ok,
-            )
-            return
-
-        success = manager.apply_update()
-        if success:
-            self.update_status_label.setText("✅ Обновление применено!")
-            self.update_status_label.setStyleSheet("color: #50fa7b; font-size: 11px;")
-            QMessageBox.information(
-                self,
-                "Обновление завершено",
-                "✅ Система успешно обновлена!\n\n"
-                "• Модули перезагружены\n"
-                "• GUI обновлён\n"
-                "• Активные позиции сохранены",
-                QMessageBox.Ok,
-            )
-        else:
-            self.update_status_label.setText("❌ Ошибка обновления")
-            self.update_status_label.setStyleSheet("color: #ff5555; font-size: 11px;")
-            QMessageBox.critical(
-                self,
-                "Ошибка обновления",
-                "❌ Не удалось применить обновление.\n\n" "Проверьте логи для получения подробностей.",
-                QMessageBox.Ok,
-            )
-
-    def _on_toggle_update_monitoring(self):
-        """Переключение мониторинга обновлений."""
-        logger.info("🔄 Переключение мониторинга обновлений...")
-        manager = self._get_hot_reload_manager()
-
-        if not manager:
-            logger.warning("⚠️ HotReloadManager не инициализирован")
-            return
-
-        if manager._monitoring:
-            manager.stop_monitoring()
-            self.update_status_label.setText("👁️ Мониторинг остановлен")
-            self.update_status_label.setStyleSheet("color: #ff5555; font-size: 11px;")
-        else:
-            manager.start_monitoring(interval=60)
-            self.update_status_label.setText("👁️ Мониторинг запущен")
-            self.update_status_label.setStyleSheet("color: #50fa7b; font-size: 11px;")
-
-    def _on_show_documentation(self):
-        """Открыть документацию пользователя."""
-        logger.info("📖 Открытие документации")
-        try:
-            from src.gui.dialogs.documentation_dialog import DocumentationDialog
-
-            dialog = DocumentationDialog(self)
-            dialog.exec()
-        except ImportError:
-            QMessageBox.warning(
-                self,
-                "Ошибка",
-                "Не удалось загрузить модуль документации.\n\n"
-                "Убедитесь, что файл docs/user_guide.md существует.",
-            )
-        except Exception as e:
-            logger.error(f"Ошибка открытия документации: {e}")
-            QMessageBox.critical(
-                self,
-                "Ошибка",
-                f"Произошла ошибка при открытии документации:\n{e}",
-            )
-
     def update_retrain_progress_chart(self, progress_data: dict):
         """
         Обновляет график прогресса переобучения.
@@ -3272,51 +2970,29 @@ class MainWindow(QMainWindow):
             symbols = list(progress_data.keys())
             hours = [progress_data[s] for s in symbols]
 
-            # Оптимизация: порог 48ч соответствует TRAINING_INTERVAL_SECONDS=172800
-            training_threshold = 48.0
+            # Цветовое кодирование: красный > 1ч (пора переобучать), жёлтый 0.5-1ч, зелёный < 0.5ч
             colors = []
             for h in hours:
-                if h >= training_threshold:
-                    colors.append("#ff5555")  # Красный - пора переобучать! (>= 48ч)
-                elif h >= training_threshold * 0.5:
-                    colors.append("#ffb86c")  # Оранжевый - скоро пора (24-48ч)
+                if h >= 1.0:
+                    colors.append("#ff5555")  # Красный - пора переобучать!
+                elif h >= 0.5:
+                    colors.append("#ffb86c")  # Оранжевый - скоро пора
                 else:
-                    colors.append("#50fa7b")  # Зелёный - ещё рано (< 24ч)
+                    colors.append("#50fa7b")  # Зелёный - ещё рано
 
             # Обновляем график
             x_positions = list(range(len(symbols)))
             self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
 
-            # Авто-масштабирование оси Y
-            if hours:
-                max_hours = max(hours)
-                if max_hours > 100:
-                    # Если есть значения 999 (модель не обучалась), ограничиваем отображение
-                    y_max = min(max_hours * 1.1, 1000)
-                else:
-                    y_max = max(max_hours * 1.3, 10)  # Минимум 10ч для видимости
-                self.retrain_progress_plot.getAxis("left").setRange(0, y_max)
-
-            # Обновляем линию порога
-            if hasattr(self, "retrain_threshold_line"):
-                self.retrain_threshold_line.setPos(training_threshold)
-
-            # Обновляем заголовок - считаем символы которые старше порога
-            symbols_to_retrain = sum(1 for h in hours if h >= training_threshold)
-            self.retrain_progress_widget.setTitle(
-                f"⏰ До переобучения (требуют: {symbols_to_retrain}/{len(symbols)})"
-            )
-
-            # Обновляем метки символов на оси X
-            ticks = [list(enumerate(symbols))]
-            self.retrain_progress_plot.getAxis("bottom").setTicks(ticks)
+            # Обновляем заголовок
+            symbols_to_retrain = sum(1 for h in hours if h >= 1.0)
+            self.retrain_progress_widget.setTitle(f"⏰ Прогресс переобучения (требуют: {symbols_to_retrain})")
 
             # Сохраняем данные
             self.retrain_progress_data = progress_data
 
             logger.info(
-                f"[GUI-RetrainProgress] График обновлён: {len(symbols)} символов, "
-                f"требуют переобучения: {symbols_to_retrain}, max часов: {max(hours):.1f}"
+                f"[GUI-RetrainProgress] График обновлён: {len(symbols)} символов, требуют переобучения: {symbols_to_retrain}"
             )
 
         except Exception as e:
@@ -3731,19 +3407,6 @@ def run_core_process(config_dict):
 
     try:
         core_system.initialize_heavy_components()
-
-        # Инициализация крипто-провайдеров (ccxt)
-        logger.info("Инициализация крипто-провайдеров (ccxt)...")
-        try:
-            import asyncio
-
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(core_system.initialize_crypto_providers())
-            loop.close()
-            logger.info("Крипто-провайдеры инициализированы")
-        except Exception as e:
-            logger.warning(f"Не удалось инициализировать крипто-провайдеры: {e}")
-
         core_system.start_all_background_services(None)  # Запускаем без QThreadPool
 
         logger.critical("CORE PROCESS: Heavy initialization and services started.")
@@ -3790,9 +3453,6 @@ def main():
 
         # 2. Вызываем нашу новую функцию ОДИН РАЗ, передав ей нужный сигнал и конфиг
         setup_qt_logging(bridge.log_message_added, app_config)
-
-        # 3. ЕДИНСТВЕННАЯ ИНИЦИАЛИЗАЦИЯ
-        # TradingSystem.__init__ теперь не требует db_manager/vector_db_manager
         trading_system_adapter = PySideTradingSystem(config=app_config, bridge=bridge, sound_manager=sound_manager)
 
         window = MainWindow(trading_system_adapter, app_config)
