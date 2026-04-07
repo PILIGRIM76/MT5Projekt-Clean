@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 
+from src.db.database_manager import safe_pickle_loads
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -173,12 +175,12 @@ class RedisAdapter:
     # ========== PICKLE OPERATIONS ==========
 
     def get_pickle(self, key: str) -> Optional[Any]:
-        """Получение сериализованного pickle объекта."""
+        """Получение сериализованного pickle объекта (безопасно)."""
         data = self.get(key)
         if data is None:
             return None
         try:
-            return pickle.loads(data)
+            return safe_pickle_loads(data)
         except Exception as e:
             logger.error(f"Redis GET_PICKLE error: {e}")
             return None

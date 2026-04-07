@@ -20,30 +20,31 @@ logger = logging.getLogger(__name__)
 class MT5ConnectionManager:
     """
     Singleton менеджер подключений к MT5.
-    
+
     Гарантирует:
     - Только одна инициализация за весь жизненный цикл
     - Безопасное подключение/отключение
     - Автоматическое переподключение при разрыве
     """
-    
-    _instance: Optional['MT5ConnectionManager'] = None
+
+    _instance: Optional["MT5ConnectionManager"] = None
     _lock = threading.Lock()
-    
+
     def __init__(self):
         if MT5ConnectionManager._instance is not None:
             raise RuntimeError("Используйте MT5ConnectionManager.get_instance()")
-        
+
         self._initialized = False
         self._login: Optional[int] = None
+        self._password: Optional[str] = None
         self._server: Optional[str] = None
         self._path: Optional[str] = None
         self._lock = threading.RLock()  # Reentrant lock для вложенных вызовов
-        
+
         MT5ConnectionManager._instance = self
 
     @classmethod
-    def get_instance(cls) -> 'MT5ConnectionManager':
+    def get_instance(cls) -> "MT5ConnectionManager":
         """Получить singleton экземпляр (потокобезопасно)."""
         if cls._instance is None:
             with cls._lock:
@@ -61,16 +62,16 @@ class MT5ConnectionManager:
     ) -> bool:
         """
         Инициализировать подключение к MT5.
-        
+
         Если уже инициализировано — возвращает True без повторного вызова.
-        
+
         Args:
             path: Путь к terminal64.exe
             login: Номер торгового счета
             password: Пароль
             server: Имя сервера
             timeout: Таймаут подключения (мс)
-            
+
         Returns:
             True если подключение успешно
         """
@@ -82,17 +83,28 @@ class MT5ConnectionManager:
                 else:
                     logger.warning("[MT5] Соединение потеряно. Переподключение...")
                     self._force_shutdown()
-            
+                    # Восстанавливаем сохранённые параметры
+                    path = path or self._path
+                    login = login or self._login
+                    password = password or self._password
+                    server = server or self._server
+
             logger.info(f"[MT5] Инициализация подключения...")
-            
+
             try:
                 # Сохраняем параметры для переподключения
                 self._path = path
                 self._login = login
+                self._password = password
                 self._server = server
-                
-                # Пробуем подключиться
-                if path:
+
+                # Определяем режим подключения
+                has_all_params = path and login and password and server
+                has_path_only = path and not (login and password and server)
+                has_login_only = login and not path
+
+                if has_all_params:
+                    # Полная авторизация
                     result = mt5.initialize(
                         path=path,
                         login=login,
@@ -100,17 +112,22 @@ class MT5ConnectionManager:
                         server=server,
                         timeout=timeout,
                     )
-                elif login:
+                elif has_path_only:
+                    # Только путь — подключаемся к уже запущенному терминалу
+                    result = mt5.initialize(path=path, timeout=timeout)
+                elif has_login_only:
+                    # Только логин — используем сохранённые параметры
                     result = mt5.initialize(
                         login=login,
-                        password=password,
-                        server=server,
+                        password=self._password,
+                        server=self._server,
                         timeout=timeout,
                     )
                 else:
                     # Пробуем подключиться к уже запущенному терминалу без параметров
+                    logger.info("[MT5] Попытка подключения к запущенному терминалу...")
                     result = mt5.initialize()
-                
+
                 if result:
                     self._initialized = True
                     account_info = mt5.account_info()
@@ -125,7 +142,7 @@ class MT5ConnectionManager:
                     error = mt5.last_error()
                     logger.error(f"[MT5] ❌ Ошибка инициализации: {error}")
                     return False
-                    
+
             except Exception as e:
                 logger.error(f"[MT5] ❌ Исключение при инициализации: {e}")
                 return False
@@ -145,6 +162,7 @@ class MT5ConnectionManager:
         finally:
             self._initialized = False
             self._login = None
+            self._password = None
             self._server = None
 
     def is_connected(self) -> bool:
@@ -155,9 +173,15 @@ class MT5ConnectionManager:
     def _is_connected(self) -> bool:
         """Внутренняя проверка без блокировки (вызывать внутри with self._lock)."""
         try:
-            # Простейшая проверка — запрос версии терминала
+            # Проверяем не только версию, но и реальные данные
             version = mt5.version()
-            return version is not None
+            if version is None:
+                return False
+            # Дополнительная проверка — запрашиваем символы
+            symbols = mt5.symbols_get()
+            if symbols is None or len(symbols) == 0:
+                return False
+            return True
         except Exception:
             return False
 
@@ -170,7 +194,7 @@ class MT5ConnectionManager:
                 "server": self._server,
                 "path": self._path,
             }
-            
+
             if self._initialized:
                 try:
                     account = mt5.account_info()
@@ -179,14 +203,14 @@ class MT5ConnectionManager:
                         info["equity"] = account.equity
                         info["currency"] = account.currency
                         info["leverage"] = account.leverage
-                        
+
                     terminal = mt5.terminal_info()
                     if terminal:
                         info["terminal_name"] = terminal.name
                         info["company"] = terminal.company
                 except Exception as e:
                     info["error"] = str(e)
-            
+
             return info
 
     def __del__(self):
@@ -200,6 +224,7 @@ class MT5ConnectionManager:
 # ===================================================================
 # Функции-обёртки для замены прямых вызовов mt5.initialize()
 # ===================================================================
+
 
 def mt5_initialize(**kwargs) -> bool:
     """

@@ -294,13 +294,11 @@ class RiskEngine:
         with self.mt5_lock:
             if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error("check_daily_drawdown: Не удалось инициализировать MT5.")
-                return True  # Возвращаем True, чтобы не блокировать торговлю из-за ошибки проверки
+                return True
             try:
                 history_deals = mt5.history_deals_get(today_start, datetime.now())
             except Exception as e:
                 logger.error(f"Ошибка при получении истории сделок в check_daily_drawdown: {e}")
-            finally:
-                mt5.shutdown()
 
         if history_deals is None:
             logger.warning("Не удалось получить историю сделок для расчета просадки.")
@@ -645,8 +643,6 @@ class RiskEngine:
             except Exception as e:
                 logger.error(f"Ошибка расчета лота для {symbol}: {e}", exc_info=True)
                 return None, None
-            finally:
-                mt5.shutdown()  # <-- ГАРАНТИРОВАННОЕ ЗАКРЫТИЕ
 
     def calculate_portfolio_var(self, open_positions: List, data_dict: Dict[str, pd.DataFrame]) -> Optional[float]:
         confidence_level = self.risk_config.portfolio_var_confidence_level

@@ -308,304 +308,10 @@ app_config_for_path = load_config()
 logger = logging.getLogger(__name__)
 
 
-def run_backtest_process(
-    results_queue,
-    config_dict: dict,
-    symbol,
-    strategy_name,
-    timeframe,
-    start_date,
-    end_date,
-    test_type: str,
-    model_id: Optional[int],
-):
-    # Настройка логирования внутри процесса
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - [BACKTEST_PROCESS] - %(message)s")
+from src.gui.backtest_process import run_backtest_process
 
-    try:
-        # 1. Инициализация конфигурации и подключение к MT5
-        config = Settings(**config_dict)
-        if not mt5_ensure_connected(path=config.MT5_PATH):
-            raise ConnectionError("Не удалось подключиться к MetaTrader 5.")
-
-        start_dt = datetime.combine(start_date, datetime.min.time())
-        end_dt = datetime.combine(end_date, datetime.max.time())
-
-        # Инициализация провайдера данных
-        dp = DataProvider(config, threading.Lock())
-
-        # 2. Загрузка данных в зависимости от типа теста
-        historical_data = {}  # Для Event-Driven
-        df = pd.DataFrame()  # Для векторных тестов
-
-        if test_type == "Event-Driven Backtest":
-            logging.info("Загрузка данных для Event-Driven симуляции...")
-            # Загружаем основной символ
-            main_df = dp.get_historical_data(symbol, timeframe, start_dt, end_dt)
-            if main_df is not None and not main_df.empty:
-                historical_data[symbol] = main_df
-
-            # Загружаем дополнительные символы (например, DXY для корреляций)
-            if "DXY" in config.INTER_MARKET_SYMBOLS:
-                dxy_df = dp.get_historical_data("DXY", timeframe, start_dt, end_dt)
-                if dxy_df is not None and not dxy_df.empty:
-                    historical_data["DXY"] = dxy_df
-
-            if symbol not in historical_data:
-                raise ValueError(f"Не удалось загрузить данные для {symbol}")
-
-        else:
-            # Для остальных типов тестов загружаем только один DataFrame
-            logging.info(f"Загрузка данных для {symbol}...")
-            df = dp.get_historical_data(symbol, timeframe, start_dt, end_dt)
-            if df is None or df.empty:
-                raise ValueError(f"Не удалось загрузить исторические данные для {symbol} на ТФ {timeframe}.")
-
-        # Отключаемся от MT5, так как данные уже в памяти
-        mt5.shutdown()
-
-        # 3. Инициализация вспомогательных компонентов (DB, KG)
-        # Создаем очередь-заглушку, так как в процессе бэктеста запись в БД не требуется
-        dummy_queue = queue.Queue()
-        from src.db.database_manager import DatabaseManager
-
-        db_manager = DatabaseManager(config, dummy_queue)
-        kg_querier = KnowledgeGraphQuerier(db_manager)
-
-        report = {}
-        equity = pd.DataFrame()
-
-        # 4. Запуск соответствующего бэктестера
-        if test_type == "Event-Driven Backtest":
-            logging.info(f"Запуск Event-Driven симуляции для {symbol}...")
-            # Импорт здесь, чтобы избежать циклических зависимостей на уровне модуля
-            from src.analysis.event_driven_backtester import EventDrivenBacktester
-
-            ed_backtester = EventDrivenBacktester(config, historical_data)
-            # Запускаем асинхронный метод синхронно
-            report, equity = asyncio.run(ed_backtester.run())
-
-        elif test_type == "Системный бэктест (Экосистема)":
-            logging.info(f"Запуск СИСТЕМНОГО бэктеста для '{symbol}'.")
-            system_backtester = SystemBacktester(historical_data=df, config=config)
-            report = system_backtester.run()
-
-        elif test_type == "Классическая стратегия":
-            logging.info(f"Запуск бэктеста классической стратегии '{strategy_name}' на {symbol}.")
-            from src.analysis.backtester import StrategyBacktester
-
-            strategy_loader = StrategyLoader(config)
-
-            strategies = {s.__class__.__name__: s for s in strategy_loader.load_strategies()}
-            strategy_instance = strategies.get(strategy_name)
-            if not strategy_instance:
-                raise ValueError(f"Не удалось найти класс стратегии {strategy_name}")
-
-            backtester = StrategyBacktester(strategy=strategy_instance, data=df, timeframe=timeframe, config=config)
-            report = backtester.run()
-
-        elif test_type == "AI Модель":
-            logging.info(f"Запуск бэктеста AI-модели с ID {model_id}.")
-            from src.ml.ai_backtester import AIBacktester
-
-            model_components = db_manager.load_model_components_by_id(model_id)
-            if not model_components:
-                raise ValueError(f"Не удалось загрузить AI-модель с ID {model_id}")
-
-            from src.ml.feature_engineer import FeatureEngineer
-
-            # Передаем kg_querier для генерации графовых признаков
-            feature_engineer = FeatureEngineer(config, kg_querier)
-            df_featured = feature_engineer.generate_features(df, symbol=symbol)
-
-            risk_config_dict = config.model_dump()
-
-            backtester = AIBacktester(
-                data=df_featured,
-                model=model_components["model"],
-                model_features=model_components["features"],
-                x_scaler=model_components["x_scaler"],
-                y_scaler=model_components["y_scaler"],
-                risk_config=risk_config_dict,
-            )
-            report = backtester.run()
-
-        # 5. Пост-обработка результатов
-        # Если бэктестер не вернул кривую эквити (старые векторные тесты), генерируем синтетическую для GUI
-        if equity.empty and report.get("total_trades", 0) > 0 and "net_pnl" in report:
-            initial_balance = config.backtester_initial_balance
-            total_trades = report["total_trades"]
-            net_pnl = report["net_pnl"]
-
-            # Простая генерация: равномерное распределение PnL + шум
-            avg_pnl = net_pnl / total_trades
-            std_dev = abs(avg_pnl) * 5 if avg_pnl != 0 else 10
-
-            pnl_series = np.random.normal(loc=avg_pnl, scale=std_dev, size=total_trades)
-            # Корректируем сумму, чтобы она точно совпадала с net_pnl
-            diff = net_pnl - np.sum(pnl_series)
-            pnl_series += diff / total_trades
-
-            equity_values = initial_balance + np.cumsum(pnl_series)
-            # Добавляем начальную точку
-            equity_values = np.insert(equity_values, 0, initial_balance)
-            equity = pd.DataFrame({"equity": equity_values})
-
-        # Отправка результатов в GUI
-        results_queue.put({"status": "success", "report": report, "equity": equity})
-
-    except Exception as e:
-        logging.error(f"Ошибка в процессе бэктестинга: {e}", exc_info=True)
-        results_queue.put({"status": "error", "report": {"Ошибка": str(e)}, "equity": pd.DataFrame()})
-    finally:
-        # На всякий случай, если shutdown не был вызван ранее
-        mt5.shutdown()
-
-
-class PySideTradingSystem(QObject):
-    def __init__(self, config: Settings, bridge: Bridge, sound_manager: SoundManager):
-        super().__init__()
-        self.config = config
-        self.bridge = bridge
-        self.core_system = TradingSystem(config=config, gui=self, sound_manager=sound_manager, bridge=bridge)
-        # --- ПРАВИЛЬНЫЕ ПОДКЛЮЧЕНИЯ (core_system -> bridge) ---
-        self.core_system.rd_progress_updated.connect(self.bridge.rd_progress_updated)
-        self.core_system.market_scan_updated.connect(self.bridge.market_scan_updated)
-        self.core_system.trading_signals_updated.connect(self.bridge.trading_signals_updated)
-        self.core_system.uptime_updated.connect(self.bridge.uptime_updated)
-        self.core_system.all_positions_closed.connect(self.bridge.all_positions_closed)
-        self.core_system.directives_updated.connect(self.bridge.directives_updated)
-        self.core_system.orchestrator_allocation_updated.connect(self.bridge.orchestrator_allocation_updated)
-        self.core_system.knowledge_graph_updated.connect(self.bridge.knowledge_graph_updated)
-
-        # --- ДОБАВЛЕННЫЕ ПОДКЛЮЧЕНИЯ (WEB.3 и другие) ---
-        self.core_system.thread_status_updated.connect(self.bridge.thread_status_updated)
-        self.core_system.long_task_status_updated.connect(self.bridge.long_task_status_updated)
-        self.core_system.drift_data_updated.connect(self.bridge.drift_data_updated)
-        # --------------------------------------------------------------------
-
-        # Прокси-методы для вызова из MainWindow
-        self.initialize_heavy_components = self.core_system.initialize_heavy_components
-        self.start_all_background_services = self.core_system.start_all_background_services
-        # Оставляем для обратной совместимости
-        self.start_all_threads = self.core_system.start_all_threads
-
-    def emergency_close_position(self, ticket: int):
-        """
-        Проксирует вызов к TradeExecutor для экстренного закрытия одной позиции.
-        """
-        # Вызываем метод TradeExecutor, который находится внутри core_system
-        self.core_system.execution_service.emergency_close_position(ticket)
-
-    def emergency_close_all_positions(self):
-        """
-        Проксирует вызов к TradeExecutor для экстренного закрытия всех позиций.
-        """
-        self.core_system.execution_service.emergency_close_all_positions()
-
-    def set_observer_mode(self, enabled: bool):
-        """Проксирует вызов к core_system для переключения режима наблюдателя."""
-        self.core_system.set_observer_mode(enabled)
-
-    def update_configuration(self, new_config: Settings):
-        """Проксирует вызов к ядру системы для обновления конфигурации."""
-        self.core_system.update_configuration(new_config)
-
-    def force_training_cycle(self):
-        """Проксирует вызов к ядру системы."""
-        self.core_system.force_training_cycle()
-
-    def force_rd_cycle(self):
-        """Проксирует вызов к ядру системы."""
-        self.core_system.force_rd_cycle()
-
-    def stop(self):
-        """Проксирует вызов к ядру системы для остановки торговли."""
-        self.core_system.initiate_graceful_shutdown()
-
-    def set_trading_mode(self, mode_id: str, settings: Optional[Dict[str, Any]] = None):
-        """
-        Проксирует вызов к core_system для установки режима торговли.
-
-        Args:
-            mode_id: Идентификатор режима ("conservative", "standard", "aggressive", "yolo", "custom", "disabled")
-            settings: Пользовательские настройки (для кастомного режима)
-        """
-        self.core_system.set_trading_mode(mode_id, settings)
-
-    def get_all_models(self) -> List[Dict]:
-        """Проксирует вызов к db_manager для получения списка моделей."""
-        return self.core_system.db_manager.get_all_models_for_gui()
-
-    def get_vector_db_stats(self) -> Dict[str, Any]:
-        """Проксирует вызов к core_system для получения статистики VectorDB."""
-        return self.core_system.get_vector_db_stats()
-
-    def search_vector_db(self, query_text: str):
-        """Проксирует вызов к core_system для поиска в VectorDB."""
-        logger.info(f"[VectorDB-Proxy] Получен запрос на поиск: '{query_text}'")
-
-        if not self.core_system:
-            logger.error("[VectorDB-Proxy] core_system не инициализирован")
-            self.bridge.vector_db_search_results.emit([{"error": "Торговая система не запущена"}])
-            return
-
-        if not hasattr(self.core_system, "search_vector_db"):
-            logger.error("[VectorDB-Proxy] Метод search_vector_db не найден в core_system")
-            self.bridge.vector_db_search_results.emit([{"error": "Метод поиска не найден"}])
-            return
-
-        # --- ИСПРАВЛЕНИЕ: Используем QThreadPool для I/O-bound задачи ---
-        # Запускаем синхронный метод в отдельном потоке, чтобы не блокировать GUI
-        logger.info(f"[VectorDB-Proxy] Запуск Worker для поиска")
-        worker = Worker(self.core_system.search_vector_db, query_text)
-        # Результат будет отправлен через сигнал core_system.vector_db_search_results
-        QThreadPool.globalInstance().start(worker)
-        logger.info(f"[VectorDB-Proxy] Worker запущен")
-
-    def connect_to_terminal_adapter(self) -> tuple[bool, str]:
-        with self.core_system.mt5_lock:
-            logger.info("Попытка подключения к MetaTrader 5 через адаптер...")
-            if not mt5_initialize(
-                path=self.config.MT5_PATH,
-                login=int(self.config.MT5_LOGIN),
-                password=self.config.MT5_PASSWORD,
-                server=self.config.MT5_SERVER,
-                timeout=10000,
-            ):
-                error_message = f"initialize() failed, error code = {mt5.last_error()}"
-                logger.error(f"Не удалось подключиться к MT5: {error_message}")
-                mt5.shutdown()
-                return False, error_message
-
-            account_info = mt5.account_info()
-            if account_info is None:
-                error_message = f"account_info() failed, error code = {mt5.last_error()}"
-                logger.error(f"Не удалось получить информацию о счете: {error_message}")
-                mt5.shutdown()
-                return False, error_message
-
-            logger.info(f"Успешное подключение к счету #{account_info.login} на сервере {account_info.server}.")
-            return True, "Success"
-
-    def _safe_gui_update(self, method_name: str, *args, **kwargs):
-        try:
-            signal_map = {
-                "update_status": (self.bridge.status_updated, (args[0], kwargs.get("is_error", False))),
-                "update_balance": (self.bridge.balance_updated, args),
-                "update_positions_view": (self.bridge.positions_updated, args),
-                "update_history_view": (self.bridge.history_updated, args),
-                "update_visualization": (self.bridge.training_history_updated, args),
-                "update_candle_chart": (self.bridge.candle_chart_updated, args),
-                "update_pnl_graph": (self.bridge.pnl_updated, args),
-                "update_rd_log": (self.bridge.rd_progress_updated, args),
-                "update_times": (self.bridge.times_updated, args),
-            }
-            if method_name in signal_map:
-                signal, signal_args = signal_map[method_name]
-                signal.emit(*signal_args)
-        except Exception as e:
-            logger.error(f"Ошибка при отправке сигнала GUI '{method_name}': {e}")
+# Компоненты вынесены в отдельные модули
+from src.gui.trading_system_adapter import PySideTradingSystem
 
 
 class MainWindow(QMainWindow):
@@ -1393,22 +1099,25 @@ class MainWindow(QMainWindow):
 
     @Slot(dict)
     def update_pnl_kpis(self, kpis: dict):
-        """Обновляет метки PnL и Drawdown."""
+        """Обновляет метки PnL и Drawdown из закрытых сделок."""
 
-        def format_pnl(value):
+        def format_pnl(value, show_label=True):
             # Зеленый для прибыли, красный для убытка
             color = "#50fa7b" if value >= 0 else "#ff5555"
-            return f"<span style='font-weight: bold; color:{color}'>{value:+.2f}</span>"
+            label = " (закрыто)" if show_label else ""
+            return f"<span style='font-weight: bold; color:{color}'>{value:+.2f}{label}</span>"
 
         def format_dd(value):
             # Красный для просадки
             color = "#ff5555"
             return f"<span style='font-weight: bold; color:{color}'>{value:.2f}%</span>"
 
+        # Обновляем метки PnL
         self.pnl_day_label.setText(format_pnl(kpis.get("day_pnl", 0)))
         self.pnl_week_label.setText(format_pnl(kpis.get("week_pnl", 0)))
         self.pnl_month_label.setText(format_pnl(kpis.get("month_pnl", 0)))
 
+        # Обновляем метки Drawdown
         self.dd_day_label.setText(format_dd(kpis.get("day_dd", 0)))
         self.dd_week_label.setText(format_dd(kpis.get("week_dd", 0)))
         self.dd_month_label.setText(format_dd(kpis.get("month_dd", 0)))
@@ -2504,7 +2213,9 @@ class MainWindow(QMainWindow):
                 logger.warning("[GUI-Action] Система уже запущена, игнорируем повторный запуск")
                 return
 
-            # Здесь больше нет диалогового окна
+            # Фоновые сервисы уже запущены при автоинициализации
+            # Нужно только подключить MT5 и запустить торговый цикл
+            logger.info("[GUI-Action] Запуск торгового цикла...")
             self.start_button.setEnabled(False)
             self.stop_button.setEnabled(False)
             self.status_label.setText("Подключение к торговому терминалу и запуск системы...")
@@ -2540,7 +2251,14 @@ class MainWindow(QMainWindow):
             self.sound_manager.play("system_start")
             self.stop_button.setEnabled(True)
 
-            self.trading_system.start_all_threads()
+            # НЕ вызываем start_all_threads() повторно!
+            # Он уже был запущен из start_trading() и установил running=True
+            # Потоки должны были запуститься в start_all_background_services()
+            if self.trading_system.core_system.running:
+                logger.info("[GUI] Система уже запущена, пропускаю повторный вызов start_all_threads()")
+            else:
+                logger.warning("[GUI] Система НЕ запущена! Вызываю start_all_threads()")
+                self.trading_system.start_all_threads()
 
             # ОТПРАВКА ДАННЫХ ДЛЯ ГРАФИКОВ ЧЕРЕЗ 5 СЕКУНД ПОСЛЕ ЗАПУСКА
             QTimer.singleShot(5000, self._send_initial_training_data)
@@ -2646,9 +2364,20 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: red;" if is_error else "")
 
     def update_balance(self, balance, equity):
-        # Убрано избыточное логирование (каждые 3 секунды)
+        """Обновляет баланс и эквити, а также рассчитывает открытый PnL."""
         self.balance_label.setText(f"Баланс: {balance:.2f}")
         self.equity_label.setText(f"Эквити: {equity:.2f}")
+
+        # Рассчитываем и обновляем открытый PnL (разница между эквити и балансом)
+        open_pnl = equity - balance
+        open_pnl_pct = (open_pnl / balance * 100) if balance > 0 else 0
+
+        # Обновляем метки PnL KPI с учётом открытой прибыли
+        if hasattr(self, "pnl_day_label"):
+            color = "#50fa7b" if open_pnl >= 0 else "#ff5555"
+            pnl_text = f"<span style='font-weight: bold; color:{color}'>{open_pnl:+.2f} ({open_pnl_pct:+.2f}%)</span>"
+            # Показываем открытый PnL в "День", т.к. это актуальная прибыль
+            self.pnl_day_label.setText(pnl_text)
 
     def add_log_message(self, text: str, color: QColor):
         char_format = QTextCharFormat()

@@ -129,8 +129,7 @@ class ExecutionService(BaseService):
         logger.info(f"{self.name}: Остановка сервиса исполнения...")
 
         try:
-            # Закрытие MT5
-            await self._safe_execute(self._shutdown_mt5(), "Закрытие MT5")
+            # MT5ConnectionManager управляет подключением, shutdown не вызываем
 
             self._running = False
             self._healthy = False
@@ -176,13 +175,7 @@ class ExecutionService(BaseService):
         with self.mt5_lock:
             if not mt5_ensure_connected(path=self.config.MT5_PATH, timeout=5000):
                 raise ConnectionError(f"Не удалось подключиться к MT5: {mt5.last_error()}")
-            mt5.shutdown()
         return True
-
-    async def _shutdown_mt5(self) -> None:
-        """Закрытие соединения с MT5."""
-        with self.mt5_lock:
-            mt5.shutdown()
 
     async def _get_balance(self) -> float:
         """Получение баланса счёта."""
@@ -193,8 +186,8 @@ class ExecutionService(BaseService):
                 account_info = mt5.account_info()
                 if account_info:
                     return account_info.balance
-            finally:
-                mt5.shutdown()
+            except Exception as e:
+                logger.debug(f"Ошибка получения баланса: {e}")
         return 0.0
 
     async def _count_positions(self) -> int:
@@ -205,8 +198,9 @@ class ExecutionService(BaseService):
             try:
                 positions = mt5.positions_get()
                 return len(positions) if positions else 0
-            finally:
-                mt5.shutdown()
+            except Exception as e:
+                logger.debug(f"Ошибка подсчёта позиций: {e}")
+        return 0
 
     # ===========================================
     # Публичные методы для торговых операций
@@ -334,8 +328,8 @@ class ExecutionService(BaseService):
                     result = await self.close_position(pos.ticket, reason)
                     results.append(result)
 
-            finally:
-                mt5.shutdown()
+            except Exception as e:
+                logger.error(f"Ошибка при закрытии позиций: {e}")
 
         self._positions_open = 0
         logger.info(f"{self.name}: Все позиции закрыты. Всего: {len(results)}")
@@ -412,8 +406,9 @@ class ExecutionService(BaseService):
                         }
                         for pos in positions
                     ]
-                finally:
-                    mt5.shutdown()
+                except Exception as e:
+                    logger.debug(f"Ошибка получения позиций: {e}")
+                    return []
 
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _get_positions)

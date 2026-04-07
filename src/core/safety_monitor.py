@@ -45,14 +45,23 @@ class SafetyMonitor:
         """Initialize monitoring at system start"""
         logger.critical("[SAFETY] 🔒 Начало инициализации Safety Monitor...")
         try:
+            from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
+
             with self.trading_system.mt5_lock:
+                # Безопасная обработка MT5_LOGIN
+                try:
+                    mt5_login = int(self.config.MT5_LOGIN) if self.config.MT5_LOGIN else None
+                except (ValueError, TypeError) as e:
+                    logger.error(f"[SAFETY] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
+                    mt5_login = None
+
                 # Мягкая инициализация - не требует логина/пароля если уже подключен
-                if not mt5.initialize(path=self.config.MT5_PATH):
+                if not mt5_ensure_connected(path=self.config.MT5_PATH):
                     # Пробуем полную инициализацию
                     logger.warning("[SAFETY] Мягкая инициализация не удалась, пробуем полную...")
-                    if not mt5.initialize(
+                    if not mt5_initialize(
                         path=self.config.MT5_PATH,
-                        login=int(self.config.MT5_LOGIN),
+                        login=mt5_login,
                         password=self.config.MT5_PASSWORD,
                         server=self.config.MT5_SERVER,
                     ):
@@ -60,22 +69,17 @@ class SafetyMonitor:
                         logger.error("[SAFETY] ⚠️ Safety Monitor будет работать БЕЗ защиты!")
                         return
 
-                try:
-                    account_info = mt5.account_info()
-                    if account_info:
-                        self.session_start_balance = account_info.balance
-                        self.peak_equity = account_info.equity
-                        logger.critical(
-                            f"[SAFETY] ✅ Monitoring initialized. Start balance: ${self.session_start_balance:,.2f}"
-                        )
-                        logger.critical(f"[SAFETY] Emergency stop triggers:")
-                        logger.critical(f"[SAFETY]   - Daily loss > {self.max_daily_loss_percent}%")
-                        logger.critical(f"[SAFETY]   - Drawdown from peak > {self.max_drawdown_from_peak}%")
-                        logger.critical(f"[SAFETY]   - Consecutive losses > {self.max_consecutive_losses}")
-                    else:
-                        logger.error("[SAFETY] ❌ Не удалось получить информацию об аккаунте")
-                finally:
-                    mt5.shutdown()
+                account_info = mt5.account_info()
+                if account_info:
+                    self.session_start_balance = account_info.balance
+                    self.peak_equity = account_info.equity
+                    logger.critical(f"[SAFETY] ✅ Monitoring initialized. Start balance: ${self.session_start_balance:,.2f}")
+                    logger.critical(f"[SAFETY] Emergency stop triggers:")
+                    logger.critical(f"[SAFETY]   - Daily loss > {self.max_daily_loss_percent}%")
+                    logger.critical(f"[SAFETY]   - Drawdown from peak > {self.max_drawdown_from_peak}%")
+                    logger.critical(f"[SAFETY]   - Consecutive losses > {self.max_consecutive_losses}")
+                else:
+                    logger.error("[SAFETY] ❌ Не удалось получить информацию об аккаунте")
         except Exception as e:
             logger.error(f"[SAFETY] ❌ Ошибка инициализации: {e}", exc_info=True)
 
@@ -118,9 +122,7 @@ class SafetyMonitor:
 
                 # Check 1: Daily loss limit
                 daily_loss = self.session_start_balance - current_balance
-                daily_loss_percent = (
-                    (daily_loss / self.session_start_balance) * 100 if self.session_start_balance > 0 else 0
-                )
+                daily_loss_percent = (daily_loss / self.session_start_balance) * 100 if self.session_start_balance > 0 else 0
 
                 if daily_loss_percent > self.max_daily_loss_percent:
                     self._trigger_emergency_stop(

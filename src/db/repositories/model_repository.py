@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from sqlalchemy.orm import Session
 
+from src.db.database_manager import safe_pickle_loads
 from src.db.models import Scaler, StrategicModel, TrainedModel
 
 logger = logging.getLogger(__name__)
@@ -96,10 +97,10 @@ class ModelRepository:
                 logger.warning(f"[{symbol}] Scaler не найден в БД")
                 return None, None
 
-            x_scaler = pickle.loads(scaler_record.x_scaler_data)
+            x_scaler = safe_pickle_loads(scaler_record.x_scaler_data)
             y_scaler_data = scaler_record.y_scaler_data
             if y_scaler_data:
-                y_scaler = pickle.loads(y_scaler_data)
+                y_scaler = safe_pickle_loads(y_scaler_data)
             else:
                 logger.warning(f"[{symbol}] y_scaler не найден. Используем x_scaler как fallback")
                 y_scaler = x_scaler

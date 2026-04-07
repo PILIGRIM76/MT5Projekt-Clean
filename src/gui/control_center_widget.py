@@ -234,6 +234,45 @@ class ControlCenterWidget(QWidget):
 
         layout.addWidget(info_box)
 
+        # === КНОПКА ПРИНУДИТЕЛЬНОГО ОБУЧЕНИЯ ===
+        training_box = QGroupBox("🧠 Обучение AI-моделей")
+        training_layout = QVBoxLayout(training_box)
+
+        training_label = QLabel(
+            "Запустите принудительный цикл переобучения AI-моделей.\n"
+            "Используйте после сбора новых данных или при ухудшении точности."
+        )
+        training_label.setWordWrap(True)
+        training_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
+        training_layout.addWidget(training_label)
+
+        self.force_train_btn = QPushButton("🚀 Запустить принудительное обучение")
+        self.force_train_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #50fa7b;
+                color: #282a36;
+                padding: 12px 24px;
+                border-radius: 5px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3dd66a;
+            }
+            QPushButton:disabled {
+                background-color: #6272a4;
+                color: #44475a;
+            }
+        """)
+        self.force_train_btn.clicked.connect(self._force_training_requested)
+        training_layout.addWidget(self.force_train_btn)
+
+        self.training_status_label = QLabel("Статус: Ожидание...")
+        self.training_status_label.setStyleSheet("color: #8be9fd; font-size: 12px;")
+        training_layout.addWidget(self.training_status_label)
+
+        layout.addWidget(training_box)
+
         # === ТЕКУЩИЕ ПАРАМЕТРЫ (только для просмотра) ===
         summary_group = QGroupBox("📈 Текущие Параметры (только просмотр)")
         summary_group.setToolTip("Эти параметры применяются из настроек. Для изменения откройте Настройки.")
@@ -600,3 +639,27 @@ class ControlCenterWidget(QWidget):
             else:
                 self.current_mode_label.setText("⚙️ Ручной режим")
                 self.current_mode_label.setStyleSheet("color: #6272a4; font-weight: bold; font-size: 14px;")
+
+    def _force_training_requested(self):
+        """Запуск принудительного обучения AI-моделей."""
+        if not self.trading_system:
+            self.training_status_label.setText("❌ Торговая система не подключена")
+            self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
+            return
+
+        self.force_train_btn.setEnabled(False)
+        self.training_status_label.setText("⏳ Запуск цикла обучения...")
+        self.training_status_label.setStyleSheet("color: #f1fa8c; font-size: 12px;")
+
+        try:
+            self.trading_system.force_training_cycle()
+            self.training_status_label.setText("✅ Цикл обучения запущен (следите за графиками)")
+            self.training_status_label.setStyleSheet("color: #50fa7b; font-size: 12px;")
+        except Exception as e:
+            self.training_status_label.setText(f"❌ Ошибка: {e}")
+            self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
+        finally:
+            # Разблокируем кнопку через 5 секунд
+            from PySide6.QtCore import QTimer
+
+            QTimer.singleShot(5000, lambda: self.force_train_btn.setEnabled(True))

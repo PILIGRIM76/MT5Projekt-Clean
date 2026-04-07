@@ -111,8 +111,8 @@ class MarketScreener:
                             symbol_scores[symbol] = current_item_data
                     else:
                         symbol_scores[symbol] = current_item_data
-            finally:
-                mt5.shutdown()
+            except Exception as e:
+                logger.error(f"MarketScreener: Ошибка при обработке данных: {e}")
 
         ranked_list = list(symbol_scores.values())
         ranked_list.sort(key=lambda x: x["total_score"], reverse=True)

@@ -65,7 +65,11 @@ class ConnectionTester(QThread):
 
     def run(self):
         try:
-            login = int(self.settings.get("MT5_LOGIN", 0))
+            login_str = self.settings.get("MT5_LOGIN", "")
+            try:
+                login = int(login_str) if login_str else 0
+            except (ValueError, TypeError):
+                login = 0
             password = self.settings.get("MT5_PASSWORD", "")
             server = self.settings.get("MT5_SERVER", "")
             path = self.settings.get("MT5_PATH", "")
@@ -81,7 +85,6 @@ class ConnectionTester(QThread):
                 self.result_ready.emit(False, "Неверные учетные данные.")
             else:
                 self.result_ready.emit(True, f"Успех! Счет #{account_info.login}")
-            mt5.shutdown()
         except Exception as e:
             self.result_ready.emit(False, f"Ошибка: {str(e)}")
 

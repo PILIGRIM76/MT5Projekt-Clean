@@ -37,21 +37,20 @@ from sklearn.preprocessing import StandardScaler
 
 from src._version import __version__
 from src.analysis.anomaly_detector import AnomalyDetector
+from src.analysis.defi_analyzer import DeFiAnalyzer
 from src.analysis.drift_detector import ConceptDriftManager
 from src.analysis.gp_rd_manager import GPRDManager
 from src.analysis.market_regime_manager import MarketRegimeManager
-from src.analysis.defi_analyzer import DeFiAnalyzer
 from src.analysis.market_screener import MarketScreener
-from src.social.subscriber import TradeSubscriber
 from src.analysis.nlp_processor import CausalNLPProcessor
 from src.analysis.strategy_optimizer import StrategyOptimizer
-from src.core.auto_updater import AutoUpdater
 from src.core.account_manager import AccountManager
-from src.social.subscriber import TradeSubscriber
+from src.core.auto_updater import AutoUpdater
 from src.core.config_models import Settings
 from src.core.config_writer import write_config
 from src.core.hot_reload_manager import HotReloadManager
 from src.core.interfaces import ITerminalConnector
+from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
 from src.core.orchestrator import Orchestrator
 from src.core.paper_trading_engine import PaperTradingEngine
 from src.core.secrets_manager import SecretsManager
@@ -60,7 +59,7 @@ from src.core.services.signal_service import SignalService
 from src.core.services.trade_executor import TradeExecutor
 from src.core.session_manager import SessionManager
 from src.core.system_service_manager import SystemServiceManager
-from src.core.trading import TradingCache, PerformanceTimer, GUICoordinator, TradingEngine, MLCoordinator
+from src.core.trading import GUICoordinator, MLCoordinator, PerformanceTimer, TradingCache, TradingEngine
 from src.data.blockchain_provider import BlockchainProvider
 from src.data.data_provider import DataProvider
 from src.data.data_provider_manager import DataProviderManager
@@ -77,6 +76,7 @@ from src.ml.rl_trade_manager import RLTradeManager
 from src.monitoring.alert_manager import AlertManager
 from src.risk.circuit_breaker import CircuitBreaker
 from src.risk.risk_engine import RiskEngine
+from src.social.subscriber import TradeSubscriber
 from src.strategies.strategy_loader import StrategyLoader
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ logger = logging.getLogger(__name__)
 
 def exception_handler(default_return_value=None, fatal=False):
     """Декоратор для обработки исключений в методах.
-    
+
     Args:
         default_return_value: Значение по умолчанию при ошибке
         fatal: Если True — ошибка критическая, логируется CRITICAL
@@ -151,6 +151,7 @@ class TradingSystem(QObject):
         self.start_time = None
         self.observer_mode = False
         self.is_heavy_init_complete = False
+        self._background_services_started = False  # Флаг для предотвращения повторного запуска
         self.history_needs_update = True
         self.account_currency = "USD"
         self.maintenance_notified = False
@@ -371,9 +372,7 @@ class TradingSystem(QObject):
                 self.nlp_lazy_loader = NLPLazyLoader(idle_timeout=3600.0)
 
                 # Регистрируем модели но НЕ загружаем их сразу
-                self.nlp_lazy_loader.register_model(
-                    self.config.vector_db.embedding_model, "embedding"
-                )
+                self.nlp_lazy_loader.register_model(self.config.vector_db.embedding_model, "embedding")
                 logger.info(f"✅ NLP модели зарегистрированы (lazy load): {self.config.vector_db.embedding_model}")
 
                 # Передаём lazy loader в компоненты
@@ -403,7 +402,7 @@ class TradingSystem(QObject):
         self.anomaly_detector = AnomalyDetector(self.config)
         self.blockchain_provider = BlockchainProvider(self.config)
         self.market_regime_manager = MarketRegimeManager(self.config)
-        
+
         # P0: Инициализация DeFi Analyzer (анализ метрик DeFi для торговли)
         self.defi_analyzer = DeFiAnalyzer(self.db_manager)
         logger.info("DeFi Analyzer инициализирован")
@@ -418,7 +417,14 @@ class TradingSystem(QObject):
         self.account_manager = AccountManager()
         logger.info("Account Manager инициализирован")
 
-        self.risk_engine = RiskEngine(self.config, self, self.knowledge_graph_querier, self.mt5_lock, is_simulation=False, account_manager=self.account_manager)
+        self.risk_engine = RiskEngine(
+            self.config,
+            self,
+            self.knowledge_graph_querier,
+            self.mt5_lock,
+            is_simulation=False,
+            account_manager=self.account_manager,
+        )
         self.risk_engine.data_provider_manager = self.data_provider_manager  # Для крипто-позиций
 
         # P0: Инициализация Circuit Breaker
@@ -426,7 +432,7 @@ class TradingSystem(QObject):
         logger.info("Circuit Breaker инициализирован")
 
         # P0: Инициализация Social Trading Subscriber
-        if hasattr(self, 'social_subscriber'):
+        if hasattr(self, "social_subscriber"):
             try:
                 # Запускаем в асинхронном цикле событий
                 asyncio.create_task(self.social_subscriber.start())
@@ -445,7 +451,7 @@ class TradingSystem(QObject):
         # P0: Инициализация Secrets Manager
         self.secrets_manager = SecretsManager()
         logger.info("Secrets Manager инициализирован")
-        
+
         # P0: Инициализация Social Trading (Копирование сделок)
         self.social_subscriber = TradeSubscriber(self.config, signal_emitter=self.social_status_updated)
         logger.info("Social Trading Subscriber инициализирован")
@@ -511,7 +517,7 @@ class TradingSystem(QObject):
 
         logger.critical("--- [INIT END] ---")
         self.is_heavy_init_complete = True
-        
+
         # Сбрасываем флаг обновления после полной инициализации
         if self.update_pending:
             logger.info("[INIT] Сброс флага update_pending после завершения инициализации")
@@ -554,11 +560,20 @@ class TradingSystem(QObject):
 
     def start_all_background_services(self, threadpool: QThreadPool):
         """Запускает все постоянные фоновые сервисы."""
+        logger.info(
+            f"[TradingSystem] start_all_background_services вызван. is_heavy_init_complete={self.is_heavy_init_complete}"
+        )
+
         if not self.is_heavy_init_complete:
             raise RuntimeError("Невозможно запустить сервисы: тяжелая инициализация не завершена.")
 
-        logger.info("Начало запуска всех фоновых сервисов...")
-        
+        # Проверка на повторный запуск
+        if hasattr(self, "_background_services_started") and self._background_services_started:
+            logger.warning("[TradingSystem] Фоновые сервисы уже запущены, пропускаю повторный запуск")
+            return
+
+        logger.info("[TradingSystem] Начинаю запуск фоновых сервисов...")
+
         # КРИТИЧНО: Принудительный сброс флага обновления при запуске сервисов
         # AutoUpdater может установить его в фоновом потоке, что блокирует торговый цикл
         if self.update_pending:
@@ -583,6 +598,7 @@ class TradingSystem(QObject):
 
         # Инициализация Health Check Endpoint
         from src.core.trading import HealthCheckEndpoint
+
         self.health_check = HealthCheckEndpoint(self)
         logger.info("[HEALTH] Health Check Endpoint инициализирован")
         initial_health = self.health_check.get_health_summary()
@@ -626,21 +642,33 @@ class TradingSystem(QObject):
         for name, thread in threads_to_start.items():
             if thread:
                 thread.start()
+                logger.info(f"[TradingSystem] Поток '{name}' запущен: {thread.name}, daemon={thread.daemon}")
                 self.thread_status_updated.emit(name, "RUNNING")
+            else:
+                logger.error(f"[TradingSystem] Поток '{name}' = None, не могу запустить!")
 
-        logger.info("Все фоновые сервисы запущены.")
+        self._background_services_started = True
+        logger.info(f"Все фоновые сервисы запущены. Активных потоков: {len(threads_to_start)}")
 
     def start_all_threads(self):
         """Запускает полный цикл инициализации и старта потоков."""
         if self.running:
+            logger.info("[TradingSystem] Система уже запущена (running=True), пропускаю")
             return
 
         logger.info("=== ЗАПУСК ТОРГОВОЙ СИСТЕМЫ (start_all_threads) ===")
 
         with self.mt5_lock:
-            if not mt5.initialize(
+            # Безопасная обработка MT5_LOGIN
+            try:
+                mt5_login = int(self.config.MT5_LOGIN) if self.config.MT5_LOGIN else None
+            except (ValueError, TypeError) as e:
+                logger.error(f"[MT5] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
+                mt5_login = None
+
+            if not mt5_initialize(
                 path=self.config.MT5_PATH,
-                login=int(self.config.MT5_LOGIN),
+                login=mt5_login,
                 password=self.config.MT5_PASSWORD,
                 server=self.config.MT5_SERVER,
             ):
@@ -671,10 +699,18 @@ class TradingSystem(QObject):
                 logger.warning(f"Не удалось проверить статус автоторговли: {e}")
             # ============================
 
+        # Тяжелая инициализация (если ещё не завершена)
         if not self.is_heavy_init_complete:
             self.initialize_heavy_components()
 
-        # Сначала устанавливаем состояние, потом запускаем потоки
+        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Принудительно запускаем фоновые сервисы
+        # независимо от флага _background_services_started, т.к. при автоинициализации
+        # запускается SystemServiceManager, но НЕ создаются торговые потоки
+        logger.info("[TradingSystem] Принудительный запуск фоновых сервисов...")
+        self._background_services_started = False  # Сброс для обхода защиты
+
+        # КРИТИЧНО: Устанавливаем running=True ДО запуска потоков,
+        # чтобы TradingThread не завершился сразу после старта
         self.running = True
         self.stop_event.clear()
         self.start_time = datetime.now()
@@ -771,6 +807,7 @@ class TradingSystem(QObject):
         # Graceful Degradation: проверяем фазу деградации ML моделей
         if hasattr(self, "_ml_coordinator") and self._ml_coordinator:
             from src.core.trading import DegradationPhase
+
             # Получаем статус деградации из health_check
             if hasattr(self, "health_check") and self.health_check:
                 degradation = self.health_check.get_health_status().get("degradation", {})
@@ -804,13 +841,20 @@ class TradingSystem(QObject):
 
                 logger.info("[run_cycle] MT5 Lock захвачен")
                 try:
+                    # Безопасная обработка MT5_LOGIN
+                    try:
+                        mt5_login = int(self.config.MT5_LOGIN) if self.config.MT5_LOGIN else None
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"[MT5] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
+                        mt5_login = None
+
                     # Сначала пробуем мягкое подключение
                     if not self.terminal_connector.initialize(path=self.config.MT5_PATH):
                         logger.warning("[run_cycle] Не удалось подключиться к MT5 (мягкое)")
                         # Если не вышло, пробуем полную авторизацию
                         if not self.terminal_connector.initialize(
                             path=self.config.MT5_PATH,
-                            login=int(self.config.MT5_LOGIN),
+                            login=mt5_login,
                             password=self.config.MT5_PASSWORD,
                             server=self.config.MT5_SERVER,
                         ):
@@ -982,15 +1026,15 @@ class TradingSystem(QObject):
 
             # --- Обогащение DeFi данными (Бесплатно) ---
             # Проверяем конфиг и время последней загрузки
-            news_sched = getattr(self.config, 'news_scheduler', {})
-            if news_sched.get('defi_enabled', True):
+            news_sched = getattr(self.config, "news_scheduler", {})
+            if news_sched.get("defi_enabled", True):
                 try:
                     # Загружаем раз в N часов (по умолчанию 6)
-                    defi_interval = news_sched.get('defi_interval_hours', 6) * 3600
-                    
-                    last_defi_load = getattr(self, '_last_defi_load_time', 0)
+                    defi_interval = news_sched.get("defi_interval_hours", 6) * 3600
+
+                    last_defi_load = getattr(self, "_last_defi_load_time", 0)
                     current_time = standard_time.time()
-                    
+
                     if current_time - last_defi_load > defi_interval:
                         logger.info("[DeFi] Запуск фоновой загрузки DeFi метрик...")
                         await self._refresh_defi_data_background()
@@ -1004,7 +1048,9 @@ class TradingSystem(QObject):
             logger.info(f"[Orchestrator] Начало ранжирования символов. Данных: {len(data_dict_raw)}")
             self.start_performance_timer("rank_symbols")
             data_dict = {key: df for key, df in data_dict_raw.items()}
-            ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict, account_manager=self.account_manager)
+            ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(
+                data_dict, account_manager=self.account_manager
+            )
 
             # === ТОРГОВЛЯ ВСЕМИ ИНСТРУМЕНТАМИ ===
             # Используем ВСЕ доступные символы вместо топ-N
@@ -1337,7 +1383,9 @@ class TradingSystem(QObject):
 
             if data_dict_raw:
                 logger.info(f"[R&D] Данные собраны: {len(data_dict_raw)} таймфреймов")
-                ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict_raw, account_manager=self.account_manager)
+                ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(
+                    data_dict_raw, account_manager=self.account_manager
+                )
                 self.latest_full_ranked_list = full_ranked_list
                 logger.info(f"[R&D] Ранжировано {len(ranked_symbols)} символов")
             else:
@@ -1495,7 +1543,9 @@ class TradingSystem(QObject):
                             if result:
                                 key, df = result
                                 data_dict_raw[key] = df
-                    ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(data_dict_raw, account_manager=self.account_manager)
+                    ranked_symbols, full_ranked_list = self.market_screener.rank_symbols(
+                        data_dict_raw, account_manager=self.account_manager
+                    )
                     self.latest_full_ranked_list = full_ranked_list
                     if not ranked_symbols:
                         logger.warning("[R&D] Принудительный сбор не дал результатов. R&D цикл пропущен.")
@@ -1558,7 +1608,7 @@ class TradingSystem(QObject):
             logger.info(f"[R&D] Прямая загрузка данных из MT5 для {symbol_to_train}...")
 
             # Инициализируем отдельное подключение для обучения
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error(f"[R&D] Не удалось подключиться к MT5 для загрузки данных")
                 df_full = None
             else:
@@ -1724,14 +1774,14 @@ class TradingSystem(QObject):
         balance = 0.0
         equity = 0.0
         with self.mt5_lock:
-            if mt5.initialize(path=self.config.MT5_PATH):
+            if mt5_ensure_connected(path=self.config.MT5_PATH):
                 try:
                     acc = mt5.account_info()
                     if acc:
                         balance = acc.balance
                         equity = acc.equity
-                finally:
-                    mt5.shutdown()
+                except Exception as e:
+                    logger.debug(f"Ошибка получения account_info: {e}")
         status = SystemStatus(
             is_running=self.running,
             mode="Наблюдатель" if self.observer_mode else "Торговля",
@@ -2112,7 +2162,7 @@ class TradingSystem(QObject):
 
     def get_account_info(self):
         with self.mt5_lock:
-            if mt5.initialize(path=self.config.MT5_PATH):
+            if mt5_ensure_connected(path=self.config.MT5_PATH):
                 try:
                     info = mt5.account_info()
                     return info
@@ -2135,7 +2185,7 @@ class TradingSystem(QObject):
         loop_counter = 0
         while not self.stop_event.is_set():
             current_time = standard_time.time()
-            
+
             # Обновляем информацию о счете каждые 5 секунд
             if current_time - last_account_update > 5:
                 self.account_manager.update_info()
@@ -2174,11 +2224,18 @@ class TradingSystem(QObject):
                 lock_acquired = True
                 try:
                     # --- ИСПРАВЛЕНИЕ: Сначала пробуем мягкое подключение ---
-                    if not mt5.initialize(path=self.config.MT5_PATH):
+                    if not mt5_ensure_connected(path=self.config.MT5_PATH):
+                        # Безопасная обработка MT5_LOGIN
+                        try:
+                            mt5_login = int(self.config.MT5_LOGIN) if self.config.MT5_LOGIN else None
+                        except (ValueError, TypeError) as e:
+                            logger.error(f"[MT5] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
+                            mt5_login = None
+
                         # Если не вышло, пробуем полную авторизацию
                         if not mt5.initialize(
                             path=self.config.MT5_PATH,
-                            login=int(self.config.MT5_LOGIN),
+                            login=mt5_login,
                             password=self.config.MT5_PASSWORD,
                             server=self.config.MT5_SERVER,
                         ):
@@ -2233,13 +2290,17 @@ class TradingSystem(QObject):
                         if account_info:
                             # Оптимизация: логирование баланса только при изменении > 0.1% или раз в 60 сек
                             should_log = False
-                            if not hasattr(self, '_last_logged_balance'):
+                            if not hasattr(self, "_last_logged_balance"):
                                 self._last_logged_balance = 0
                                 self._last_balance_log_time = 0
                                 should_log = True
                             else:
                                 time_since_log = current_time - self._last_balance_log_time
-                                balance_changed_pct = abs(account_info.balance - self._last_logged_balance) / max(self._last_logged_balance, 1) * 100
+                                balance_changed_pct = (
+                                    abs(account_info.balance - self._last_logged_balance)
+                                    / max(self._last_logged_balance, 1)
+                                    * 100
+                                )
                                 if balance_changed_pct > 0.1 or time_since_log > 60:
                                     should_log = True
 
@@ -2535,14 +2596,14 @@ class TradingSystem(QObject):
                 # ===================================================================
                 # DEFI ANALYSIS (Варианты А, Б, В)
                 # ===================================================================
-                if hasattr(self, 'defi_analyzer'):
+                if hasattr(self, "defi_analyzer"):
                     try:
                         # 1. Получаем оценку риска (Вариант А)
                         defi_risk = self.defi_analyzer.get_risk_assessment(symbol)
-                        
+
                         # 2. Получаем режим рынка (Вариант Б)
                         defi_regime = self.defi_analyzer.get_market_regime()
-                        
+
                         # 3. Блокировка при высоком риске (Вариант А)
                         if defi_risk["risk_level"] in ["scam", "high"]:
                             logger.warning(
@@ -2552,7 +2613,7 @@ class TradingSystem(QObject):
                             for warning in defi_risk["warnings"]:
                                 logger.warning(f"[{symbol}] ⚠️ {warning}")
                             return  # Пропускаем сделку
-                        
+
                         # 4. Корректировка размера позиции на основе DeFi (Вариант Б)
                         defi_signals = self.defi_analyzer.get_trading_signals(symbol)
                         if defi_signals["action"] == "avoid":
@@ -2561,14 +2622,14 @@ class TradingSystem(QObject):
                         elif defi_signals["action"] == "sell" and confirmed_signal.type.value == "BUY":
                             logger.warning(f"[{symbol}] ⚠️ DeFi сигнал против сделки — снижаю уверенность")
                             confirmed_signal.confidence *= 0.5  # Снижаем уверенность на 50%
-                        
+
                         # 5. Логируем DeFi данные для анализа
                         logger.info(
                             f"[{symbol}] 📊 DeFi: APY={defi_risk['max_apy']:.1f}%, "
                             f"TVL=${defi_risk['tvl_usd']/1_000_000:.1f}M ({defi_risk['tvl_trend']}), "
                             f"Режим={defi_regime['regime']}, Сентимент={defi_regime['sentiment']}"
                         )
-                        
+
                     except Exception as defi_err:
                         logger.debug(f"[{symbol}] Ошибка DeFi анализа: {defi_err}")
                 # ===================================================================
@@ -2686,38 +2747,43 @@ class TradingSystem(QObject):
 
                 if position_ticket and "AI" in final_strategy_name and pred_input is not None and not self.observer_mode:
                     self._calculate_and_save_xai_async(position_ticket, symbol, pred_input, df)
-                
+
                 # 📢 Social Trading: Публикация сделки для подписчиков
                 if position_ticket:
                     try:
                         from src.social.publisher import publish_trade_result
+
                         acc_info = mt5.account_info()
                         if acc_info:
                             # Создаем фейковый объект result для публикатора
                             class MockResult:
                                 def __init__(self, ticket, sym, price, vol, sl, tp, comm, magic):
-                                    self.retcode = 10009 # TRADE_RETCODE_DONE
+                                    self.retcode = 10009  # TRADE_RETCODE_DONE
                                     self.order = ticket
                                     self.symbol = sym
                                     self.price = price
-                                    self.request = type('Req', (), {
-                                        'type': 0 if confirmed_signal.type.value == 'BUY' else 1,
-                                        'volume': lot_size,
-                                        'sl': sl,
-                                        'tp': tp,
-                                        'magic': magic,
-                                        'comment': comm
-                                    })()
-                            
+                                    self.request = type(
+                                        "Req",
+                                        (),
+                                        {
+                                            "type": 0 if confirmed_signal.type.value == "BUY" else 1,
+                                            "volume": lot_size,
+                                            "sl": sl,
+                                            "tp": tp,
+                                            "magic": magic,
+                                            "comment": comm,
+                                        },
+                                    )()
+
                             mock_res = MockResult(
-                                ticket=position_ticket, 
-                                sym=symbol, 
-                                price=entry_price, 
-                                vol=lot_size, 
-                                sl=stop_loss_in_price, 
-                                tp=None, 
-                                comm=final_strategy_name, 
-                                magic=234000
+                                ticket=position_ticket,
+                                sym=symbol,
+                                price=entry_price,
+                                vol=lot_size,
+                                sl=stop_loss_in_price,
+                                tp=None,
+                                comm=final_strategy_name,
+                                magic=234000,
                             )
                             # Вызываем синхронно, так как это быстрая запись в SQLite
                             publish_trade_result(mock_res, acc_info)
@@ -2962,6 +3028,8 @@ class TradingSystem(QObject):
     ):
         logger.info(f"[TRAIN] Начало _train_candidate_model: {model_type} для {symbol}")
         logger.info(f"[TRAIN] self.bridge = {self.bridge is not None}, self.gui = {self.gui is not None}")
+        logger.info(f"[TRAIN] train_df shape: {train_df.shape}, val_df shape: {val_df.shape}")
+        logger.info(f"[TRAIN] features_to_use ({len(features_to_use)}): {features_to_use[:10]}...")
         target_col = "close"
 
         # Проверка на пустые датафреймы
@@ -3056,9 +3124,15 @@ class TradingSystem(QObject):
                     # Отправляем в GUI даже если self.gui=None (используем bridge напрямую)
                     history_obj = type("History", (), {"history": {"loss": loss_history}})()
                     logger.info(f"[LSTM] Отправляем в GUI loss_history: {len(loss_history)} значений")
+                    logger.info(
+                        f"[LSTM] self.bridge type: {type(self.bridge)}, bridge has signal: {hasattr(self.bridge, 'training_history_updated')}"
+                    )
                     if self.bridge:
-                        self.bridge.training_history_updated.emit(history_obj)
-                        logger.info(f"[LSTM] ✅ Сигнал отправлен через bridge")
+                        try:
+                            self.bridge.training_history_updated.emit(history_obj)
+                            logger.info(f"[LSTM] ✅ Сигнал отправлен через bridge")
+                        except Exception as e:
+                            logger.error(f"[LSTM] ❌ Ошибка отправки сигнала: {e}", exc_info=True)
                     elif self.gui:
                         self._safe_gui_update("update_visualization", history_obj)
                     else:
@@ -3225,20 +3299,20 @@ class TradingSystem(QObject):
                 if self.start_time:
                     delta = datetime.now() - self.start_time
                     uptime_str = str(delta).split(".")[0]
-                    
+
                     # АДАПТИВНОСТЬ: Вывод типа счета, валюты и баланса
                     acc_info = ""
-                    if hasattr(self, 'account_manager') and self.account_manager.currency:
+                    if hasattr(self, "account_manager") and self.account_manager.currency:
                         acc_type = self.account_manager.account_type
                         currency = self.account_manager.currency
                         balance = self.account_manager.balance
                         balance_usd = self.account_manager.get_balance_usd()
-                        
+
                         if currency != "USD":
                             acc_info = f"{acc_type} {currency} {balance:.2f} (≈${balance_usd:.2f})"
                         else:
                             acc_info = f"{acc_type} ${balance:.2f}"
-                    
+
                     full_status = f"{acc_info} | {uptime_str}"
                     self.uptime_updated.emit(full_status)
                     self._safe_gui_update("update_uptime", full_status)
@@ -3275,6 +3349,7 @@ class TradingSystem(QObject):
         """Остановка системы с поддержкой новых сервисов."""
         self.running = False
         self.stop_event.set()
+        self._background_services_started = False  # Сброс для возможности повторного запуска
         logger.info("Система останавливается...")
 
         # === ИНТЕГРАЦИЯ: Остановка сервисов ===
@@ -3420,7 +3495,7 @@ class TradingSystem(QObject):
             - defi_risk_score: Оценка риска (0-1)
             - defi_sentiment_score: Сентимент (-1 до +1)
         """
-        if hasattr(self, 'defi_analyzer'):
+        if hasattr(self, "defi_analyzer"):
             return self.defi_analyzer.get_ai_features(symbol)
         return {}
 
@@ -3436,6 +3511,7 @@ class TradingSystem(QObject):
     def _load_defi_data_sync(self):
         """Синхронная обертка для загрузчика DeFi."""
         from src.data_enrichment.defi_data_loader import DefiDataLoader
+
         loader = DefiDataLoader(self.db_manager)
         return loader.load_all()
 
@@ -3511,7 +3587,12 @@ class TradingSystem(QObject):
             except Exception as e:
                 logger.error(f"Ошибка GUI update: {e}", exc_info=True)
         # Проверка web_server через hasattr, так как атрибут может не существовать
-        if hasattr(self, 'web_server') and self.web_server and hasattr(self.config, 'web_dashboard') and self.config.web_dashboard.enabled:
+        if (
+            hasattr(self, "web_server")
+            and self.web_server
+            and hasattr(self.config, "web_dashboard")
+            and self.config.web_dashboard.enabled
+        ):
             try:
                 if method_name == "update_balance":
                     self._last_known_balance = float(args[0])
@@ -3755,7 +3836,7 @@ class TradingSystem(QObject):
             from_date = datetime.now() - timedelta(days=self.config.system.initial_history_sync_days)
             if self.stop_event.is_set():
                 return
-            if not mt5.initialize(path=self.config.MT5_PATH):
+            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error("Синхронизация истории: не удалось инициализировать MT5.")
                 return
             try:
@@ -3947,10 +4028,12 @@ class TradingSystem(QObject):
         Принудительный запуск цикла обучения из GUI.
         Запускается в отдельном потоке без блокировки основного цикла.
         """
+        logger.info("[GUI->TRAIN] Вызван force_training_cycle()")
+        logger.info(f"[GUI->TRAIN] self.running = {self.running}")
         if not self.running:
             logger.warning("Нельзя запустить обучение, так как система остановлена.")
             return
-        logger.info("Принудительный запуск цикла обучения из GUI...")
+        logger.info("[GUI->TRAIN] Запуск потока обучения...")
         # Запускаем в отдельном потоке с высоким приоритетом
         thread = threading.Thread(target=self._force_training_cycle_async, daemon=True, name="ForceTrainingThread")
         thread.start()
@@ -4471,4 +4554,3 @@ class TradingSystem(QObject):
         if hasattr(self, "health_check") and self.health_check:
             return self.health_check.get_health_status(force)
         return {"status": "unknown"}
-

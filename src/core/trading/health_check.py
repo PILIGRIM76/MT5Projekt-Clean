@@ -114,6 +114,7 @@ class HealthCheckEndpoint:
         # Проверяем MT5
         try:
             import MetaTrader5 as mt5
+
             if not mt5.initialize(path=ts.config.MT5_PATH):
                 return "unhealthy"
         except Exception:
@@ -142,10 +143,12 @@ class HealthCheckEndpoint:
         # Проверяем MT5
         try:
             import MetaTrader5 as mt5
-            if mt5.initialize(path=ts.config.MT5_PATH):
+
+            from src.core.mt5_connection_manager import mt5_ensure_connected
+
+            if mt5_ensure_connected(path=ts.config.MT5_PATH):
                 acc_info = mt5.account_info()
                 components["mt5"] = acc_info is not None
-                mt5.shutdown()
         except Exception:
             components["mt5"] = False
 
@@ -211,13 +214,15 @@ class HealthCheckEndpoint:
 
         try:
             import MetaTrader5 as mt5
-            if mt5.initialize(path=ts.config.MT5_PATH):
+
+            from src.core.mt5_connection_manager import mt5_ensure_connected
+
+            if mt5_ensure_connected(path=ts.config.MT5_PATH):
                 acc_info = mt5.account_info()
                 if acc_info:
                     mt5_status["connected"] = True
                     mt5_status["balance"] = acc_info.balance
                     mt5_status["equity"] = acc_info.equity
-                mt5.shutdown()
         except Exception as e:
             mt5_status["error"] = str(e)
 
@@ -227,6 +232,7 @@ class HealthCheckEndpoint:
         """Проверить использование памяти."""
         try:
             import psutil
+
             process = psutil.Process(os.getpid())
             memory_info = process.memory_info()
 
@@ -275,38 +281,38 @@ class HealthCheckEndpoint:
         report = self.get_health_status()
 
         metrics = []
-        metrics.append(f'# HELP genesis_system_status Health status (1=healthy, 0=unhealthy)')
-        metrics.append(f'# TYPE genesis_system_status gauge')
+        metrics.append(f"# HELP genesis_system_status Health status (1=healthy, 0=unhealthy)")
+        metrics.append(f"# TYPE genesis_system_status gauge")
         metrics.append(f'genesis_system_status{{status="{report["status"]}"}} 1')
 
-        metrics.append(f'# HELP genesis_system_uptime_seconds System uptime in seconds')
-        metrics.append(f'# TYPE genesis_system_uptime_seconds counter')
+        metrics.append(f"# HELP genesis_system_uptime_seconds System uptime in seconds")
+        metrics.append(f"# TYPE genesis_system_uptime_seconds counter")
         metrics.append(f'genesis_system_uptime_seconds {report["uptime_seconds"]:.2f}')
 
         components = report["components"]
-        metrics.append(f'# HELP genesis_components_healthy Number of healthy components')
-        metrics.append(f'# TYPE genesis_components_healthy gauge')
+        metrics.append(f"# HELP genesis_components_healthy Number of healthy components")
+        metrics.append(f"# TYPE genesis_components_healthy gauge")
         metrics.append(f'genesis_components_healthy {components["healthy"]}')
 
         ml = report["ml_models"]
-        metrics.append(f'# HELP genesis_ml_models_healthy Number of healthy ML models')
-        metrics.append(f'# TYPE genesis_ml_models_healthy gauge')
+        metrics.append(f"# HELP genesis_ml_models_healthy Number of healthy ML models")
+        metrics.append(f"# TYPE genesis_ml_models_healthy gauge")
         metrics.append(f'genesis_ml_models_healthy {ml["healthy"]}')
 
         db = report["database"]
-        metrics.append(f'# HELP genesis_database_connected Database connection status')
-        metrics.append(f'# TYPE genesis_database_connected gauge')
+        metrics.append(f"# HELP genesis_database_connected Database connection status")
+        metrics.append(f"# TYPE genesis_database_connected gauge")
         metrics.append(f'genesis_database_connected {1 if db["connected"] else 0}')
 
         mt5 = report["mt5"]
-        metrics.append(f'# HELP genesis_mt5_connected MT5 connection status')
-        metrics.append(f'# TYPE genesis_mt5_connected gauge')
+        metrics.append(f"# HELP genesis_mt5_connected MT5 connection status")
+        metrics.append(f"# TYPE genesis_mt5_connected gauge")
         metrics.append(f'genesis_mt5_connected {1 if mt5["connected"] else 0}')
 
         mem = report["memory"]
         if "rss_mb" in mem:
-            metrics.append(f'# HELP genesis_memory_usage_mb Memory usage in MB')
-            metrics.append(f'# TYPE genesis_memory_usage_mb gauge')
+            metrics.append(f"# HELP genesis_memory_usage_mb Memory usage in MB")
+            metrics.append(f"# TYPE genesis_memory_usage_mb gauge")
             metrics.append(f'genesis_memory_usage_mb {mem["rss_mb"]:.2f}')
 
         return "\n".join(metrics)

@@ -98,8 +98,7 @@ class DataService(BaseService):
             if hasattr(self.data_provider, "_conversion_cache"):
                 self.data_provider._conversion_cache.clear()
 
-            # Закрытие MT5
-            await self._safe_execute(self._shutdown_mt5(), "Закрытие MT5")
+            # MT5ConnectionManager управляет подключением, shutdown не вызываем
 
             self._running = False
             self._healthy = False
@@ -159,16 +158,8 @@ class DataService(BaseService):
         with self._mt5_lock:
             if not mt5_ensure_connected(path=self.config.MT5_PATH, timeout=5000):
                 raise ConnectionError(f"Не удалось подключиться к MT5: {mt5.last_error()}")
-            mt5.shutdown()
 
         return True
-
-    async def _shutdown_mt5(self) -> None:
-        """Закрытие соединения с MT5."""
-        import MetaTrader5 as mt5
-
-        with self._mt5_lock:
-            mt5.shutdown()
 
     # ===========================================
     # Публичные методы для работы с данными

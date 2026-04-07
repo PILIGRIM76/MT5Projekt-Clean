@@ -16,6 +16,7 @@ import pandas as pd
 
 from src.core.config_models import Settings
 from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
+from src.core.mt5_symbol_helper import SymbolHelper
 from src.data_models import NewsItem
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,9 @@ class DataProvider:
         self.finnhub_api_key = self.config.FINNHUB_API_KEY
         self.alpha_vantage_api_key = self.config.ALPHA_VANTAGE_API_KEY
         self.polygon_api_key = os.getenv("POLYGON_API_KEY")
+        # Инициализация помощника символов
+        self.symbol_helper = SymbolHelper
+        self.symbol_helper._lock = mt5_lock
         self.max_retries = 3
         self.retry_delay_seconds = 2
         self._finnhub_403_blacklist = set()
@@ -107,42 +111,54 @@ class DataProvider:
         if hasattr(self, "executor") and self.executor:
             self.executor.shutdown(wait=False)
 
+    def _force_mt5_reconnect(self):
+        """Принудительный reconnect к MT5 через shutdown + initialize."""
+        import MetaTrader5 as mt5
+
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass
+        time.sleep(1.0)
+        try:
+            # Безопасная обработка MT5_LOGIN
+            try:
+                mt5_login = int(self.config.MT5_LOGIN) if self.config.MT5_LOGIN else None
+            except (ValueError, TypeError) as e:
+                logger.error(f"[DATA] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
+                mt5_login = None
+
+            # Передаём полные учётные данные для reconnect
+            mt5.initialize(
+                path=self.config.MT5_PATH,
+                login=mt5_login,
+                password=self.config.MT5_PASSWORD,
+                server=self.config.MT5_SERVER,
+            )
+        except Exception as e:
+            logger.error(f"[DATA] Ошибка reconnect: {e}")
+
     def filter_available_symbols(self, requested_symbols: List[str]) -> List[str]:
         """
         Проверяет список символов на наличие у брокера.
         Возвращает только те, которые реально существуют в терминале.
         """
         logger.info("Проверка доступности символов в терминале...")
+
+        # Строим карту символов (базовое_имя -> реальное_имя_у_брокера)
+        self.symbol_helper.build_symbol_map(requested_symbols, self.mt5_lock)
+        symbol_map = self.symbol_helper._symbol_map_cache
+
         valid_symbols = []
-
-        with self.mt5_lock:
-            if not mt5_ensure_connected(path=self.config.MT5_PATH):
-                logger.error("Не удалось подключиться к MT5 для проверки символов.")
-                return requested_symbols  # Возвращаем как есть, если нет связи
-
-            try:
-                # Получаем ВСЕ символы брокера одним запросом (это быстро)
-                all_broker_symbols = mt5.symbols_get()
-                if not all_broker_symbols:
-                    logger.warning("MT5 вернул пустой список символов.")
-                    return requested_symbols
-
-                # Создаем множество имен для быстрого поиска
-                broker_symbol_names = {s.name for s in all_broker_symbols}
-
-                # Фильтруем
-                for sym in requested_symbols:
-                    if sym in broker_symbol_names:
-                        valid_symbols.append(sym)
-                        # Пытаемся включить его в Market Watch
-                        if not mt5.symbol_select(sym, True):
-                            logger.warning(f"Символ {sym} найден, но не удалось включить в Market Watch.")
-                    else:
-                        # Тихо пропускаем или логируем в debug
-                        logger.debug(f"Символ {sym} отсутствует у брокера. Исключен из списка.")
-
-            finally:
-                mt5.shutdown()
+        for base_sym in requested_symbols:
+            real_sym = symbol_map.get(base_sym, base_sym)
+            if base_sym != real_sym:
+                logger.info(f"[SymbolMap] {base_sym} → {real_sym}")
+            # Проверяем что символ действительно доступен
+            if self.symbol_helper.select_and_wait(real_sym, self.mt5_lock, timeout=2.0):
+                valid_symbols.append(real_sym)
+            else:
+                logger.warning(f"[{base_sym}] Не удалось выбрать символ в Market Watch (реальное имя: {real_sym})")
 
         logger.info(f"Фильтрация завершена. Из {len(requested_symbols)} символов доступно: {len(valid_symbols)}")
         return valid_symbols
@@ -170,8 +186,8 @@ class DataProvider:
                     tick = mt5.symbol_info_tick(pair)
                     if tick and tick.ask > 0:
                         return tick.ask
-                finally:
-                    mt5.shutdown()
+                except Exception as e:
+                    logger.debug(f"Ошибка получения тика для {pair}: {e}")
             return None
 
         # Поиск прямой пары (e.g., USDRUB)
@@ -330,29 +346,22 @@ class DataProvider:
                 if not mt5_ensure_connected(path=self.config.MT5_PATH):
                     continue
                 try:
-                    # --- ДОБАВЛЕНО: Принудительный выбор символа ---
-                    if not mt5.symbol_select(symbol, True):
-                        logger.warning(f"[{symbol}] Не удалось выбрать символ в Market Watch.")
+                    # Разрешаем символ через помощник
+                    real_symbol = self.symbol_helper.resolve_symbol(symbol)
 
-                    # Небольшая пауза для подгрузки
-                    if attempt == 0:
-                        time.sleep(0.2)
-                    # -----------------------------------------------
+                    # Выбираем символ в Market Watch
+                    mt5.symbol_select(real_symbol, True)
+                    time.sleep(0.3)
 
-                    # Повторная попыка получить symbol_info с задержкой
-                    symbol_info = mt5.symbol_info(symbol)
+                    symbol_info = mt5.symbol_info(real_symbol)
                     if symbol_info is None:
-                        logger.warning(f"[{symbol}] symbol_info is None (попытка 1). Повторная попыка...")
-                        time.sleep(0.3)
-                        symbol_info = mt5.symbol_info(symbol)
-                        if symbol_info is None:
-                            logger.warning(f"[{symbol}] symbol_info is None (попытка 2). Пропуск.")
-                        else:
-                            rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_bars + 200)
-                    else:
-                        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_bars + 200)
-                finally:
-                    mt5.shutdown()
+                        logger.warning(f"[{symbol}] ({real_symbol}) symbol_info is None.")
+                        time.sleep(0.5)
+                        continue
+
+                    rates = mt5.copy_rates_from_pos(real_symbol, timeframe, 0, num_bars + 200)
+                except Exception as e:
+                    logger.debug(f"[{symbol}] Ошибка при получении данных (попытка {attempt + 1}): {e}")
 
             # Обработка данных (вне блокировки MT5)
             if rates is not None and len(rates) >= 50:
@@ -419,20 +428,25 @@ class DataProvider:
         if symbol in self.excluded_symbols:
             return None
 
-        # ОПТИМИЗАЦИЯ: Кэшируем symbol_info, чтобы не запрашивать каждый раз
+        # Разрешаем символ через помощник
+        real_symbol = self.symbol_helper.resolve_symbol(symbol)
+
+        # Проверяем symbol_info
         symbol_info = None
         with self.mt5_lock:
             if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 logger.error(f"[{symbol}] Не удалось инициализировать MT5 для проверки символа.")
                 return None
             try:
-                symbol_info = mt5.symbol_info(symbol)
-            finally:
-                mt5.shutdown()
+                mt5.symbol_select(real_symbol, True)
+                time.sleep(0.3)
+                symbol_info = mt5.symbol_info(real_symbol)
+            except Exception as e:
+                logger.debug(f"Ошибка получения symbol_info для {symbol}: {e}")
 
         # Проверка вне блокировки
         if symbol_info is None or not symbol_info.visible:
-            logger.warning(f"[{symbol}] Символ не найден или не виден в MT5. Пропуск.")
+            logger.warning(f"[{symbol}] ({real_symbol}) Символ не найден или не виден в MT5. Пропуск.")
             return None
 
         df = self._fetch_mt5_data_with_retry(symbol, tf, num_bars)
@@ -481,13 +495,31 @@ class DataProvider:
 
             try:
                 if not mt5_ensure_connected(path=self.config.MT5_PATH):
-                    logger.error(f"get_historical_data: initialize() failed, error code = {mt5.last_error()}")
-                    mt5.shutdown()
+                    logger.error(f"get_historical_data: инициализация MT5 не удалась")
                     return None
-                logger.info(f"[DATA] Загрузка MT5 copy_rates_range для {symbol}...")
-                rates = mt5.copy_rates_range(symbol, timeframe, start_date, end_date)
+
+                # Разрешаем символ через помощник
+                real_symbol = self.symbol_helper.resolve_symbol(symbol)
+
+                # Выбираем в Market Watch
+                mt5.symbol_select(real_symbol, True)
+                time.sleep(0.5)  # Пауза для подгрузки
+
+                logger.info(f"[DATA] Загрузка MT5 copy_rates_range для {symbol} ({real_symbol})...")
+                rates = mt5.copy_rates_range(real_symbol, timeframe, start_date, end_date)
                 logger.info(f"[DATA] Получено {len(rates) if rates is not None else 0} баров")
-                mt5.shutdown()
+
+                # Если 0 баров — пробуем reconnect
+                if rates is None or len(rates) == 0:
+                    logger.warning(f"[DATA] 0 баров для {symbol}, пробуем reconnect...")
+                    self._force_mt5_reconnect()
+                    if not mt5_ensure_connected(path=self.config.MT5_PATH):
+                        logger.error(f"[DATA] Reconnect не удался для {symbol}")
+                        return None
+                    mt5.symbol_select(real_symbol, True)
+                    time.sleep(1.0)
+                    rates = mt5.copy_rates_range(real_symbol, timeframe, start_date, end_date)
+                    logger.info(f"[DATA] После reconnect: {len(rates) if rates is not None else 0} баров для {symbol}")
             finally:
                 self.mt5_lock.release()
 
@@ -516,8 +548,6 @@ class DataProvider:
 
         except Exception as e:
             logger.error(f"Критическая ошибка при загрузке исторических данных для {symbol}: {e}", exc_info=True)
-            if mt5.terminal_info():
-                mt5.shutdown()
             return None
 
     def _get_timeframe_str(self, tf_code: Optional[int]) -> str:
@@ -570,8 +600,6 @@ class DataProvider:
 
             except Exception as e:
                 logger.error(f"Ошибка при получении новостей из MT5: {e}")
-            finally:
-                mt5.shutdown()
 
         if max_timestamp_in_batch > self.last_news_timestamp:
             self.last_news_timestamp = max_timestamp_in_batch
@@ -604,5 +632,3 @@ class DataProvider:
             except Exception as e:
                 logger.error(f"[get_minimum_lot_size] Ошибка при получении информации о символе {symbol}: {e}")
                 return None
-            finally:
-                mt5.shutdown()
