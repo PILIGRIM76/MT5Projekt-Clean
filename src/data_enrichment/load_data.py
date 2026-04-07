@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.core.config_loader import load_config
 from src.db.database_manager import DatabaseManager
 from src.data_enrichment.yahoo_finance_loader import YahooFinanceLoader
+from src.data_enrichment.defi_data_loader import DefiDataLoader
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,6 +57,8 @@ def main():
     parser.add_argument('--fundamentals-only', action='store_true', help='Загрузить только фундаментальные данные')
     parser.add_argument('--earnings-only', action='store_true', help='Загрузить только календарь отчетов')
     parser.add_argument('--vix-only', action='store_true', help='Загрузить только историю VIX')
+    parser.add_argument('--defi', action='store_true', help='Загрузить DeFi метрики (TVL, APY, lending)')
+    parser.add_argument('--defi-only', action='store_true', help='Загрузить только DeFi данные')
     
     args = parser.parse_args()
     
@@ -68,29 +71,41 @@ def main():
     db_manager = DatabaseManager(config, write_queue)
     
     # Создаем загрузчик
-    loader = YahooFinanceLoader(db_manager)
+    yf_loader = YahooFinanceLoader(db_manager)
+    defi_loader = DefiDataLoader(db_manager)
     
     # Определяем символы
     symbols = args.symbols if args.symbols else DEFAULT_SYMBOLS
     
-    if args.all or (not args.fundamentals_only and not args.earnings_only and not args.vix_only):
+    if args.all or (not args.fundamentals_only and not args.earnings_only and not args.vix_only and not args.defi_only):
         # Загружаем ВСЕ
-        results = loader.load_all(symbols)
+        results = yf_loader.load_all(symbols)
+        results.update(defi_loader.load_all())
         print("\n" + "="*60)
         print("РЕЗУЛЬТАТЫ ЗАГРУЗКИ:")
         print(f"  Фундаментальные данные: {results.get('fundamentals', 0)}")
         print(f"  Календарь отчетов:     {results.get('earnings', 0)}")
         print(f"  История VIX:           {results.get('vix_history', 0)}")
+        print(f"  DeFi Yield/TVL:        {results.get('yields_tvl', 0)}")
+        print(f"  DeFi Lending:          {results.get('lending_rates', 0)}")
+        print(f"  ВСЕГО:                 {sum(results.values())}")
+        print("="*60)
+    elif args.defi or args.defi_only:
+        results = defi_loader.load_all()
+        print("\n" + "="*60)
+        print("РЕЗУЛЬТАТЫ DEFI ЗАГРУЗКИ:")
+        print(f"  DeFi Yield/TVL:        {results.get('yields_tvl', 0)}")
+        print(f"  DeFi Lending:          {results.get('lending_rates', 0)}")
         print(f"  ВСЕГО:                 {sum(results.values())}")
         print("="*60)
     elif args.fundamentals_only:
-        count = loader.load_fundamentals(symbols)
+        count = yf_loader.load_fundamentals(symbols)
         print(f"\nЗагружено {count} записей фундаментальных данных")
     elif args.earnings_only:
-        count = loader.load_earnings_calendar(symbols)
+        count = yf_loader.load_earnings_calendar(symbols)
         print(f"\nЗагружено {count} предстоящих отчетов")
     elif args.vix_only:
-        count = loader.load_vix_history()
+        count = yf_loader.load_vix_history()
         print(f"\nЗагружено {count} записей VIX")
 
 

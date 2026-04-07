@@ -422,6 +422,31 @@ class DataEnrichmentLog(Base):
         return f"<DataEnrichmentLog(source='{self.source}', status='{self.status}')>"
 
 
+class DefiMetrics(Base):
+    """
+    Метрики DeFi протоколов (TVL, APY, ставки кредитования).
+    Источники: DefiLlama API (бесплатно, без ключей).
+    """
+    __tablename__ = "defi_metrics"
+    
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    chain = Column(String, nullable=False, index=True, comment="Блокчейн (Ethereum, Arbitrum, etc.)")
+    protocol = Column(String, nullable=False, index=True, comment="Название протокола (Aave, Uniswap, Lido)")
+    metric_type = Column(String, nullable=False, index=True, comment="Тип метрики: tvl, supply_apy, borrow_apy, reward_apy")
+    asset = Column(String, nullable=True, index=True, comment="Базовый актив (USDC, ETH, DAI)")
+    value = Column(Float, nullable=False, comment="Значение метрики (в % для APY, в $ для TVL)")
+    pool_id = Column(String, nullable=True, index=True, comment="ID пула/контракта")
+    extra_data = Column(Text, nullable=True, comment="JSON с доп. данными (символ, экспозиция, риски)")
+    
+    __table_args__ = (
+        UniqueConstraint("chain", "protocol", "asset", "metric_type", "timestamp", name="_defi_metric_uc"),
+    )
+
+    def __repr__(self):
+        return f"<DefiMetrics(chain='{self.chain}', protocol='{self.protocol}', {self.metric_type}={self.value}%)>"
+
+
 class DatabaseManager:
     def __init__(self, config: Settings, write_queue: queue.Queue):
         db_folder = Path(config.DATABASE_FOLDER)
