@@ -1328,6 +1328,7 @@ class TradingSystem(QObject):
     def _training_loop(self):
         """
         Непрерывный цикл обучения (R&D Department).
+        Оптимизирован: работает только в разрешенное время (ночью), чтобы не мешать торговле.
         """
         logger.info("=== Запуск непрерывного цикла обучения (R&D Department) ===")
 
@@ -1340,6 +1341,12 @@ class TradingSystem(QObject):
                 if not self.is_heavy_init_complete:
                     logger.warning("[R&D] Тяжелая инициализация не завершена, ожидание...")
                     self.stop_event.wait(10)
+                    continue
+
+                # 🔧 OPTIMIZATION: Проверка "Тихих часов" (R&D только ночью)
+                if not self._is_rnd_time():
+                    # Если сейчас не время для обучения, спим 1 час
+                    self.stop_event.wait(3600)
                     continue
 
                 # Проверяем есть ли данные для обучения
@@ -1367,6 +1374,55 @@ class TradingSystem(QObject):
                 self.stop_event.wait(60)
 
         logger.info("Цикл обучения (R&D) остановлен.")
+
+    def _is_rnd_time(self) -> bool:
+        """
+        Проверяет, разрешено ли сейчас обучение (R&D).
+        Если включен планировщик, то учимся только в его временное окно.
+        """
+        auto_retrain_config = getattr(self.config, "auto_retraining", None)
+        if not auto_retrain_config:
+            return True  # Если настроек нет, учимся всегда
+
+        # Поддержка dict и pydantic
+        if isinstance(auto_retrain_config, dict):
+            enabled = auto_retrain_config.get("enabled", False)
+            schedule_time_str = auto_retrain_config.get("schedule_time", "02:00")
+        else:
+            enabled = getattr(auto_retrain_config, "enabled", False)
+            schedule_time_str = getattr(auto_retrain_config, "schedule_time", "02:00")
+
+        # Если планировщик выключен, учимся всегда (старый режим)
+        if not enabled:
+            return True
+
+        try:
+            # Парсим время из строки "HH:MM"
+            target_hour, target_minute = map(int, schedule_time_str.split(":"))
+            now = datetime.now()
+
+            # Окно обучения: +/- 2 часа от времени планировщика
+            # Например, если 02:00, то учимся с 00:00 до 04:00
+            current_minutes = now.hour * 60 + now.minute
+            target_minutes = target_hour * 60 + target_minute
+
+            # Разница в минутах (учитывая переход через полночь)
+            diff = abs(current_minutes - target_minutes)
+            if diff > 720:  # Если разница больше 12 часов, значит мы на другом конце суток
+                diff = 1440 - diff
+
+            # Разрешаем если разница меньше 120 минут (2 часа)
+            is_allowed = diff <= 120
+
+            if not is_allowed:
+                logger.debug(
+                    f"[R&D-Time] Сейчас {now.strftime('%H:%M')}, обучение запрещено (окно +/- 2ч от {schedule_time_str})"
+                )
+
+            return is_allowed
+        except Exception as e:
+            logger.error(f"[R&D-Time] Ошибка проверки времени: {e}")
+            return True  # В случае ошибки разрешаем учиться
 
     def _force_collect_data_for_training(self):
         """
