@@ -60,6 +60,40 @@ from src.ml.architectures import SimpleLSTM, TimeSeriesTransformer
 
 logger = logging.getLogger(__name__)
 
+# Импорт LightGBM (опционально)
+lgb = None
+try:
+    import lightgbm as lgb
+except ImportError:
+    pass
+
+
+# --- БЕЗОПАСНАЯ ДЕСЕРИАЛИЗАЦИЯ (Защита от RCE) ---
+class RestrictedUnpickler(pickle.Unpickler):
+    """
+    Ограниченный unpickler, разрешающий загрузку только безопасных классов.
+    Защищает от Remote Code Execution (RCE) через вредоносные pickle-файлы.
+    """
+    ALLOWED_MODULES = {
+        'sklearn.preprocessing': {'StandardScaler', 'MinMaxScaler', 'RobustScaler'},
+        'numpy': {'ndarray', 'dtype', 'float64', 'int64', 'float32', 'int32'},
+        'collections': {'OrderedDict'},
+        'torch._utils': {'_rebuild_tensor_v2'},
+        'torch': {'FloatStorage', 'HalfStorage', 'LongStorage'},
+        '_codecs': {'encode'},
+    }
+
+    def find_class(self, module, name):
+        if module in self.ALLOWED_MODULES and name in self.ALLOWED_MODULES[module]:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(f"🚫 Запрещён класс: {module}.{name} (защита от RCE)")
+
+
+def safe_pickle_loads(data: bytes):
+    """Безопасная замена pickle.loads"""
+    return RestrictedUnpickler(io.BytesIO(data)).load()
+# -----------------------------------------------
+
 
 class DatabaseManager:
     def __init__(self, config: Settings, write_queue: queue.Queue):
