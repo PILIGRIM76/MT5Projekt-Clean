@@ -1097,14 +1097,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.pnl_week_label, 0, 2)
         layout.addWidget(self.pnl_month_label, 0, 3)
 
-        # Открытый PnL — заголовок над значением в одной колонке
+        # Открытый PnL — заголовок над значением в одной колонке (растянут на 2 строки)
         open_pnl_col = QWidget()
         open_pnl_layout = QVBoxLayout(open_pnl_col)
         open_pnl_layout.setContentsMargins(0, 0, 0, 0)
         open_pnl_layout.setSpacing(2)
         open_pnl_layout.addWidget(QLabel("Открыто:"))
         open_pnl_layout.addWidget(self.open_pnl_label)
-        layout.addWidget(open_pnl_col, 0, 4)
+        layout.addWidget(open_pnl_col, 0, 4, 2, 1)  # row=0, col=4, rowSpan=2, colSpan=1
 
         # Изменим метку для ясности
         layout.addWidget(QLabel("Max DD (%):"), 1, 0)
