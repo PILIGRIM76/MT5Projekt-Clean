@@ -389,6 +389,12 @@ class MainWindow(QMainWindow):
         self.status_update_timer.start(60 * 1000)
 
         self.update_scheduler_status_display()
+
+        # Таймер обновления информации об обновлениях (каждые 30 секунд)
+        self.update_info_timer = QTimer(self)
+        self.update_info_timer.timeout.connect(self._update_version_and_monitoring_info)
+        self.update_info_timer.start(30 * 1000)
+
         # Предполагаем, что kg_enabled_checkbox существует после _init_widgets
         self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
         self.on_kg_toggle()
@@ -1011,11 +1017,51 @@ class MainWindow(QMainWindow):
 
         update_box = QFrame()
         update_layout = QVBoxLayout(update_box)
-        self.update_button = QPushButton("Обновить и Перезапустить")
-        self.update_button.setEnabled(False)
-        self.update_status_label = QLabel("Статус обновления: N/A")
-        update_layout.addWidget(self.update_button)
+
+        # Текущая версия
+        version_layout = QHBoxLayout()
+        self.update_version_label = QLabel("📦 Версия: N/A")
+        self.update_version_label.setStyleSheet("color: #50fa7b; font-weight: bold;")
+        version_layout.addWidget(self.update_version_label)
+        version_layout.addStretch()
+        update_layout.addLayout(version_layout)
+
+        # Статус обновлений
+        self.update_status_label = QLabel("🔄 Статус: Загрузка...")
+        self.update_status_label.setStyleSheet("color: #f8f8f2;")
         update_layout.addWidget(self.update_status_label)
+
+        # Мониторинг
+        self.update_monitoring_label = QLabel("👁️ Мониторинг: N/A")
+        self.update_monitoring_label.setStyleSheet("color: #888;")
+        update_layout.addWidget(self.update_monitoring_label)
+
+        # Последняя проверка
+        self.update_last_check_label = QLabel("⏰ Последняя проверка: N/A")
+        self.update_last_check_label.setStyleSheet("color: #888; font-size: 11px;")
+        update_layout.addWidget(self.update_last_check_label)
+
+        # Кнопка
+        self.update_button = QPushButton("⬇️ Обновить и Перезапустить")
+        self.update_button.setEnabled(False)
+        self.update_button.setStyleSheet("""
+            QPushButton {
+                background-color: #50fa7b;
+                color: #282a36;
+                border: none;
+                padding: 8px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #69ff94;
+            }
+            QPushButton:disabled {
+                background-color: #44475a;
+                color: #6272a4;
+            }
+        """)
+        update_layout.addWidget(self.update_button)
 
         thread_status_box = self._create_thread_status_panel()
         # Для стилизации, если понадобится
@@ -1823,6 +1869,9 @@ class MainWindow(QMainWindow):
 
         # НОВЫЕ: Подключение сигналов для визуализации переобучения
         self.bridge.model_accuracy_updated.connect(self.update_model_accuracy_chart, Qt.ConnectionType.QueuedConnection)
+
+        # Инициализация информации об обновлениях
+        QTimer.singleShot(1000, self._update_version_and_monitoring_info)
         self.bridge.retrain_progress_updated.connect(self.update_retrain_progress_chart, Qt.ConnectionType.QueuedConnection)
         logger.info("[GUI] Сигналы model_accuracy_updated и retrain_progress_updated подключены")
 
@@ -2152,8 +2201,56 @@ class MainWindow(QMainWindow):
             self.trading_system.core_system.auto_updater.apply_update_and_restart()
 
     def update_update_status(self, message: str, is_available: bool):
-        self.update_status_label.setText(message)
+        """Обновление статуса обновлений на главном экране."""
+        self.update_status_label.setText(f"🔄 Статус: {message}")
         self.update_button.setEnabled(is_available)
+
+        # Обновляем цвет статуса
+        if is_available:
+            self.update_status_label.setStyleSheet("color: #ffb86c; font-weight: bold;")
+        else:
+            self.update_status_label.setStyleSheet("color: #50fa7b;")
+
+        # Обновляем информацию о версии и мониторинге
+        self._update_version_and_monitoring_info()
+
+    def _update_version_and_monitoring_info(self):
+        """Обновляет информацию о версии, мониторинге и последней проверке."""
+        try:
+            # Получаем HotReloadManager через адаптер
+            if hasattr(self.trading_system, "trading_system") and self.trading_system.trading_system:
+                adapter = self.trading_system.trading_system
+                if hasattr(adapter, "core_system") and adapter.core_system:
+                    manager = adapter.core_system.hot_reload_manager
+                    if manager:
+                        status = manager.get_update_status()
+
+                        # Текущая версия
+                        local_commit = status.get("local_commit")
+                        if local_commit:
+                            self.update_version_label.setText(f"📦 Версия: v{local_commit[:8]}")
+                        else:
+                            self.update_version_label.setText("📦 Версия: N/A")
+
+                        # Мониторинг
+                        if status.get("monitoring"):
+                            self.update_monitoring_label.setText("👁️ Мониторинг: ✅ Активен")
+                            self.update_monitoring_label.setStyleSheet("color: #50fa7b;")
+                        else:
+                            self.update_monitoring_label.setText("👁️ Мониторинг: ❌ Не активен")
+                            self.update_monitoring_label.setStyleSheet("color: #ff5555;")
+
+                        # Последняя проверка
+                        last_check_ts = status.get("last_check")
+                        if last_check_ts and last_check_ts > 0:
+                            from datetime import datetime
+
+                            last_check = datetime.fromtimestamp(last_check_ts)
+                            self.update_last_check_label.setText(f"⏰ Последняя проверка: {last_check.strftime('%H:%M:%S')}")
+                        else:
+                            self.update_last_check_label.setText("⏰ Последняя проверка: Ещё не проверялось")
+        except Exception as e:
+            logger.error(f"[MainWindow] Ошибка обновления информации об обновлениях: {e}")
 
     def on_initialization_failed(self):
         self.start_button.setEnabled(True)
