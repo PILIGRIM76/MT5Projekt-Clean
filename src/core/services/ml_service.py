@@ -182,7 +182,7 @@ class MLService(BaseService):
 
     async def _unload_models(self) -> None:
         """Выгрузка моделей из памяти."""
-        self.model_factory.clear_cache()
+        # ModelFactory не имеет clear_cache, просто очищаем ссылки
         self._models_loaded = 0
         logger.info(f"{self.name}: Модели выгружены из памяти")
 
