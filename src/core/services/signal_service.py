@@ -261,8 +261,13 @@ class SignalService:
                 return None
 
         # 6. Формирование финального сигнала
+        # Pydantic требует confidence >= 0.3, поэтому для AI-ONLY fallback поднимаем до минимума
+        pydantic_min_confidence = 0.3
         final_signal = TradeSignal(
-            type=final_signal_type, confidence=final_score, symbol=symbol, predicted_price=ai_signal.predicted_price
+            type=final_signal_type,
+            confidence=max(final_score, pydantic_min_confidence),
+            symbol=symbol,
+            predicted_price=ai_signal.predicted_price,
         )
         final_strategy_name = f"AI_MF_Consensus"
 
