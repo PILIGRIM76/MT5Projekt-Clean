@@ -135,6 +135,9 @@ class Orchestrator:
         self.last_training_time = time.time()
         self.training_interval = 86400 * 7
 
+        # Кэш штрафов за дрейф концепции для каждого символа
+        self.drift_penalties: Dict[str, float] = {}
+
         logger.info("Мета-обучающийся Оркестратор (v3.0 - Regime-Oriented) инициализирован.")
 
     def _check_incubation_status(self):

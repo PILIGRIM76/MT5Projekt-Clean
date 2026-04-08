@@ -444,8 +444,8 @@ class RiskEngine:
         self.capital_allocation = new_allocation_matrix
 
     def update_capital_allocation(self, new_allocation: Dict[str, float]):
-        logger.warning("RiskEngine: Использован устаревший метод update_capital_allocation. Обновлен только 'Default' режим.")
-        self.capital_allocation["Default"] = new_allocation
+        """Обновляет распределение капитала по режимам."""
+        self.capital_allocation = new_allocation
 
     def is_trade_safe_from_events(self, symbol: str) -> bool:
         if not self.knowledge_graph_querier:
@@ -621,9 +621,6 @@ class RiskEngine:
         except Exception as e:
             logger.error(f"Ошибка при расчете волатильности портфеля: {e}")
             return None
-
-    def update_capital_allocation(self, new_allocation: Dict[str, float]):
-        self.capital_allocation = new_allocation
 
     def run_pre_mortem_analysis(self, df: pd.DataFrame, stop_loss_price: float, trade_type: SignalType) -> bool:
         """Делегирует GARCH Monte Carlo симуляцию модулю StressTester."""
