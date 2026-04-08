@@ -15,7 +15,10 @@ from collections import defaultdict
 from datetime import datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-import optuna
+try:
+    import optuna
+except ImportError:
+    optuna = None
 import torch
 
 try:
@@ -50,7 +53,7 @@ from src.core.config_models import Settings
 from src.core.config_writer import write_config
 from src.core.hot_reload_manager import HotReloadManager
 from src.core.interfaces import ITerminalConnector
-from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
+from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize, mt5_shutdown
 from src.core.orchestrator import Orchestrator
 from src.core.paper_trading_engine import PaperTradingEngine
 from src.core.secrets_manager import SecretsManager
@@ -237,6 +240,7 @@ class TradingSystem(QObject):
         self.orchestrator = None
         self.training_scheduler = None  # Планировщик автоматического переобучения
         self.hot_reload_manager = None  # Менеджер горячего обновления
+        self.model_loader = None  # Загрузчик AI-моделей с кастомными путями
         self.safety_monitor = None  # CRITICAL: Safety Monitor для защиты капитала
         self.circuit_breaker = None  # P0: Circuit Breaker для аварийной остановки
         self.alert_manager = None  # P0: Alert Manager для уведомлений
@@ -486,16 +490,59 @@ class TradingSystem(QObject):
 
         self.training_scheduler = TrainingScheduler(self.config, self._auto_retrain_callback)
 
-        # Инициализация HotReloadManager
+        # Инициализация Model Loader (загрузка моделей с кастомными путями)
+        from src.core.model_loader import create_model_loader, validate_models_at_startup
+
+        self.model_loader = create_model_loader(self.config)
+        logger.info("✅ ModelLoader инициализирован")
+
+        # Валидация моделей при старте (до начала торговли)
+        if validate_models_at_startup(self.config):
+            logger.info("✅ Валидация моделей прошла успешно")
+        else:
+            logger.warning("⚠️ Валидация моделей не удалась — торговля может быть ограничена")
+
+        # Инициализация Model Championship (турнир для отбора лучших моделей)
+        from src.ml.championship import ModelChampionship
+
+        self.championship = ModelChampionship(self.config, self.db_manager)
+        # Связываем config с trading_system (для hot-reload)
+        self.config._trading_system = self
+        logger.info("✅ ModelChampionship инициализирован")
+
+        # Планируем первый запуск чемпионата
+        self._championship_next_run = datetime.now()
+        logger.info(
+            f"🏆 Первый запуск чемпионата: {self._championship_next_run.strftime('%Y-%m-%d %H:%M')}"
+        )
+
+        # Инициализация HotReloadManager (с поддержкой файлового мониторинга)
         import os
 
         repo_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        
+        # Директории для наблюдения (конфиги, модели)
+        watch_dirs = []
+        model_dir = self.config.MODEL_DIR if self.config.MODEL_DIR else str(SyncPath(self.config.DATABASE_FOLDER) / "ai_models")
+        if SyncPath(model_dir).exists():
+            watch_dirs.append(model_dir)
+            logger.info(f"👁️ HotReload наблюдает за моделями: {model_dir}")
+
+        from src.core.hot_reload_manager import HotReloadConfig
+
         self.hot_reload_manager = HotReloadManager(
             repo_path=repo_path,
             branch="main",
+            trading_system=self,  # Передаём ссылку на TradingSystem
             on_update_available=self._on_update_available,
             on_update_complete=self._on_update_complete,
             on_error=self._on_update_error,
+            config=HotReloadConfig(
+                dry_run=False,  # Включить для тестирования без реальных изменений
+                auto_apply=False,  # Ручное подтверждение обновлений
+                debounce_seconds=2.0,
+            ),
+            watch_dirs=watch_dirs,
         )
         logger.info("✅ HotReloadManager инициализирован")
 
@@ -857,11 +904,11 @@ class TradingSystem(QObject):
                         logger.error(f"[MT5] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
                         mt5_login = None
 
-                    # Сначала пробуем мягкое подключение
-                    if not self.terminal_connector.initialize(path=self.config.MT5_PATH):
+                    # Сначала пробуем мягкое подключение через ConnectionManager
+                    if not mt5_ensure_connected(path=self.config.MT5_PATH):
                         logger.warning("[run_cycle] Не удалось подключиться к MT5 (мягкое)")
                         # Если не вышло, пробуем полную авторизацию
-                        if not self.terminal_connector.initialize(
+                        if not mt5_initialize(
                             path=self.config.MT5_PATH,
                             login=mt5_login,
                             password=self.config.MT5_PASSWORD,
@@ -871,14 +918,14 @@ class TradingSystem(QObject):
                             return None, []
 
                     try:
-                        acc_info = self.terminal_connector.account_info()
-                        pos = self.terminal_connector.positions_get()
+                        acc_info = mt5.account_info()
+                        pos = mt5.positions_get()
                         logger.info(
                             f"[run_cycle] Данные аккаунта получены: balance={acc_info.balance if acc_info else 'None'}"
                         )
                         return acc_info, list(pos) if pos else []
                     finally:
-                        self.terminal_connector.shutdown()
+                        mt5_shutdown()
                 finally:
                     logger.info("[run_cycle] MT5 Lock освобождается")
                     self.mt5_lock.release()
@@ -1339,6 +1386,10 @@ class TradingSystem(QObject):
                 await asyncio.gather(*analysis_tasks)
                 self.end_performance_timer("execute_analysis_tasks")
 
+            # === CHAMPIONSHIP: Проверка, пора ли запускать чемпионат моделей ===
+            if hasattr(self, "championship") and self.championship.should_run_championship():
+                await self._run_championship_check()
+
             self.end_performance_timer("run_cycle_total")
 
         except Exception as e:
@@ -1683,31 +1734,39 @@ class TradingSystem(QObject):
                         },
                     )
 
-            # === ИСПРАВЛЕНИЕ: Загружаем данные для обучения БЕЗ БЛОКИРОВКИ ===
+            # === ИСПРАВЛЕНИЕ: Загружаем данные для обучения с коротким MT5 lock ===
             timeframe = mt5.TIMEFRAME_H1
             data_load_start = standard_time.time()
 
-            # Загружаем данные НАПРЯМУЮ через MT5 без использования data_provider
-            # Это позволяет избежать блокировки mt5_lock
+            # Загружаем данные НАПРЯМУЮ через MT5 без использования data_provider,
+            # но с коротким lock, чтобы избежать гонок в MT5.
             logger.info(f"[R&D] Прямая загрузка данных из MT5 для {symbol_to_train}...")
 
-            # Инициализируем отдельное подключение для обучения
-            if not mt5_ensure_connected(path=self.config.MT5_PATH):
-                logger.error(f"[R&D] Не удалось подключиться к MT5 для загрузки данных")
+            lock_acquired = self.mt5_lock.acquire(timeout=3)
+            if not lock_acquired:
+                logger.warning("[R&D] MT5 Lock занят. Пропуск загрузки данных для обучения.")
                 df_full = None
             else:
-                # Загружаем данные
-                rates = mt5.copy_rates_from_pos(symbol_to_train, timeframe, 0, self.config.TRAINING_DATA_POINTS)
-                mt5.shutdown()
+                try:
+                    # Инициализируем отдельное подключение для обучения
+                    if not mt5_ensure_connected(path=self.config.MT5_PATH):
+                        logger.error(f"[R&D] Не удалось подключиться к MT5 для загрузки данных")
+                        df_full = None
+                    else:
+                        # Загружаем данные
+                        rates = mt5.copy_rates_from_pos(symbol_to_train, timeframe, 0, self.config.TRAINING_DATA_POINTS)
 
-                if rates is not None and len(rates) > 0:
-                    df_full = pd.DataFrame(rates)
-                    df_full["time"] = pd.to_datetime(df_full["time"], unit="s")
-                    df_full.set_index("time", inplace=True)
-                    logger.info(f"[R&D] Загружено {len(df_full)} баров напрямую из MT5")
-                else:
-                    logger.warning(f"[R&D] MT5 вернул пустые данные")
-                    df_full = None
+                        if rates is not None and len(rates) > 0:
+                            df_full = pd.DataFrame(rates)
+                            df_full["time"] = pd.to_datetime(df_full["time"], unit="s")
+                            df_full.set_index("time", inplace=True)
+                            logger.info(f"[R&D] Загружено {len(df_full)} баров напрямую из MT5")
+                        else:
+                            logger.warning(f"[R&D] MT5 вернул пустые данные")
+                            df_full = None
+                finally:
+                    mt5_shutdown()
+                    self.mt5_lock.release()
 
             data_load_time = standard_time.time() - data_load_start
             logger.info(f"[R&D] Загрузка данных заняла {data_load_time:.2f} сек")
@@ -1811,9 +1870,13 @@ class TradingSystem(QObject):
     def _force_retrain_with_optuna(
         self, symbol: str, timeframe: int, train_df: pd.DataFrame, val_df: pd.DataFrame, features_to_use: List[str]
     ) -> Optional[Dict]:
+        if optuna is None:
+            logger.error("[Optuna] Библиотека optuna не установлена. Оптимизация гиперпараметров отключена.")
+            return None
+
         logger.warning(f"[Optuna] Запуск оптимизации гиперпараметров для {symbol}...")
 
-        def objective(trial: optuna.trial.Trial) -> float:
+        def objective(trial) -> float:
             lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
             hidden_dim = trial.suggest_int("hidden_dim", 16, 64, step=16)
             num_layers = trial.suggest_int("num_layers", 1, 3)
@@ -2270,7 +2333,7 @@ class TradingSystem(QObject):
                     info = mt5.account_info()
                     return info
                 finally:
-                    mt5.shutdown()
+                    mt5_shutdown()
         return None
 
     def start_monitoring_loop(self):
@@ -2563,7 +2626,7 @@ class TradingSystem(QObject):
                                 self.history_needs_update = False
                             last_heavy_check_time = current_time
                     finally:
-                        mt5.shutdown()
+                        mt5_shutdown()
                 except Exception as e:
                     logger.error(f"Критическая ошибка в цикле мониторинга (внутри лока): {e}", exc_info=True)
                 finally:
@@ -2700,18 +2763,18 @@ class TradingSystem(QObject):
                     with self.mt5_lock:
                         # Добавляем повторные попытки подключения
                         for attempt in range(3):
-                            if not self.terminal_connector.initialize(path=self.config.MT5_PATH):
+                            if not mt5_ensure_connected(path=self.config.MT5_PATH):
                                 logger.error(f"[{symbol}] MT5 Init Failed in _process_single_symbol, attempt {attempt + 1}.")
                                 standard_time.sleep(1)
                                 continue
                             try:
-                                positions = list(self.terminal_connector.positions_get(symbol=symbol))
+                                positions = list(mt5.positions_get(symbol=symbol))
                                 return positions
                             except Exception as e:
                                 logger.error(f"Ошибка получения позиций: {e}")
                                 standard_time.sleep(1)
                             finally:
-                                self.terminal_connector.shutdown()
+                                mt5_shutdown()
                         return []
 
                 open_positions_for_symbol = await asyncio.to_thread(get_mt5_positions_sync)
@@ -3978,14 +4041,19 @@ class TradingSystem(QObject):
             from_date = datetime.now() - timedelta(days=self.config.system.initial_history_sync_days)
             if self.stop_event.is_set():
                 return
-            if not mt5_ensure_connected(path=self.config.MT5_PATH):
-                # 🔧 OPTIMIZATION: При отсутствии MT5 пропускаем синхронизацию, не спамим ошибкой
-                logger.debug("Синхронизация истории: MT5 недоступен, пропускаю.")
+            lock_acquired = self.mt5_lock.acquire(timeout=3)
+            if not lock_acquired:
+                logger.debug("Синхронизация истории: MT5 lock занят, пропускаю.")
                 return
             try:
+                if not mt5_ensure_connected(path=self.config.MT5_PATH):
+                    # 🔧 OPTIMIZATION: При отсутствии MT5 пропускаем синхронизацию, не спамим ошибкой
+                    logger.debug("Синхронизация истории: MT5 недоступен, пропускаю.")
+                    return
                 history_deals = mt5.history_deals_get(from_date, datetime.now())
             finally:
-                mt5.shutdown()
+                mt5_shutdown()
+                self.mt5_lock.release()
             if history_deals is None:
                 logger.warning("Синхронизация истории: не удалось получить историю сделок от MT5.")
                 return
@@ -4513,6 +4581,17 @@ class TradingSystem(QObject):
 
             logger.info("✅ Автоматическое переобучение завершено")
 
+            # Перезагружаем модели чемпионов после автообучения
+            try:
+                symbols_for_reload = []
+                if hasattr(self, "latest_ranked_list") and self.latest_ranked_list:
+                    symbols_for_reload = [item["symbol"] for item in self.latest_ranked_list]
+                else:
+                    symbols_for_reload = list(self.config.SYMBOLS_WHITELIST)
+                self._load_champion_models_into_memory(symbols_for_reload)
+            except Exception as reload_error:
+                logger.error(f"Ошибка перезагрузки моделей после автообучения: {reload_error}", exc_info=True)
+
             # ОТПРАВКА ДАННЫХ В GUI ПОСЛЕ ОБУЧЕНИЯ
             if self.bridge:
                 logger.info("📊 Отправка данных в GUI...")
@@ -4557,6 +4636,120 @@ class TradingSystem(QObject):
             except Exception as e:
                 logger.error(f"Ошибка отправки уведомления об ошибке обновления: {e}")
 
+    async def _run_championship_check(self):
+        """
+        Запускает чемпионат моделей для отбора лучшей.
+        Вызывается автоматически раз в N дней.
+        """
+        try:
+            logger.info("=" * 80)
+            logger.info("🏆 ЗАПУСК ЧЕМПИОНАТА МОДЕЛЕЙ")
+            logger.info("=" * 80)
+
+            # Собираем модели-кандидаты
+            candidate_names = self.config.championship.candidate_models
+            candidates = {}
+
+            for model_name in candidate_names:
+                try:
+                    # Загружаем модель через model_loader
+                    model = self.model_loader.load_model(model_name=model_name, force_reload=True)
+                    if model:
+                        candidates[model_name] = model
+                        logger.info(f"   ✅ Загружена модель: {model_name}")
+                    else:
+                        logger.warning(f"   ⚠️ Модель {model_name} не найдена")
+                except Exception as e:
+                    logger.warning(f"   ❌ Ошибка загрузки {model_name}: {e}")
+
+            if len(candidates) < 2:
+                logger.warning("⚠️ Недостаточно моделей для чемпионата (минимум 2)")
+                return
+
+            # Загружаем данные для оценки (последние N баров)
+            symbol = self.config.SYMBOLS_WHITELIST[0] if self.config.SYMBOLS_WHITELIST else ""
+            if not symbol:
+                logger.warning("⚠️ Нет символов для оценки")
+                return
+
+            # Получаем исторические данные
+            data = self._load_historical_data_for_championship(symbol)
+            if data is None or len(data) < 100:
+                logger.warning(f"⚠️ Недостаточно данных для {symbol} ({len(data) if data is not None else 0} баров)")
+                return
+
+            # Запускаем чемпионат (в executor чтобы не блокировать)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.championship.run_championship(candidates, data, symbol)
+            )
+
+            if result:
+                logger.info(f"🏆 Чемпионат завершён! Победитель: {result.winner}")
+                if result.champion_changed:
+                    logger.critical(
+                        f"🎉 СМЕНА ЧЕМПИОНА: {result.previous_champion} → {result.winner}\n"
+                        f"   Sharpe: {result.winner_metrics.get('sharpe_ratio', 0):.3f}"
+                    )
+                    # Отправляем уведомление в GUI
+                    if self.bridge:
+                        self.bridge.status_updated.emit(
+                            f"🏆 Новый чемпион: {result.winner} (был {result.previous_champion})"
+                        )
+
+                    # Запускаем карантин для новой модели
+                    self.championship.activate_model(result.winner)
+                else:
+                    logger.info(f"👑 Чемпион остался прежним: {result.winner}")
+            else:
+                logger.warning("⚠️ Чемпионат не состоялся — ни одна модель не прошла порог")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка в чемпионате моделей: {e}", exc_info=True)
+
+    def _load_historical_data_for_championship(self, symbol: str) -> Optional[pd.DataFrame]:
+        """
+        Загружает исторические данные для чемпионата.
+        
+        Returns:
+            DataFrame с OHLCV данными
+        """
+        try:
+            # Загружаем из БД
+            window = self.config.championship.evaluation_window
+            
+            if self.db_manager:
+                query = """
+                    SELECT timestamp, open, high, low, close, tick_volume as volume
+                    FROM candle_data
+                    WHERE symbol = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """
+                # Зависит от реализации БД — может потребоваться адаптация
+                pass
+            
+            # Fallback: запрашиваем из MT5
+            import MetaTrader5 as mt5
+            from datetime import timedelta
+            
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, window * 2)
+            if rates is None or len(rates) == 0:
+                return None
+            
+            df = pd.DataFrame(rates)
+            df["time"] = pd.to_datetime(df["time"], unit="s")
+            df.set_index("time", inplace=True)
+            df.rename(columns={"tick_volume": "volume"}, inplace=True)
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Ошибка загрузки данных для чемпионата: {e}")
+            return None
+
     def _send_model_accuracy_to_gui(self):
         """
         Собирает и отправляет в GUI данные о точности моделей.
@@ -4566,7 +4759,8 @@ class TradingSystem(QObject):
             from pathlib import Path
 
             accuracy_data = {}
-            models_path = Path(self.config.DATABASE_FOLDER) / "ai_models"
+            # Используем model_loader для получения пути к моделям
+            models_path = self.model_loader._resolve_model_dir() if self.model_loader else Path(self.config.DATABASE_FOLDER) / "ai_models"
 
             for symbol in self.config.SYMBOLS_WHITELIST:
                 metadata_file = models_path / f"{symbol}_metadata.json"
@@ -4597,7 +4791,8 @@ class TradingSystem(QObject):
             from pathlib import Path
 
             progress_data = {}
-            models_path = Path(self.config.DATABASE_FOLDER) / "ai_models"
+            # Используем model_loader для получения пути к моделям
+            models_path = self.model_loader._resolve_model_dir() if self.model_loader else Path(self.config.DATABASE_FOLDER) / "ai_models"
 
             for symbol in self.config.SYMBOLS_WHITELIST:
                 metadata_file = models_path / f"{symbol}_metadata.json"

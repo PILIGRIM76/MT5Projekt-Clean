@@ -60,8 +60,11 @@ class AutoTrainer:
         self.config = config
         self.db_manager = db_manager
 
-        # Пути
-        self.models_path = Path(config.DATABASE_FOLDER) / "ai_models"
+        # Пути — используем MODEL_DIR из конфига или fallback на DATABASE_FOLDER/ai_models
+        if hasattr(config, "MODEL_DIR") and config.MODEL_DIR:
+            self.models_path = Path(config.MODEL_DIR)
+        else:
+            self.models_path = Path(config.DATABASE_FOLDER) / "ai_models"
         self.models_path.mkdir(parents=True, exist_ok=True)
 
         # Настройки обучения - ЧАСТОЕ ПЕРЕОБУЧЕНИЕ!
@@ -365,6 +368,7 @@ class AutoTrainer:
                     "validation_samples": len(X_val),
                     "features": feature_columns,
                 },
+                timeframe=timeframe,
             )
 
             elapsed = time.time() - start_time
@@ -380,7 +384,7 @@ class AutoTrainer:
             self.stats["training_errors"] += 1
             return False
 
-    def _save_model(self, symbol: str, model: Any, scaler: StandardScaler, metadata: Dict[str, Any]):
+    def _save_model(self, symbol: str, model: Any, scaler: StandardScaler, metadata: Dict[str, Any], timeframe: str = "H1"):
         """
         Сохраняет модель на диск и в базу данных.
 
@@ -410,10 +414,29 @@ class AutoTrainer:
             # Сохраняем в базу данных синхронно с получением ID
             try:
                 import uuid
+                # Преобразуем timeframe строки в MT5 константу
+                mt5_timeframe = 16385  # H1 default
+                try:
+                    import MetaTrader5 as mt5
+
+                    tf_map = {
+                        "M1": mt5.TIMEFRAME_M1,
+                        "M5": mt5.TIMEFRAME_M5,
+                        "M15": mt5.TIMEFRAME_M15,
+                        "M30": mt5.TIMEFRAME_M30,
+                        "H1": mt5.TIMEFRAME_H1,
+                        "H4": mt5.TIMEFRAME_H4,
+                        "D1": mt5.TIMEFRAME_D1,
+                        "W1": mt5.TIMEFRAME_W1,
+                    }
+                    mt5_timeframe = tf_map.get(timeframe, mt5.TIMEFRAME_H1)
+                except Exception:
+                    # Оставляем дефолт H1
+                    pass
 
                 model_id = self.db_manager.save_model_and_scalers_sync(
                     symbol=symbol,
-                    timeframe=16408,  # H1 timeframe (MT5 constant)
+                    timeframe=mt5_timeframe,
                     model=model,
                     model_type="LightGBM",
                     x_scaler=scaler,
@@ -424,6 +447,33 @@ class AutoTrainer:
                 )
                 if model_id:
                     logger.info(f"Модель {symbol} сохранена в БД с ID={model_id}")
+                    # Если чемпиона нет — повышаем новую модель до чемпиона автоматически
+                    try:
+                        session = self.db_manager.Session()
+                        from src.db.models import TrainedModel
+
+                        has_champion = (
+                            session.query(TrainedModel)
+                            .filter_by(symbol=symbol, timeframe=mt5_timeframe, model_type="LightGBM", is_champion=True)
+                            .first()
+                            is not None
+                        )
+                    finally:
+                        session.close()
+
+                    if not has_champion:
+                        logger.warning(f"[AutoTrainer] Чемпион не найден для {symbol} ({mt5_timeframe}). Продвигаем модель.")
+                        report = {
+                            "auto_promoted": True,
+                            "train_accuracy": metadata.get("train_accuracy"),
+                            "val_accuracy": metadata.get("val_accuracy"),
+                            "training_samples": metadata.get("training_samples"),
+                            "validation_samples": metadata.get("validation_samples"),
+                        }
+                        try:
+                            self.db_manager._promote_challenger_to_champion_internal(model_id, report)
+                        except Exception as promote_error:
+                            logger.error(f"Ошибка автопродвижения в чемпионы: {promote_error}", exc_info=True)
                 else:
                     logger.warning(f"Модель {symbol} сохранена на диск, но НЕ сохранена в БД (ID=None)")
             except Exception as db_error:

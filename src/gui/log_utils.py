@@ -2,6 +2,7 @@
 
 import logging
 import os
+from typing import Optional
 from logging.handlers import RotatingFileHandler  # +++ ИЗМЕНЕНИЕ: Импортируем нужный обработчик
 from pathlib import Path  # +++ ИЗМЕНЕНИЕ: Импортируем Path
 
@@ -110,28 +111,56 @@ def setup_qt_logging(bridge_log_signal, config: Settings):
 
     # +++ НАЧАЛО ИЗМЕНЕНИЙ +++
     # 3. Настраиваем обработчик для записи в файл с ротацией
+    def _resolve_logs_path() -> Optional[Path]:
+        candidates = []
+        # Явно заданный путь
+        if hasattr(config, "LOGS_FOLDER") and config.LOGS_FOLDER:
+            candidates.append(Path(config.LOGS_FOLDER))
+        # По умолчанию: DATABASE_FOLDER/logs
+        if hasattr(config, "DATABASE_FOLDER") and config.DATABASE_FOLDER:
+            candidates.append(Path(config.DATABASE_FOLDER) / "logs")
+        # Fallback: локальные логи в репозитории/рабочей директории
+        candidates.append(Path.cwd() / "logs")
+        candidates.append(Path(__file__).resolve().parents[2] / "logs")
+
+        for path in candidates:
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                test_file = path / ".write_test"
+                with open(test_file, "a", encoding="utf-8") as f:
+                    f.write("")
+                try:
+                    test_file.unlink()
+                except Exception:
+                    pass
+                return path
+            except Exception:
+                continue
+        return None
+
     try:
-        # Создаем папку для логов, если ее нет
-        logs_path = Path(config.DATABASE_FOLDER) / "logs"
-        logs_path.mkdir(parents=True, exist_ok=True)
-        log_file_path = logs_path / "genesis_system.log"
+        logs_path = _resolve_logs_path()
+        if not logs_path:
+            logging.warning("Не удалось выбрать доступную директорию для логов. Файловое логирование отключено.")
+        else:
+            log_file_path = logs_path / "genesis_system.log"
 
-        # Создаем обработчик, который будет создавать до 5 файлов логов по 5 МБ каждый
-        file_handler = RotatingFileHandler(
-            log_file_path,
-            maxBytes=5 * 1024 * 1024,
-            backupCount=5,
-            encoding="utf-8",
-            delay=True,  # Откладываем открытие файла до первой записи
-        )
-        # Устанавливаем более детальный формат для файла
-        file_formatter = logging.Formatter(
-            "%(asctime)s - %(levelname)s - [%(name)s:%(lineno)d] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-        )
-        file_handler.setFormatter(file_formatter)
-        root_logger.addHandler(file_handler)
+            # Создаем обработчик, который будет создавать до 5 файлов логов по 5 МБ каждый
+            file_handler = RotatingFileHandler(
+                log_file_path,
+                maxBytes=5 * 1024 * 1024,
+                backupCount=5,
+                encoding="utf-8",
+                delay=True,  # Откладываем открытие файла до первой записи
+            )
+            # Устанавливаем более детальный формат для файла
+            file_formatter = logging.Formatter(
+                "%(asctime)s - %(levelname)s - [%(name)s:%(lineno)d] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            )
+            file_handler.setFormatter(file_formatter)
+            root_logger.addHandler(file_handler)
 
-        logging.info(f"Логирование в файл настроено. Файлы будут сохраняться в: {log_file_path}")
+            logging.info(f"Логирование в файл настроено. Файлы будут сохраняться в: {log_file_path}")
 
     except Exception as e:
         logging.error(f"Не удалось настроить логирование в файл: {e}")

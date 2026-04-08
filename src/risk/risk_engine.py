@@ -295,7 +295,7 @@ class RiskEngine:
             if not mt5_ensure_connected(path=self.config.MT5_PATH):
                 # 🔧 OPTIMIZATION: При отсутствии MT5 пропускаем проверку, не спамим ошибкой
                 logger.debug("check_daily_drawdown: MT5 недоступен, пропускаю проверку.")
-                return False
+                return True
             try:
                 history_deals = mt5.history_deals_get(today_start, datetime.now())
             except Exception as e:

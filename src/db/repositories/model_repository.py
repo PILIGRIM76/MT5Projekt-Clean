@@ -331,7 +331,11 @@ class ModelRepository:
     def _update_model_metadata_file(self, champion_model):
         """Обновить JSON файл метаданных модели."""
         try:
-            metadata_dir = Path(self.config.DATABASE_FOLDER) / "ai_models"
+            # Используем MODEL_DIR если доступен, иначе fallback
+            if hasattr(self.config, "MODEL_DIR") and self.config.MODEL_DIR:
+                metadata_dir = Path(self.config.MODEL_DIR)
+            else:
+                metadata_dir = Path(self.config.DATABASE_FOLDER) / "ai_models"
             metadata_dir.mkdir(parents=True, exist_ok=True)
 
             metadata_file = metadata_dir / f"{champion_model.symbol}_metadata.json"

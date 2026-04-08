@@ -126,6 +126,7 @@ class ModelVersioning:
     def __init__(
         self,
         db_manager: DatabaseManager,
+        config: Any = None,
         models_directory: str = "ai_models",
     ):
         """
@@ -133,10 +134,16 @@ class ModelVersioning:
 
         Args:
             db_manager: Менеджер базы данных
+            config: Конфигурация системы (для поддержки MODEL_DIR)
             models_directory: Папка для хранения файлов моделей
         """
         self.db_manager = db_manager
-        self.models_directory = Path(models_directory)
+        
+        # Поддержка кастомного пути к моделям
+        if config and hasattr(config, "MODEL_DIR") and config.MODEL_DIR:
+            self.models_directory = Path(config.MODEL_DIR)
+        else:
+            self.models_directory = Path(models_directory)
         self.models_directory.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"ModelVersioning инициализирован (папка: {self.models_directory})")

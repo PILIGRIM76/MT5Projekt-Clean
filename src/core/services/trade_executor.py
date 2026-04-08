@@ -14,6 +14,7 @@ import pandas as pd
 
 from src.core.config_models import Settings
 from src.core.services.portfolio_service import PortfolioService
+from src.core.mt5_connection_manager import mt5_shutdown
 from src.data_models import SignalType, TradeSignal
 from src.risk.risk_engine import RiskEngine
 
@@ -183,7 +184,7 @@ class TradeExecutor:
             try:
                 symbol_info = connector.symbol_info(symbol)
             finally:
-                connector.shutdown()
+                mt5_shutdown()
 
         if not symbol_info:
             return None
@@ -305,7 +306,7 @@ class TradeExecutor:
                         logger.error(f"TWAP PART {i + 1}/{num_parts} ОШИБКА: {result.comment if result else 'None'}")
                         break
                 finally:
-                    connector.shutdown()
+                    mt5_shutdown()
             finally:
                 self.mt5_lock.release()
 
@@ -462,7 +463,7 @@ class TradeExecutor:
                         logger.error(f"  - Request: {request}")
                     return None
             finally:
-                connector.shutdown()
+                mt5_shutdown()
         finally:
             self.mt5_lock.release()
         return None
@@ -568,7 +569,7 @@ class TradeExecutor:
                 symbol_info = connector.symbol_info(symbol)
                 tick = connector.symbol_info_tick(symbol)
             finally:
-                connector.shutdown()
+                mt5_shutdown()
         finally:
             self.mt5_lock.release()
 
@@ -744,7 +745,7 @@ class TradeExecutor:
                             f"[{symbol}] Не удалось выставить Limit ордер: {result.comment if result else 'Unknown'}"
                         )
                 finally:
-                    connector.shutdown()
+                    mt5_shutdown()
 
         if not order_ticket:
             return None
@@ -770,7 +771,7 @@ class TradeExecutor:
                                 logger.warning(f"[{symbol}] Limit ордер #{order_ticket} был отменен/истек.")
                                 return None
                     finally:
-                        connector.shutdown()
+                        mt5_shutdown()
                 else:
                     await asyncio.sleep(1)  # Пауза при ошибке подключения
 
@@ -778,7 +779,7 @@ class TradeExecutor:
         with self.mt5_lock:
             if connector.initialize(path=self.config.MT5_PATH):
                 connector.order_send({"action": mt5.TRADE_ACTION_REMOVE, "order": order_ticket, "magic": 202407})
-                connector.shutdown()
+                mt5_shutdown()
 
         return None
 
@@ -1047,7 +1048,7 @@ class TradeExecutor:
             try:
                 self._emergency_close_position_internal(ticket)
             finally:
-                connector.shutdown()
+                mt5_shutdown()
 
     def emergency_close_all_positions(self):
         logger.warning("Запуск экстренного закрытия ВСЕХ позиций.")
@@ -1061,7 +1062,7 @@ class TradeExecutor:
                     if positions:
                         positions_to_close = [pos.ticket for pos in positions]
                 finally:
-                    connector.shutdown()
+                    mt5_shutdown()
 
         if not positions_to_close:
             logger.info("Нет открытых позиций для закрытия.")
@@ -1105,7 +1106,7 @@ class TradeExecutor:
                 }
                 self._send_order_with_retry(connector, request)
             finally:
-                connector.shutdown()
+                mt5_shutdown()
 
     def modify_position_sltp(self, ticket: int, new_sl: float, new_tp: float):
         connector = self.risk_engine.trading_system.terminal_connector
@@ -1116,7 +1117,7 @@ class TradeExecutor:
                 request = {"action": mt5.TRADE_ACTION_SLTP, "position": ticket, "sl": new_sl, "tp": new_tp}
                 connector.order_send(request)
             finally:
-                connector.shutdown()
+                mt5_shutdown()
 
     def modify_position_sltp_to_be(self, ticket: int, entry_price: float):
         """
@@ -1169,4 +1170,4 @@ class TradeExecutor:
                     logger.error(f"Не удалось перевести SL в БУ для #{ticket}: {result.comment if result else 'Unknown'}")
 
             finally:
-                connector.shutdown()
+                mt5_shutdown()

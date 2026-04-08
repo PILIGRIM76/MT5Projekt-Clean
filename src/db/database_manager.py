@@ -5,6 +5,8 @@ import logging
 import os
 import pickle
 import queue
+import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -59,6 +61,7 @@ from src.db.models import (
 from src.ml.architectures import SimpleLSTM, TimeSeriesTransformer
 
 logger = logging.getLogger(__name__)
+_SCHEMA_LOCK = threading.Lock()
 
 # Импорт LightGBM (опционально)
 lgb = None
@@ -79,6 +82,7 @@ class RestrictedUnpickler(pickle.Unpickler):
         # Sklearn скалеры (разные версии модулей)
         "sklearn.preprocessing": {"StandardScaler", "MinMaxScaler", "RobustScaler"},
         "sklearn.preprocessing._data": {"StandardScaler", "MinMaxScaler", "RobustScaler"},
+        "sklearn.preprocessing._label": {"LabelEncoder"},
         # Sklearn деревья и ансамбли
         "sklearn.tree._tree": {"Tree"},
         "sklearn.tree._criterion": {"Criterion"},
@@ -149,7 +153,7 @@ def safe_pickle_loads(data: bytes):
 class DatabaseManager:
     def __init__(self, config: Settings, write_queue: queue.Queue):
         db_folder = Path(config.DATABASE_FOLDER)
-        db_folder.mkdir(exist_ok=True)
+        db_folder.mkdir(parents=True, exist_ok=True)
         db_path = db_folder / config.DATABASE_NAME
 
         self.engine = create_engine(f"sqlite:///{db_path}", connect_args={"timeout": 30})
@@ -167,8 +171,9 @@ class DatabaseManager:
         self.Session = sessionmaker(bind=self.engine)
         self.config = config
         self.write_queue = write_queue
-        self._check_and_migrate_schema()
-        Base.metadata.create_all(self.engine)
+        with _SCHEMA_LOCK:
+            self._check_and_migrate_schema()
+            self._safe_create_all()
         logger.info(f"DatabaseManager инициализирован. База данных: {db_path}")
 
     def load_champion_models(
@@ -613,96 +618,119 @@ class DatabaseManager:
             session.close()
 
     def _check_and_migrate_schema(self):
-        logger.info("Проверка схемы базы данных на наличие обновлений...")
-        try:
-            with self.engine.connect() as connection:
-                inspector = inspect(connection)
-                with connection.begin():
-                    # Проверка и создание таблицы candle_data
-                    candle_table_name = CandleData.__tablename__
-                    if not inspector.has_table(candle_table_name):
-                        # Создаём таблицу, если она не существует
-                        CandleData.__table__.create(connection)
-                        logger.info(f"Таблица '{candle_table_name}' успешно создана.")
-                    else:
-                        # Миграция: переименование колонки time -> timestamp (если нужно)
-                        columns = [col["name"] for col in inspector.get_columns(candle_table_name)]
-                        if "time" in columns and "timestamp" not in columns:
-                            # SQLite не поддерживает переименование колонок напрямую до версии 3.35.0
-                            # Используем подход с созданием новой таблицы
-                            logger.info("Обнаружена старая колонка 'time', переименовываем в 'timestamp'...")
-                            connection.execute(text("""
-                                CREATE TABLE IF NOT EXISTS candle_data_new (
-                                    id INTEGER NOT NULL,
-                                    symbol VARCHAR NOT NULL,
-                                    timeframe VARCHAR NOT NULL,
-                                    timestamp DATETIME NOT NULL,
-                                    open FLOAT NOT NULL,
-                                    high FLOAT NOT NULL,
-                                    low FLOAT NOT NULL,
-                                    close FLOAT NOT NULL,
-                                    tick_volume INTEGER,
-                                    PRIMARY KEY (id),
-                                    UNIQUE (symbol, timeframe, timestamp)
+        logger.info("???????? ????? ???? ?????? ?? ??????? ??????????...")
+        for attempt in range(3):
+            try:
+                with self.engine.connect() as connection:
+                    inspector = inspect(connection)
+                    with connection.begin():
+                        # ???????? ? ???????? ??????? candle_data
+                        candle_table_name = CandleData.__tablename__
+                        if not inspector.has_table(candle_table_name):
+                            CandleData.__table__.create(connection)
+                            logger.info(f"??????? '{candle_table_name}' ??????? ???????.")
+                        else:
+                            columns = [col["name"] for col in inspector.get_columns(candle_table_name)]
+                            if "time" in columns and "timestamp" not in columns:
+                                logger.info("?????????? ?????? ??????? 'time', ??????????????? ? 'timestamp'...")
+                                connection.execute(text("""
+                                    CREATE TABLE IF NOT EXISTS candle_data_new (
+                                        id INTEGER NOT NULL,
+                                        symbol VARCHAR NOT NULL,
+                                        timeframe VARCHAR NOT NULL,
+                                        timestamp DATETIME NOT NULL,
+                                        open FLOAT NOT NULL,
+                                        high FLOAT NOT NULL,
+                                        low FLOAT NOT NULL,
+                                        close FLOAT NOT NULL,
+                                        tick_volume INTEGER,
+                                        PRIMARY KEY (id),
+                                        UNIQUE (symbol, timeframe, timestamp)
+                                    )
+                                """))
+                                connection.execute(text("""
+                                    INSERT INTO candle_data_new (id, symbol, timeframe, timestamp, open, high, low, close, tick_volume)
+                                    SELECT id, symbol, timeframe, time, open, high, low, close, tick_volume FROM candle_data
+                                """))
+                                connection.execute(text("DROP TABLE candle_data"))
+                                connection.execute(text("ALTER TABLE candle_data_new RENAME TO candle_data"))
+                                logger.info("???????? ??????? time -> timestamp ?????????.")
+
+                        # ???????? ??????? trained_models
+                        table_name = TrainedModel.__tablename__
+                        if inspector.has_table(table_name):
+                            columns = [col["name"] for col in inspector.get_columns(table_name)]
+                            if "features_json" not in columns:
+                                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN features_json TEXT"))
+                            if "model_type" not in columns:
+                                connection.execute(
+                                    text(f"ALTER TABLE {table_name} ADD COLUMN model_type VARCHAR DEFAULT 'LSTM' NOT NULL")
                                 )
-                            """))
-                            connection.execute(text("""
-                                INSERT INTO candle_data_new (id, symbol, timeframe, timestamp, open, high, low, close, tick_volume)
-                                SELECT id, symbol, timeframe, time, open, high, low, close, tick_volume FROM candle_data
-                            """))
-                            connection.execute(text("DROP TABLE candle_data"))
-                            connection.execute(text("ALTER TABLE candle_data_new RENAME TO candle_data"))
-                            logger.info("Миграция колонки time -> timestamp завершена.")
+                            if "is_champion" not in columns:
+                                connection.execute(
+                                    text(f"ALTER TABLE {table_name} ADD COLUMN is_champion BOOLEAN DEFAULT FALSE NOT NULL")
+                                )
+                            if "performance_report" not in columns:
+                                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN performance_report TEXT"))
+                            if "hyperparameters_json" not in columns:
+                                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN hyperparameters_json TEXT"))
+                            if "training_batch_id" not in columns:
+                                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN training_batch_id VARCHAR"))
 
-                    # Проверка таблицы trained_models
-                    table_name = TrainedModel.__tablename__
-                    if inspector.has_table(table_name):
-                        columns = [col["name"] for col in inspector.get_columns(table_name)]
-                        if "features_json" not in columns:
-                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN features_json TEXT"))
-                        if "model_type" not in columns:
-                            connection.execute(
-                                text(f"ALTER TABLE {table_name} ADD COLUMN model_type VARCHAR DEFAULT 'LSTM' NOT NULL")
-                            )
-                        if "is_champion" not in columns:
-                            connection.execute(
-                                text(f"ALTER TABLE {table_name} ADD COLUMN is_champion BOOLEAN DEFAULT FALSE NOT NULL")
-                            )
-                        if "performance_report" not in columns:
-                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN performance_report TEXT"))
-                        if "hyperparameters_json" not in columns:
-                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN hyperparameters_json TEXT"))
-                        if "training_batch_id" not in columns:
-                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN training_batch_id VARCHAR"))
+                        # ???????? ??????? trade_history
+                        table_name = TradeHistory.__tablename__
+                        if inspector.has_table(table_name):
+                            columns = [col["name"] for col in inspector.get_columns(table_name)]
+                            if "xai_data" not in columns:
+                                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN xai_data TEXT"))
+                            if "market_regime" not in columns:
+                                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN market_regime VARCHAR"))
+                            if "news_sentiment" not in columns:
+                                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN news_sentiment FLOAT"))
+                            if "volatility_metric" not in columns:
+                                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN volatility_metric FLOAT"))
 
-                    # Проверка таблицы trade_history
-                    table_name = TradeHistory.__tablename__
-                    if inspector.has_table(table_name):
-                        columns = [col["name"] for col in inspector.get_columns(table_name)]
-                        if "xai_data" not in columns:
-                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN xai_data TEXT"))
-                        if "market_regime" not in columns:
-                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN market_regime VARCHAR"))
-                        if "news_sentiment" not in columns:
-                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN news_sentiment FLOAT"))
-                        if "volatility_metric" not in columns:
-                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN volatility_metric FLOAT"))
+                        # ???????? ??????? strategy_performance
+                        table_name = StrategyPerformance.__tablename__
+                        if inspector.has_table(table_name):
+                            columns = [col["name"] for col in inspector.get_columns(table_name)]
+                            if "status" not in columns:
+                                connection.execute(
+                                    text(f"ALTER TABLE {table_name} ADD COLUMN status VARCHAR DEFAULT 'live' NOT NULL")
+                                )
+                            if "incubation_start_date" not in columns:
+                                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN incubation_start_date DATETIME"))
 
-                    # Проверка таблицы strategy_performance
-                    table_name = StrategyPerformance.__tablename__
-                    if inspector.has_table(table_name):
-                        columns = [col["name"] for col in inspector.get_columns(table_name)]
-                        if "status" not in columns:
-                            connection.execute(
-                                text(f"ALTER TABLE {table_name} ADD COLUMN status VARCHAR DEFAULT 'live' NOT NULL")
-                            )
+                logger.info("???????? ????? ???? ?????? ????????? ???????.")
+                return
+            except Exception as e:
+                msg = str(e)
+                if "database is locked" in msg and attempt < 2:
+                    logger.warning(f"?? ?????????????. ?????? {attempt + 1}/3...")
+                    time.sleep(1 + attempt)
+                    continue
+                if "already exists" in msg or "duplicate column name" in msg:
+                    logger.warning(f"????? ?? ??? ???????/?????????: {e}")
+                    return
+                logger.error(f"?? ??????? ???????? ????? ???? ??????: {e}")
+                return
 
-                        if "incubation_start_date" not in columns:
-                            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN incubation_start_date DATETIME"))
-
-            logger.info("Проверка схемы базы данных завершена успешно.")
-        except Exception as e:
-            logger.error(f"Не удалось обновить схему базы данных: {e}")
+    def _safe_create_all(self) -> None:
+        for attempt in range(3):
+            try:
+                Base.metadata.create_all(self.engine)
+                return
+            except Exception as e:
+                msg = str(e)
+                if "database is locked" in msg and attempt < 2:
+                    logger.warning(f"?? ?????????????. ?????? create_all {attempt + 1}/3...")
+                    time.sleep(1 + attempt)
+                    continue
+                if "already exists" in msg:
+                    logger.warning(f"??????? ??? ??????????, create_all ????????: {e}")
+                    return
+                logger.error(f"?????? create_all: {e}")
+                return
 
     def update_trade_with_xai(self, **kwargs):
         self.write_queue.put(("update_trade_with_xai", kwargs))
@@ -1601,7 +1629,11 @@ class DatabaseManager:
             import json as json_module
             from pathlib import Path
 
-            models_path = Path(self.config.DATABASE_FOLDER) / "ai_models"
+            # Используем MODEL_DIR если доступен, иначе fallback
+            if hasattr(self.config, "MODEL_DIR") and self.config.MODEL_DIR:
+                models_path = Path(self.config.MODEL_DIR)
+            else:
+                models_path = Path(self.config.DATABASE_FOLDER) / "ai_models"
             metadata_file = models_path / f"{champion_model.symbol}_metadata.json"
 
             # Создаём директорию если не существует
@@ -2118,3 +2150,44 @@ class DatabaseManager:
             logger.error(f"Ошибка при логировании обратной связи в KG: {e}")
         finally:
             session.close()
+
+    def save_championship_result(self, result: Dict[str, Any]) -> bool:
+        """
+        Сохраняет результат чемпионата моделей в БД.
+        
+        Args:
+            result: Dict с результатами чемпионата
+            
+        Returns:
+            True если успешно
+        """
+        try:
+            import json as json_module
+            
+            # Сохраняем как JSON в лог-файл (резервный вариант)
+            log_path = Path(self.config.DATABASE_FOLDER) / "championship_log.json"
+            
+            results = []
+            if log_path.exists():
+                try:
+                    with open(log_path, "r", encoding="utf-8") as f:
+                        results = json_module.load(f)
+                except Exception:
+                    results = []
+            
+            results.append(result)
+            
+            # Храним последние 100 результатов
+            if len(results) > 100:
+                results = results[-100:]
+            
+            with open(log_path, "w", encoding="utf-8") as f:
+                json_module.dump(results, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"🏆 Результат чемпионата сохранён в БД: {result.get('winner', 'unknown')}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка сохранения результата чемпионата: {e}")
+            return False
+

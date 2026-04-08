@@ -240,6 +240,26 @@ class AutoRetrainingSettings(BaseModel):
     max_workers: int = Field(default=3, description="Кол-во параллельных потоков обучения.")
 
 
+class ChampionshipSettings(BaseModel):
+    """Настройки чемпионата моделей (автоматический отбор лучших)."""
+
+    enabled: bool = Field(default=True, description="Включить чемпионат моделей")
+    evaluation_window: int = Field(default=2000, description="Размер окна данных для оценки (в барах)")
+    min_sharpe_ratio: float = Field(default=0.8, description="Минимальный Sharpe ratio для прохождения порога")
+    min_win_rate: float = Field(default=0.45, description="Минимальный Win Rate")
+    max_drawdown_percent: float = Field(default=15.0, description="Максимальная просадка в %")
+    min_profit_factor: float = Field(default=1.1, description="Минимальный Profit Factor")
+    interval_days: int = Field(default=7, description="Интервал проведения чемпионата (в днях)")
+    quarantine_days: int = Field(default=5, description="Период карантина для новой модели (в днях)")
+    commission_per_trade: float = Field(default=0.0001, description="Комиссия за сделку (для симуляции)")
+    slippage_percent: float = Field(default=0.0002, description="Проскальзывание (для симуляции)")
+    walk_forward_splits: int = Field(default=5, description="Количество сплитов для walk-forward валидации")
+    candidate_models: List[str] = Field(
+        default_factory=lambda: ["EURUSD_model", "GBPUSD_model", "XAUUSD_model"],
+        description="Список моделей-кандидатов для участия в чемпионате",
+    )
+
+
 # === НАСТРОЙКИ УВЕДОМЛЕНИЙ ===
 class TelegramChannelSettings(BaseModel):
     """Настройки Telegram канала."""
@@ -398,6 +418,23 @@ class Settings(BaseModel):
     screener_liquidity: ScreenerLiquiditySettings = Field(default_factory=ScreenerLiquiditySettings)
     screener_weights: ScreenerWeightsSettings = Field(default_factory=ScreenerWeightsSettings)
 
+    # --- ML Model Path Settings ---
+    MODEL_DIR: str = Field(
+        default="",
+        description="Путь к директории с AI-моделями. Поддерживает абсолютные/относительные пути и переопределение через env MODEL_DIR.",
+    )
+    MODEL_FORMAT: str = Field(
+        default="keras",
+        description="Формат моделей: 'keras' (.h5/.keras), 'pytorch' (.pt), 'onnx' (.onnx).",
+    )
+    ACTIVE_MODEL: str = Field(
+        default="lstm_v4",
+        description="Имя активной модели (без расширения). Используется для загрузки при старте.",
+    )
+    BACKUP_MODEL: str = Field(
+        default="lstm_v3",
+        description="Имя резервной модели для fallback при повреждении активной модели.",
+    )
     # --- ML Settings ---
     INPUT_LAYER_SIZE: int = Field(default=60, description="Размер входной последовательности (кол-во баров) для нейросетей.")
     TRAINING_DATA_POINTS: int = Field(default=2000, description="Кол-во баров для набора данных при обучении моделей.")
@@ -550,6 +587,7 @@ class Settings(BaseModel):
     model_config = {"case_sensitive": False, "coerce_numbers_to_str": True}
 
     auto_retraining: AutoRetrainingSettings = Field(default_factory=AutoRetrainingSettings)
+    championship: ChampionshipSettings = Field(default_factory=ChampionshipSettings, description="Настройки чемпионата моделей")
     alerting: AlertingSettings = Field(default_factory=AlertingSettings, description="Настройки системы уведомлений")
     crypto_exchanges: CryptoExchangesSettings = Field(
         default_factory=CryptoExchangesSettings, description="Настройки крипто-бирж (ccxt)"
