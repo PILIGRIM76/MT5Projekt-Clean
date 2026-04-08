@@ -4634,9 +4634,10 @@ class TradingSystem(QObject):
 
         while not self.stop_event.is_set():
             try:
-                # Обновляем только прогресс (точность меняется реже)
+                # Обновляем прогресс переобучения И точность моделей
                 if self.bridge:
                     self._send_retrain_progress_to_gui()
+                    self._send_model_accuracy_to_gui()  # 🔧 FIX: Отправляем точность моделей
 
                 # Ждём следующий интервал
                 self.stop_event.wait(update_interval)
