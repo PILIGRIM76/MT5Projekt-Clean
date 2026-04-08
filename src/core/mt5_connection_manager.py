@@ -283,6 +283,23 @@ def mt5_ensure_connected(**kwargs) -> bool:
     Если не подключено — инициализирует.
     """
     manager = MT5ConnectionManager.get_instance()
+
+    # Проверяем подключение
     if not manager.is_connected():
+        logger.debug("[MT5] mt5_ensure_connected: не подключено, пытаемся инициализировать...")
+        result = manager.initialize(**kwargs)
+        if not result:
+            logger.warning("[MT5] mt5_ensure_connected: инициализация не удалась")
+        return result
+
+    # Дополнительная проверка что соединение живо
+    try:
+        account = mt5.account_info()
+        if account is None:
+            logger.warning("[MT5] mt5_ensure_connected: account_info вернул None, переподключаемся...")
+            return manager.initialize(**kwargs)
+    except Exception as e:
+        logger.warning(f"[MT5] mt5_ensure_connected: ошибка проверки: {e}, переподключаемся...")
         return manager.initialize(**kwargs)
+
     return True
