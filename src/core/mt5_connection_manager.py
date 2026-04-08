@@ -41,6 +41,11 @@ class MT5ConnectionManager:
         self._path: Optional[str] = None
         self._lock = threading.RLock()  # Reentrant lock для вложенных вызовов
 
+        # 🔧 OPTIMIZATION: Защита от частых переподключений
+        self._last_reconnect_time = 0.0
+        self._reconnect_cooldown = 5.0  # Минимальная задержка между переподключениями (сек)
+        self._consecutive_failures = 0  # Счетчик неудачных переподключений
+
         MT5ConnectionManager._instance = self
 
     @classmethod
@@ -75,14 +80,31 @@ class MT5ConnectionManager:
         Returns:
             True если подключение успешно
         """
+        import time
+
         with self._lock:
             # Если уже подключены — проверяем связь
             if self._initialized:
                 if self._is_connected():
                     return True
                 else:
-                    logger.warning("[MT5] Соединение потеряно. Переподключение...")
+                    # 🔧 OPTIMIZATION: Защита от частых переподключений
+                    current_time = time.time()
+                    time_since_last_reconnect = current_time - self._last_reconnect_time
+
+                    if time_since_last_reconnect < self._reconnect_cooldown:
+                        logger.debug(
+                            f"[MT5] Пропуск переподключения (cooldown: {self._reconnect_cooldown - time_since_last_reconnect:.1f}с)"
+                        )
+                        return False
+
+                    logger.warning(f"[MT5] Соединение потеряно. Переподключение...")
                     self._force_shutdown()
+
+                    # Увеличиваем счетчик неудач и задержку
+                    self._consecutive_failures += 1
+                    self._reconnect_cooldown = min(5.0 * (2 ** min(self._consecutive_failures - 1, 3)), 60.0)
+
                     # Восстанавливаем сохранённые параметры
                     path = path or self._path
                     login = login or self._login
@@ -130,6 +152,14 @@ class MT5ConnectionManager:
 
                 if result:
                     self._initialized = True
+
+                    # 🔧 OPTIMIZATION: Сброс счетчика неудач при успешном подключении
+                    if self._consecutive_failures > 0:
+                        logger.info(f"[MT5] Счетчик неудач сброшен (было: {self._consecutive_failures})")
+                    self._consecutive_failures = 0
+                    self._reconnect_cooldown = 5.0  # Возврат к базовой задержке
+                    self._last_reconnect_time = time.time()
+
                     account_info = mt5.account_info()
                     if account_info:
                         logger.info(
@@ -173,14 +203,16 @@ class MT5ConnectionManager:
     def _is_connected(self) -> bool:
         """Внутренняя проверка без блокировки (вызывать внутри with self._lock)."""
         try:
-            # Проверяем не только версию, но и реальные данные
+            # Легкая проверка: только version и account_info
+            # symbols_get() слишком тяжелый и может возвращать None при нагрузке
             version = mt5.version()
             if version is None:
                 return False
-            # Дополнительная проверка — запрашиваем символы
-            symbols = mt5.symbols_get()
-            if symbols is None or len(symbols) == 0:
+
+            account = mt5.account_info()
+            if account is None:
                 return False
+
             return True
         except Exception:
             return False

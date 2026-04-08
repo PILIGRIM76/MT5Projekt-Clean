@@ -102,12 +102,14 @@ class SafetyMonitor:
         # Кэшируем данные аккаунта — не вызываем initialize() каждый раз
         # Используем данные из мониторинг-потока который уже подключён
         try:
+            from src.core.mt5_connection_manager import mt5_initialize
+
             with self.trading_system.mt5_lock:
                 # Оптимизация: не вызываем initialize() — пробуем сразу account_info()
                 account_info = mt5.account_info()
                 if not account_info:
-                    # Пробуем инициализацию только если account_info вернул None
-                    if not mt5.initialize(path=self.config.MT5_PATH):
+                    # 🔧 OPTIMIZATION: Используем безопасную обертку вместо прямого mt5.initialize()
+                    if not mt5_initialize(path=self.config.MT5_PATH):
                         return True  # Не блокируем торговлю из-за ошибки подключения
                     account_info = mt5.account_info()
                     if not account_info:

@@ -2320,8 +2320,8 @@ class TradingSystem(QObject):
                             logger.error(f"[MT5] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
                             mt5_login = None
 
-                        # Если не вышло, пробуем полную авторизацию
-                        if not mt5.initialize(
+                        # 🔧 OPTIMIZATION: Используем безопасную обертку вместо прямого mt5.initialize()
+                        if not mt5_initialize(
                             path=self.config.MT5_PATH,
                             login=mt5_login,
                             password=self.config.MT5_PASSWORD,

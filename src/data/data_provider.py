@@ -128,8 +128,8 @@ class DataProvider:
                 logger.error(f"[DATA] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
                 mt5_login = None
 
-            # Передаём полные учётные данные для reconnect
-            mt5.initialize(
+            # 🔧 OPTIMIZATION: Используем безопасную обертку вместо прямого mt5.initialize()
+            mt5_initialize(
                 path=self.config.MT5_PATH,
                 login=mt5_login,
                 password=self.config.MT5_PASSWORD,

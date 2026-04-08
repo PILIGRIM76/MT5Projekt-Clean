@@ -113,9 +113,9 @@ class HealthCheckEndpoint:
 
         # Проверяем MT5
         try:
-            import MetaTrader5 as mt5
+            from src.core.mt5_connection_manager import mt5_initialize
 
-            if not mt5.initialize(path=ts.config.MT5_PATH):
+            if not mt5_initialize(path=ts.config.MT5_PATH):
                 return "unhealthy"
         except Exception:
             return "unhealthy"
