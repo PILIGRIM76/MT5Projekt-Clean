@@ -59,7 +59,8 @@
       "WebFetch(stooq.com)",
       "Bash(pip index *)",
       "Bash(d *)",
-      "Bash(@if *)"
+      "Bash(@if *)",
+      "Bash(sed *)"
     ]
   },
   "$version": 3

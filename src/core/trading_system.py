@@ -1308,7 +1308,7 @@ class TradingSystem(QObject):
                     logger.warning(f"[Trading] Нет данных для {symbol} на таймфрейме {optimal_timeframe}")
                     continue
 
-                logger.info(f"[Trading] Добавлен символ {symbol} на обработку (всего задач: {len(analysis_tasks) + 1})")
+                logger.debug(f"[Trading] Добавлен символ {symbol} на обработку (всего задач: {len(analysis_tasks) + 1})")
                 task = self._process_single_symbol(symbol, df_optimal, optimal_timeframe, account_info, current_positions)
                 analysis_tasks.append(task)
 
@@ -1333,7 +1333,7 @@ class TradingSystem(QObject):
         logger.info("=== Запуск непрерывного цикла обучения (R&D Department) ===")
 
         # Ждем 60 секунд чтобы система успела набрать данные
-        logger.info("[R&D] Ожидание 60 сек для накопления данных...")
+        logger.debug("[R&D] Ожидание 60 сек для накопления данных...")
         self.stop_event.wait(60)
 
         while not self.stop_event.is_set():
@@ -2376,8 +2376,8 @@ class TradingSystem(QObject):
                     try:
                         account_info = mt5.account_info()
 
-                        # DEBUG: Логируем каждую итерацию мониторинга (INFO чтобы видеть в логах)
-                        logger.info(
+                        # DEBUG: Логируем каждую итерацию мониторинга (DEBUG чтобы не засорять лог)
+                        logger.debug(
                             f"[Monitoring-Debug] account_info={account_info is not None}, lock_acquired={lock_acquired}"
                         )
 
@@ -3676,9 +3676,9 @@ class TradingSystem(QObject):
 
                     # Логирование для отладки баланса
                     if method_name == "update_balance":
-                        logger.info(f"[GUI-Balance] Отправка сигнала balance_updated: {args}")
+                        logger.debug(f"[GUI-Balance] Отправка сигнала balance_updated: {args}")
 
-                    logger.info(
+                    logger.debug(
                         f"[GUI] Отправка сигнала {method_name} с аргументами: {type(signal_args[0]) if signal_args else 'none'}"
                     )
                     signal.emit(*signal_args)
