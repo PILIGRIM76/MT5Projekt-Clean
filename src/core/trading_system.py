@@ -2329,6 +2329,26 @@ class TradingSystem(QObject):
                         ):
                             err_code = mt5.last_error()
 
+                            # 🔧 OPTIMIZATION: Специальная обработка ошибки -10004 (No IPC connection)
+                            # Это означает что терминал MT5 не запущен
+                            if isinstance(err_code, tuple) and err_code[0] == -10004:
+                                if not hasattr(self, "_ipc_error_count"):
+                                    self._ipc_error_count = 0
+                                self._ipc_error_count += 1
+
+                                # Логируем только первую ошибку или каждую 5-ю
+                                if self._ipc_error_count == 1 or self._ipc_error_count % 5 == 0:
+                                    logger.warning(
+                                        f"[Monitoring] MT5 терминал недоступен (No IPC connection). "
+                                        f"Убедитесь что MetaTrader 5 запущен. Ошибка: {err_code} (попытка #{self._ipc_error_count})"
+                                    )
+
+                                # Длинная задержка для этой ошибки (30-60 секунд)
+                                delay = 30 + min(self._ipc_error_count * 5, 30)
+                                logger.debug(f"[Monitoring] Задержка перед следующей попыткой: {delay} сек.")
+                                self.stop_event.wait(delay)
+                                continue
+
                             # НОВОЕ: Специальная обработка ошибки -6 (Authorization failed)
                             if isinstance(err_code, tuple) and err_code[0] == -6:
                                 # Увеличиваем счётчик ошибок
