@@ -38,12 +38,32 @@ class ResourceClass(Enum):
     LOW = auto()         # Логирование, сбор метрик, GUI
 
 
-# Жёсткие лимиты для максимальной защиты
+# Жёсткие лимиты для максимальной защиты (настроены под 16 ГБ систему)
 DEFAULT_LIMITS = {
-    ResourceClass.CRITICAL: {"cpu_pct": 80, "ram_gb": None,  "gpu_mem_gb": None},
-    ResourceClass.HIGH:     {"cpu_pct": 60, "ram_gb": 8.0,  "gpu_mem_gb": 2.0},
-    ResourceClass.MEDIUM:   {"cpu_pct": 40, "ram_gb": 4.0,  "gpu_mem_gb": 1.0},
-    ResourceClass.LOW:      {"cpu_pct": 20, "ram_gb": 2.0,  "gpu_mem_gb": 0.0},
+    ResourceClass.CRITICAL: {
+        "cpu_pct": 85,
+        "ram_free_min_gb": 1.0,   # Минимум 1 ГБ должно оставаться свободным
+        "ram_max_gb": None,        # Не ограничиваем абсолютно
+        "gpu_mem_gb": None,
+    },
+    ResourceClass.HIGH: {
+        "cpu_pct": 65,
+        "ram_free_min_gb": 1.5,   # Сигналы требуют запаса
+        "ram_max_gb": 3.0,         # Максимум 3 ГБ на задачу
+        "gpu_mem_gb": 1.5,
+    },
+    ResourceClass.MEDIUM: {
+        "cpu_pct": 45,
+        "ram_free_min_gb": 2.0,   # R&D только если свободно >= 2 ГБ
+        "ram_max_gb": 1.5,
+        "gpu_mem_gb": 0.5,
+    },
+    ResourceClass.LOW: {
+        "cpu_pct": 25,
+        "ram_free_min_gb": 3.0,   # Логи только если есть запас!
+        "ram_max_gb": 0.8,
+        "gpu_mem_gb": 0.0,
+    },
 }
 
 
@@ -114,20 +134,32 @@ class ResourceGovernor:
                     )
                     return False
             
-            # 2. Проверка RAM
-            ram_limit = self._limits[rclass]["ram_gb"]
-            if ram_limit is not None and HAS_PSUTIL:
-                ram_used_gb = psutil.virtual_memory().used / (1024 ** 3)
-                if ram_used_gb > ram_limit:
+            # 2. Проверка RAM — используем available (реально свободно), не used!
+            ram_free_min = self._limits[rclass].get("ram_free_min_gb")
+            if ram_free_min is not None and HAS_PSUTIL:
+                free_gb = psutil.virtual_memory().available / (1024 ** 3)
+                if free_gb < ram_free_min:
                     self._rejected_count += 1
                     logger.warning(
-                        f"⏳ RAM перегрузка: {ram_used_gb:.1f}GB > {ram_limit}GB "
+                        f"⏳ Недостаточно свободной RAM: {free_gb:.1f}GB < {ram_free_min}GB "
                         f"(задача {task_id}, класс {rclass.name})"
                     )
                     return False
             
-            # 3. Проверка GPU
-            gpu_limit = self._limits[rclass]["gpu_mem_gb"]
+            # 3. Проверка максимального потребления задачи (если задано)
+            ram_max = self._limits[rclass].get("ram_max_gb")
+            if ram_max is not None and HAS_PSUTIL:
+                estimated = self._estimate_task_ram(task_id, rclass)
+                if estimated > ram_max:
+                    self._rejected_count += 1
+                    logger.warning(
+                        f"⏳ Задача {task_id} требует ~{estimated:.1f}GB > лимит {ram_max}GB "
+                        f"(класс {rclass.name})"
+                    )
+                    return False
+            
+            # 4. Проверка GPU
+            gpu_limit = self._limits[rclass].get("gpu_mem_gb")
             if gpu_limit is not None and HAS_TORCH and torch.cuda.is_available():
                 gpu_mem_gb = torch.cuda.memory_allocated(0) / (1024 ** 3)
                 if gpu_mem_gb > gpu_limit:
@@ -165,6 +197,27 @@ class ResourceGovernor:
             logger.debug(f"🔓 Задача {task_id} завершена (время неизвестно)")
             return None
     
+    def _estimate_task_ram(self, task_id: str, rclass: ResourceClass) -> float:
+        """
+        Оценивает потребление RAM задачей в ГБ.
+        
+        Args:
+            task_id: ID задачи
+            rclass: Класс ресурсов
+            
+        Returns:
+            Оценка в ГБ
+        """
+        # Упрощённая оценка по типу задачи
+        if "retrain" in task_id or "training" in task_id:
+            return 1.5  # Обучение моделей — много RAM
+        elif "signal" in task_id or "predict" in task_id:
+            return 0.5  # Инференс — умеренно
+        elif "rd" in task_id or "research" in task_id:
+            return 1.0  # R&D — средне
+        else:
+            return 0.3  # По умолчанию — мало
+    
     def get_load_summary(self) -> Dict[str, Any]:
         """
         Возвращает текущую загрузку системы для мониторинга.
@@ -179,11 +232,18 @@ class ResourceGovernor:
         }
         
         if HAS_PSUTIL:
-            summary["cpu_pct"] = psutil.cpu_percent(interval=0.1)
             mem = psutil.virtual_memory()
+            summary["cpu_pct"] = psutil.cpu_percent(interval=0.1)
+            summary["ram_available_gb"] = mem.available / (1024 ** 3)  # Реально доступно
             summary["ram_used_gb"] = mem.used / (1024 ** 3)
             summary["ram_total_gb"] = mem.total / (1024 ** 3)
             summary["ram_pct"] = mem.percent
+            summary["ram_cached_gb"] = (mem.total - mem.available - mem.used) / (1024 ** 3)
+            
+            # Swap
+            swap = psutil.swap_memory()
+            summary["swap_pct"] = swap.percent
+            summary["swap_free_gb"] = swap.free / (1024 ** 3)
         
         if HAS_TORCH and torch.cuda.is_available():
             summary["gpu_mem_gb"] = torch.cuda.memory_allocated(0) / (1024 ** 3)
@@ -200,6 +260,29 @@ class ResourceGovernor:
         ]
         
         return summary
+    
+    def get_memory_alert_level(self) -> str:
+        """
+        Определяет уровень алерта по памяти.
+        
+        Returns:
+            "critical", "warning", "info", или "ok"
+        """
+        if not HAS_PSUTIL:
+            return "ok"
+        
+        mem = psutil.virtual_memory()
+        free_gb = mem.available / (1024 ** 3)
+        swap = psutil.swap_memory()
+        
+        if free_gb < 1.0:
+            return "critical"  # < 1 ГБ свободно
+        elif free_gb < 2.5 or swap.percent > 70:
+            return "warning"   # < 2.5 ГБ или swap > 70%
+        elif mem.percent > 85:
+            return "info"
+        
+        return "ok"
     
     def is_overloaded(self) -> bool:
         """
