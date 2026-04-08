@@ -2561,14 +2561,15 @@ class MainWindow(QMainWindow):
         char_format = QTextCharFormat()
         char_format.setForeground(color)
         cursor = self.log_text_edit.textCursor()
+
+        # Перемещаем курсор в конец и вставляем текст
         cursor.movePosition(cursor.MoveOperation.End)
         cursor.setCharFormat(char_format)
         cursor.insertText(text + "\n")
         cursor.setCharFormat(QTextCharFormat())
 
-        # Принудительная автопрокрутка вниз
-        scrollbar = self.log_text_edit.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        # Обновляем курсор в виджете и принудительно прокручиваем вниз
+        self.log_text_edit.setTextCursor(cursor)
         self.log_text_edit.ensureCursorVisible()
 
     def update_positions_table(self, positions: list):
