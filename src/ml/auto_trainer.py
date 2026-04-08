@@ -14,10 +14,10 @@ import json
 import logging
 import multiprocessing
 import pickle
-import threading
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
+import threading
+import time
 from typing import Any, Dict, List, Optional
 
 import joblib
@@ -100,16 +100,101 @@ class AutoTrainer:
 
         # Статистика
         self.stats = {"last_training_time": None, "models_trained": 0, "training_errors": 0}
+        
+        # Время последнего переобучения (для адаптивного триггера)
+        self._last_retrain_time: Dict[str, datetime] = {}
+        self._peak_sharpe: Dict[str, float] = {}  # Пиковый Sharpe для отслеживания деградации
 
         # Блокировка
         self._lock = threading.Lock()
 
         logger.info("Auto Trainer инициализирован")
-        logger.info(f"  ⚡ Интервал переобучения: {self.retrain_interval_hours} ч (БЫЛО: 24 ч)")
+        logger.info(f"  ⚡ Интервал переобучения: {self.retrain_interval_hours} ч (адаптивный)")
         logger.info(f"  📊 Мин. сэмплов: {self.min_samples_for_retrain}")
         logger.info(f"  📈 Мин. новых баров для триггера: {self.min_new_bars_for_retrain}")
         logger.info(f"  📉 Порог падения точности: {self.accuracy_drop_threshold:.0%}")
         logger.info(f"  💾 Путь к моделям: {self.models_path}")
+
+    def should_retrain_adaptive(
+        self,
+        symbol: str,
+        current_sharpe: float = 0.0,
+        volatility_regime: str = "normal",
+        performance_decay: float = 0.0,
+    ) -> bool:
+        """
+        Адаптивный триггер переобучения вместо жёсткого таймера.
+        
+        Ретренинг если:
+        1. Sharpe упал на >15% от пика за окно
+        2. Рынок перешёл в high_vol regime
+        3. Прошло минимум 12ч с последнего ретрена
+        
+        Args:
+            symbol: Торговый инструмент
+            current_sharpe: Текущий Sharpe ratio модели
+            volatility_regime: Текущий режим волатильности
+            performance_decay: Степень деградации производительности (0..1)
+            
+        Returns:
+            True если нужно переобучить
+        """
+        from datetime import datetime, timedelta
+        
+        # Минимальное время между переобучениями (12 часов)
+        min_hours_between = 12
+        
+        last_retrain = self._last_retrain_time.get(symbol)
+        if last_retrain:
+            hours_since = (datetime.now() - last_retrain).total_seconds() / 3600
+            if hours_since < min_hours_between:
+                return False  # Слишком рано
+        
+        # Обновляем пиковый Sharpe
+        peak_sharpe = self._peak_sharpe.get(symbol, current_sharpe)
+        if current_sharpe > peak_sharpe:
+            self._peak_sharpe[symbol] = current_sharpe
+            peak_sharpe = current_sharpe
+        
+        # Проверяем условия для переобучения
+        needs_retrain = False
+        reasons = []
+        
+        # 1. Деградация Sharpe > 15% от пика
+        if peak_sharpe > 0 and current_sharpe < peak_sharpe * 0.85:
+            needs_retrain = True
+            reasons.append(f"Sharpe деградация: {current_sharpe:.2f} vs пик {peak_sharpe:.2f}")
+        
+        # 2. Высокая волатильность — модель может устареть
+        if volatility_regime in ("high", "High Volatility Range"):
+            needs_retrain = True
+            reasons.append(f"High vol regime: {volatility_regime}")
+        
+        # 3. Performance decay > 15%
+        if performance_decay > 0.15:
+            needs_retrain = True
+            reasons.append(f"Performance decay: {performance_decay:.1%}")
+        
+        # 4. Fallback: если прошло больше interval_hours с последнего обучения
+        if last_retrain:
+            hours_since = (datetime.now() - last_retrain).total_seconds() / 3600
+            if hours_since >= self.retrain_interval_hours:
+                needs_retrain = True
+                reasons.append(f"Timer: {hours_since:.0f}ч >= {self.retrain_interval_hours}ч")
+        else:
+            needs_retrain = True  # Первое обучение
+            reasons.append("Нет истории обучения")
+        
+        if needs_retrain:
+            logger.info(f"🔄 [{symbol}] Адаптивный ретренинг: {', '.join(reasons)}")
+        
+        return needs_retrain
+    
+    def mark_retrained(self, symbol: str):
+        """Отмечает что модель была переобучена (для адаптивного триггера)."""
+        from datetime import datetime
+        self._last_retrain_time[symbol] = datetime.now()
+        logger.info(f"✅ [{symbol}] Отмечено время переобучения")
 
     def load_training_data(self, symbol: str, timeframe: str = "D1") -> Optional[pd.DataFrame]:
         """

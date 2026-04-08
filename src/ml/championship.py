@@ -630,22 +630,63 @@ class ModelChampionship:
         logger.info(f"💾 Результат чемпионата сохранён: {result.winner}")
     
     def _update_config_file(self, new_model: str):
-        """Обновляет ACTIVE_MODEL в файле конфига."""
-        # Обновляем .env файл
-        env_path = Path(".env")
-        if env_path.exists():
+        """Атомарно обновляет ACTIVE_MODEL в .env файле."""
+        import os
+        import tempfile
+
+        # Ищем .env в нескольких местах
+        env_candidates = [
+            Path("configs/.env"),
+            Path(".env"),
+            Path(self.config.DATABASE_FOLDER) / ".env",
+        ]
+
+        env_path = None
+        for candidate in env_candidates:
+            if candidate.exists():
+                env_path = candidate
+                break
+
+        if env_path is None:
+            logger.warning("⚠️ .env файл не найден, пропускаем обновление конфига")
+            return
+
+        try:
+            # Читаем текущее содержимое
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+            new_lines = []
+            updated = False
+            for line in lines:
+                if line.startswith("ACTIVE_MODEL="):
+                    new_lines.append(f"ACTIVE_MODEL={new_model}")
+                    updated = True
+                else:
+                    new_lines.append(line)
+
+            if not updated:
+                new_lines.append(f"ACTIVE_MODEL={new_model}")
+
+            content = "\n".join(new_lines) + "\n"
+
+            # Атомарная запись: пишем во временный файл → os.replace
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=env_path.parent, suffix=".env.tmp"
+            )
             try:
-                lines = env_path.read_text(encoding="utf-8").splitlines()
-                new_lines = []
-                for line in lines:
-                    if line.startswith("ACTIVE_MODEL="):
-                        new_lines.append(f"ACTIVE_MODEL={new_model}")
-                    else:
-                        new_lines.append(line)
-                env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-                logger.info(f"📝 Обновлён .env: ACTIVE_MODEL={new_model}")
-            except Exception as e:
-                logger.error(f"Ошибка обновления .env: {e}")
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+                os.replace(tmp_path, str(env_path))
+                logger.info(f"📝 Атомарно обновлён {env_path}: ACTIVE_MODEL={new_model}")
+            except Exception:
+                # При ошибке удаляем временный файл
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка атомарного обновления .env: {e}")
     
     def get_championship_history(self) -> List[Dict]:
         """Возвращает историю всех чемпионатов."""
