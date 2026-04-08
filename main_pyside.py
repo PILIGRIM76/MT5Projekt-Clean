@@ -2389,7 +2389,8 @@ class MainWindow(QMainWindow):
             self.control_center_tab.refresh_strategies()
         # -------------------------------------------------
 
-        # Включаем кнопку "Остановка", так как система успешно запущена
+        # 🔧 FIX: Отключаем кнопку "Запустить", включаем кнопку "Остановить"
+        self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
 
         # ОБНОВЛЕНИЕ ИНФОРМАЦИИ ОБ ОБНОВЛЕНИЯХ (после полной инициализации, с задержкой 3 сек)
@@ -2401,6 +2402,7 @@ class MainWindow(QMainWindow):
             self.bridge.status_updated.emit("Соединение установлено. Запуск торговых циклов...", False)
             self.sound_manager.play("system_start")
             self.stop_button.setEnabled(True)
+            self.start_button.setEnabled(False)  # Гарантированно отключаем кнопку запуска
 
             # НЕ вызываем start_all_threads() повторно!
             # Он уже был запущен из start_trading() и установил running=True
@@ -2417,6 +2419,9 @@ class MainWindow(QMainWindow):
             error_msg = f"Ошибка подключения к MT5: {message}"
             self.bridge.status_updated.emit(error_msg, True)
             self.sound_manager.play("error")
+            # При ошибке включаем кнопку "Запустить" обратно, чтобы пользователь мог попробовать снова
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
             self.bridge.initialization_failed.emit()
 
     def _send_initial_training_data(self):

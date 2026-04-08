@@ -942,37 +942,56 @@ class TradingSystem(QObject):
 
             if data_dict_raw is None:
                 logger.info("[run_cycle] Данные не в кэше, загрузка из MT5...")
-                # Данные не в кэше, получить из провайдера
-                data_task = asyncio.create_task(
-                    self.data_provider.get_all_symbols_data_async(available_symbols, timeframes_to_check)
-                )
 
-                tasks = [data_task]
-                if news_task:
-                    tasks.append(news_task)
-                    logger.info(f"[run_cycle] Запуск задач: данные + новости")
+                # 🔧 OPTIMIZATION: Повторная попытка загрузки данных (макс 2 попытки)
+                max_retries = 2
+                for attempt in range(1, max_retries + 1):
+                    # Данные не в кэше, получить из провайдера
+                    data_task = asyncio.create_task(
+                        self.data_provider.get_all_symbols_data_async(available_symbols, timeframes_to_check)
+                    )
 
-                # Ждем завершения всех задач
-                logger.info("[run_cycle] Ожидание завершения задач...")
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                    tasks = [data_task]
+                    if news_task:
+                        tasks.append(news_task)
+                        if attempt == 1:
+                            logger.info(f"[run_cycle] Запуск задач: данные + новости")
 
-                data_dict_raw = results[0]
-                news_result_tuple = results[1] if news_task else None
-                logger.info(
-                    f"[run_cycle] Задачи завершены: данные={data_dict_raw is not None}, новости={news_result_tuple is not None}"
-                )
+                    # Ждем завершения всех задач
+                    logger.info(f"[run_cycle] Ожидание завершения задач (попытка {attempt}/{max_retries})...")
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                # Проверяем, не вернула ли новость ошибку
-                if news_result_tuple and isinstance(news_result_tuple, Exception):
-                    logger.error(f"[VectorDB] Ошибка при загрузке новостей: {news_result_tuple}")
-                    news_result_tuple = None
+                    data_dict_raw = results[0]
+                    news_result_tuple = results[1] if news_task else None
+                    logger.info(
+                        f"[run_cycle] Задачи завершены: данные={data_dict_raw is not None}, новости={news_result_tuple is not None}"
+                    )
 
-                # Если данные не пришли — выходим
-                if not data_dict_raw or isinstance(data_dict_raw, Exception):
-                    logger.warning(f"run_cycle: Данные из MT5 не получены. Ошибка: {data_dict_raw}")
-                    self.end_performance_timer("get_market_data")
-                    self.end_performance_timer("run_cycle_total")
-                    return
+                    # Проверяем, не вернула ли новость ошибку
+                    if news_result_tuple and isinstance(news_result_tuple, Exception):
+                        logger.error(f"[VectorDB] Ошибка при загрузке новостей: {news_result_tuple}")
+                        news_result_tuple = None
+
+                    # Если данные не пришли — пробуем снова
+                    if not data_dict_raw or isinstance(data_dict_raw, Exception):
+                        if attempt < max_retries:
+                            logger.warning(
+                                f"[run_cycle] Данные не получены (попытка {attempt}/{max_retries}). "
+                                f"Повторная попытка через 2 секунды..."
+                            )
+                            await asyncio.sleep(2)
+                            continue
+                        else:
+                            logger.warning(
+                                f"[run_cycle] Данные из MT5 не получены после {max_retries} попыток. "
+                                f"Пропускаю цикл, попробую в следующий раз."
+                            )
+                            self.end_performance_timer("get_market_data")
+                            self.end_performance_timer("run_cycle_total")
+                            return
+                    else:
+                        # Данные получены успешно
+                        break
 
                 # Сохранить данные в кэш
                 self.set_cached_data(cache_key, data_dict_raw, ttl_seconds=60)
