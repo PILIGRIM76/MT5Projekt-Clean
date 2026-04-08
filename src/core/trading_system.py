@@ -2472,7 +2472,7 @@ class TradingSystem(QObject):
                             err_code = mt5.last_error()
 
                             # 🔧 OPTIMIZATION: Специальная обработка ошибки -10004 (No IPC connection)
-                            # Это означает что терминал MT5 не запущен
+                            # Это означает что терминал MT5 временно недоступен (перезапуск после сделки)
                             if isinstance(err_code, tuple) and err_code[0] == -10004:
                                 if not hasattr(self, "_ipc_error_count"):
                                     self._ipc_error_count = 0
@@ -2481,13 +2481,18 @@ class TradingSystem(QObject):
                                 # Логируем только первую ошибку или каждую 5-ю
                                 if self._ipc_error_count == 1 or self._ipc_error_count % 5 == 0:
                                     logger.warning(
-                                        f"[Monitoring] MT5 терминал недоступен (No IPC connection). "
-                                        f"Убедитесь что MetaTrader 5 запущен. Ошибка: {err_code} (попытка #{self._ipc_error_count})"
+                                        f"[Monitoring] MT5 терминал временно недоступен (No IPC connection). "
+                                        f"Попытка переподключения... (попытка #{self._ipc_error_count})"
                                     )
 
-                                # Длинная задержка для этой ошибки (30-60 секунд)
-                                delay = 30 + min(self._ipc_error_count * 5, 30)
-                                logger.debug(f"[Monitoring] Задержка перед следующей попыткой: {delay} сек.")
+                                # КРАТКАЯ задержка — MT5 обычно восстанавливается за 2-5 сек после сделки
+                                delay = min(3 + self._ipc_error_count, 10)
+                                logger.debug(f"[Monitoring] Задержка {delay} сек перед повторной попыткой")
+
+                                # ОБНОВЛЯЕМ GUI последними известными значениями
+                                if hasattr(self, '_last_known_balance') and self._last_known_balance > 0:
+                                    self._safe_gui_update("update_balance", self._last_known_balance, self._last_known_equity or self._last_known_balance)
+
                                 self.stop_event.wait(delay)
                                 continue
 
@@ -2608,6 +2613,10 @@ class TradingSystem(QObject):
                                         pos_dict["bars_in_trade_display"] = "0"
                                         positions_list_quick.append(pos_dict)
                                 self._safe_gui_update("update_positions_view", positions_list_quick)
+                            else:
+                                # MT5 временно недоступен — показываем кэш с последней известной прибылью
+                                logger.debug("[Monitoring] positions_get вернул None — используем кэш позиций")
+                                self._safe_gui_update("update_positions_view", list(self._last_positions_cache))
 
                         if current_time - last_heavy_check_time > heavy_check_interval:
                             positions = mt5.positions_get()
