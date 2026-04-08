@@ -2295,23 +2295,81 @@ class TradingSystem(QObject):
             "news_sentiment": news_sentiment,
         }
 
+    # === ORCHESTRATOR STATE ===
+    self.orchestrator_active_strategies: Dict[str, bool] = {}  # {strategy_name: is_active}
+    self.orchestrator_current_regime: str = "Default"
+    self.orchestrator_max_positions: int = self.config.MAX_OPEN_POSITIONS
+    self.orchestrator_risk_multiplier: float = 1.0
+    # ==========================
+
     def apply_orchestrator_action(self, regime_allocations: Dict[str, Dict[str, float]]):
+        """Применяет решение оркестратора — теперь как единый мозг системы."""
         logger.warning(f"[Orchestrator] Новое режимное распределение капитала: {list(regime_allocations.keys())} режимов.")
 
-        # 🔍 ДИАГНОСТИКА: Логирование распределения
-        for regime, allocation in regime_allocations.items():
-            logger.info(f"[Orchestrator] {regime}:")
-            for strategy, weight in allocation.items():
-                logger.info(f"  - {strategy}: {weight:.2%}")
-
+        # 1. Сохраняем распределение в risk engine
         self.risk_engine.update_regime_capital_allocation(regime_allocations)
+
+        # 2. Определяем текущий режим
         current_regime = self._get_current_market_regime_name()
+        self.orchestrator_current_regime = current_regime
         current_allocation = regime_allocations.get(current_regime, self.risk_engine.default_capital_allocation)
 
+        # 3. Определяем АКТИВНЫЕ стратегии (allocation > 5%)
+        MIN_ACTIVE = 0.05  # 5% минимум для считаться "активной"
+        active_strategies = set()
+        for strategy, weight in current_allocation.items():
+            if weight >= MIN_ACTIVE:
+                active_strategies.add(strategy)
+
+        # Сохраняем в состоянии
+        self.orchestrator_active_strategies = {
+            strategy: (strategy in active_strategies)
+            for strategy in current_allocation.keys()
+        }
+
+        # 4. Обновляем SignalService — какие стратегии разрешены
+        if hasattr(self, 'signal_service') and self.signal_service:
+            self.signal_service.set_active_strategies(active_strategies)
+            logger.info(f"[Orchestrator] SignalService обновлён: {len(active_strategies)} активных стратегий: {active_strategies}")
+
+        # 5. Динамические risk-параметры от оркестратора
+        total_active = len(active_strategies)
+        if total_active <= 2:
+            # Мало активных стратегий → снижаем риск
+            self.orchestrator_max_positions = max(3, self.config.MAX_OPEN_POSITIONS - 2)
+            self.orchestrator_risk_multiplier = 0.7
+            logger.warning(f"[Orchestrator] ⚠️ Мало активных стратегий ({total_active}) → снижаем риск")
+        elif total_active >= 5:
+            # Много активных → повышаем риск
+            self.orchestrator_max_positions = self.config.MAX_OPEN_POSITIONS + 2
+            self.orchestrator_risk_multiplier = 1.2
+            logger.info(f"[Orchestrator] Много активных стратегий ({total_active}) → повышаем риск")
+        else:
+            self.orchestrator_max_positions = self.config.MAX_OPEN_POSITIONS
+            self.orchestrator_risk_multiplier = 1.0
+
+        # 6. Логирование
+        active_list = [s for s, active in self.orchestrator_active_strategies.items() if active]
         logger.info(f"[Orchestrator] Текущий режим: {current_regime}")
+        logger.info(f"[Orchestrator] Активные стратегии ({len(active_list)}): {active_list}")
+        logger.info(f"[Orchestrator] Max positions: {self.orchestrator_max_positions}, Risk multiplier: {self.orchestrator_risk_multiplier}")
         logger.info(f"[Orchestrator] Применяемое распределение: {current_allocation}")
 
         self.orchestrator_allocation_updated.emit(current_allocation)
+
+    def is_strategy_active(self, strategy_name: str) -> bool:
+        """Проверяет, активна ли стратегия по решению оркестратора."""
+        if not self.orchestrator_active_strategies:
+            return True  # Пока оркестратор не принял решение — все активны
+
+        # Маппинг имён стратегий
+        strategy_key = strategy_name
+        if strategy_name.startswith("AI_MF_Consensus") or strategy_name.startswith("AI_Model"):
+            strategy_key = "AI_Model"
+        elif strategy_name.startswith("RLTradeManager"):
+            strategy_key = "RLTradeManager"
+
+        return self.orchestrator_active_strategies.get(strategy_key, True)
 
     def force_gp_cycle(self):
         logger.info("[GP R&D] Поиск 'слабого места' для запуска эволюции...")

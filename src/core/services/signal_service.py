@@ -44,8 +44,32 @@ class SignalService:
         self.y_scalers = y_scalers
         self.strategy_performance = strategy_performance
         self.consensus_engine = consensus_engine
-        self.n_steps = self.config.INPUT_LAYER_SIZE
-        self.trading_system = trading_system_ref
+        self.trading_system = trading_system_ref  # Сохраняем ссылку на TradingSystem
+
+        # Активные стратегии от оркестратора (обновляются динамически)
+        self._active_strategies: set = set()  # Если пусто — все активны
+
+    def set_active_strategies(self, active_strategies: set):
+        """Обновляет список активных стратегий от оркестратора."""
+        self._active_strategies = active_strategies
+        logger.info(f"[SignalService] Оркестратор обновил активные стратегии: {active_strategies}")
+
+    def is_strategy_enabled(self, strategy_name: str) -> bool:
+        """Проверяет, разрешена ли стратегия оркестратором."""
+        if not self._active_strategies:
+            return True  # Пока оркестратор не принял решение — все разрешены
+        
+        # Маппинг имён стратегий
+        strategy_key = strategy_name
+        if strategy_name.startswith("AI_MF_Consensus") or strategy_name.startswith("AI_Model"):
+            strategy_key = "AI_Model"
+        elif strategy_name.startswith("RLTradeManager"):
+            strategy_key = "RLTradeManager"
+        
+        is_enabled = strategy_key in self._active_strategies
+        if not is_enabled:
+            logger.debug(f"[SignalService] Стратегия {strategy_name} отключена оркестратором")
+        return is_enabled
 
     def _create_sequences_for_shap(self, data: np.ndarray, n_steps: int) -> Optional[np.ndarray]:
         """Создает набор последовательностей для фонового датасета SHAP."""
@@ -138,6 +162,14 @@ class SignalService:
             market_regime, self.config.STRATEGY_REGIME_MAPPING.get("Default", "AI_Model")
         )
         logger.info(f"[{symbol}] get_trade_signal: primary_strategy_name={primary_strategy_name}")
+
+        # === ПРОВЕРКА ОРКЕСТРАТОРА: активна ли стратегия? ===
+        if not self.is_strategy_enabled(primary_strategy_name):
+            logger.info(
+                f"[{symbol}] Оркестратор отключил {primary_strategy_name} → переходим к AI"
+            )
+            primary_strategy_name = "AI_Model"
+        # ======================================================
 
         # 3. Пробуем получить сигнал от основной (режимной) стратегии
         if primary_strategy_name != "AI_Model":
