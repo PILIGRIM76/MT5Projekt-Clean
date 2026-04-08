@@ -1268,7 +1268,19 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(tab_widget)
         log_box = QFrame()
         log_layout = QVBoxLayout(log_box)
-        log_layout.addWidget(QLabel("Логи Системы"))
+
+        # Заголовок и переключатель отладки
+        log_header_layout = QHBoxLayout()
+        log_header_layout.addWidget(QLabel("Логи Системы"))
+        log_header_layout.addStretch()
+
+        self.debug_log_checkbox = QCheckBox("Отладка (Debug)")
+        self.debug_log_checkbox.setToolTip("Включить подробные технические логи (баланс, шаги мониторинга, сигналы GUI)")
+        self.debug_log_checkbox.stateChanged.connect(self._toggle_debug_logs)
+        log_header_layout.addWidget(self.debug_log_checkbox)
+
+        log_layout.addLayout(log_header_layout)
+
         self.log_text_edit = QTextEdit()
         self.log_text_edit.setReadOnly(True)
         log_layout.addWidget(self.log_text_edit)
@@ -2533,6 +2545,17 @@ class MainWindow(QMainWindow):
             logger.debug(f"[GUI-Balance] open_pnl_label обновлён: {pnl_text}")
         else:
             logger.warning("[GUI-Balance] open_pnl_label не найден!")
+
+    def _toggle_debug_logs(self, state):
+        """Включает или выключает режим отладки (DEBUG) для логирования."""
+        if state == Qt.CheckState.Checked:
+            logging.getLogger().setLevel(logging.DEBUG)
+            logger.info("🔧 Режим отладки (Debug) ВКЛЮЧЕН")
+            self.add_log_message("🔧 Режим отладки (Debug) ВКЛЮЧЕН", QColor("#888888"))
+        else:
+            logging.getLogger().setLevel(logging.INFO)
+            logger.info("🔒 Режим отладки (Debug) ВЫКЛЮЧЕН")
+            self.add_log_message("🔒 Режим отладки (Debug) ВЫКЛЮЧЕН", QColor("#888888"))
 
     def add_log_message(self, text: str, color: QColor):
         char_format = QTextCharFormat()
