@@ -4696,7 +4696,8 @@ class TradingSystem(QObject):
                     # Отправляем уведомление в GUI
                     if self.bridge:
                         self.bridge.status_updated.emit(
-                            f"🏆 Новый чемпион: {result.winner} (был {result.previous_champion})"
+                            f"🏆 Новый чемпион: {result.winner} (был {result.previous_champion})",
+                            False,  # is_error=False
                         )
 
                     # Запускаем карантин для новой модели
