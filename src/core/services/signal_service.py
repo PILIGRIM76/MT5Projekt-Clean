@@ -366,310 +366,144 @@ class SignalService:
             f"[{symbol}] _get_ai_signal: champion_committee has {len(champion_committee)} models: {list(champion_committee.keys())}"
         )
 
-        # ИСПРАВЛЕНИЕ: НЕ берем scalers из глобального хранилища сразу
-        # Сначала проверим совместимость моделей, потом возьмем правильные scalers
-        x_scaler = None
-        y_scaler = None
-
         if not champion_committee:
             return None, None, None
 
-        # 1. Динамически получаем список признаков ИЗ МОДЕЛИ
-        # Проверяем, что все модели используют одинаковые признаки
-        model_features = {}
+        # === НОВЫЙ ПОДХОД: каждая модель предсказывает отдельно ===
+        model_predictions = []
+        model_confidences = []
+        
         for model_type, model_data in champion_committee.items():
-            features = model_data.get("features", [])
-            model_features[model_type] = features
-            logger.debug(f"[{symbol}] Модель {model_type} ожидает признаки: {features}")
-
-        # Берем признаки первой модели как основные
-        main_model_data = next(iter(champion_committee.values()), {})
-        features_to_use = main_model_data.get("features", self.config.FEATURES_TO_USE)
-
-        # ВРЕМЕННО: НЕ удаляем дубликаты для совместимости со старыми моделями
-        # TODO: Удалить после переобучения всех моделей
-        # features_to_use = list(dict.fromkeys(features_to_use))
-
-        # Проверяем согласованность признаков между моделями
-        inconsistent_models = []
-        for model_type, features in model_features.items():
-            if set(features) != set(features_to_use):
-                inconsistent_models.append(model_type)
-                logger.warning(
-                    f"[{symbol}] Несогласованность признаков: {model_type} использует {features}, основная модель использует {features_to_use}"
-                )
-
-        # ИСПРАВЛЕНИЕ: Удаляем несовместимые модели из комитета вместо отклонения всего сигнала
-        if inconsistent_models:
-            logger.warning(f"[{symbol}] Удаление несовместимых моделей из комитета: {inconsistent_models}")
-            for model_type in inconsistent_models:
-                if model_type in champion_committee:
-                    del champion_committee[model_type]
-
-            # Если не осталось моделей, возвращаем None
-            if not champion_committee:
-                logger.error(f"[{symbol}] Все модели несовместимы. Сигнал отклонен.")
-                return None, None, None
-
-            # Обновляем features_to_use на основе оставшихся моделей
-            main_model_data = next(iter(champion_committee.values()), {})
-            features_to_use = main_model_data.get("features", self.config.FEATURES_TO_USE)
-
-        # КРИТИЧНО: Пытаемся взять scalers из model_data, если нет - из глобального хранилища
-        main_model_data = next(iter(champion_committee.values()), {})
-        x_scaler = main_model_data.get("x_scaler") or self.x_scalers.get(symbol)
-        y_scaler = main_model_data.get("y_scaler") or self.y_scalers.get(symbol)
-
-        logger.info(
-            f"[{symbol}] _get_ai_signal: x_scaler={'✅' if x_scaler else '❌'}, y_scaler={'✅' if y_scaler else '❌ (fallback)'}"
-        )
-
-        # Проверяем наличие scalers
-        if not x_scaler or not y_scaler:
-            if not x_scaler:
-                logger.warning(f"[{symbol}] Отсутствует x_scaler - AI сигнал пропущен (модель не обучена)")
-            if not y_scaler:
-                logger.warning(f"[{symbol}] Отсутствует y_scaler - используем fallback (x_scaler)")
-
-            # Если хотя бы x_scaler есть - продолжаем (y_scaler может быть fallback)
-            if not x_scaler:
-                return None, None, None
-
-        # КРИТИЧЕСКАЯ ПРОВЕРКА: Размерность scaler должна совпадать с features_to_use
-        expected_features = x_scaler.n_features_in_ if hasattr(x_scaler, "n_features_in_") else len(features_to_use)
-        if expected_features != len(features_to_use):
-            logger.warning(
-                f"[{symbol}] Размерность scaler ({expected_features}) не совпадает с features_to_use ({len(features_to_use)})"
-            )
-
-            # Шаг 1: Удаляем дубликаты из features_to_use
-            unique_features = list(dict.fromkeys(features_to_use))
-
-            if expected_features == len(unique_features):
-                logger.info(
-                    f"[{symbol}] Используем уникальные признаки ({len(unique_features)}) вместо дубликатов ({len(features_to_use)})"
-                )
-                features_to_use = unique_features
-            elif expected_features < len(unique_features):
-                # Шаг 2: Если все еще не совпадает, удаляем KG-признаки (старые модели без них)
-                features_without_kg = [f for f in unique_features if not f.startswith("KG_")]
-                if expected_features == len(features_without_kg):
-                    logger.info(
-                        f"[{symbol}] Используем признаки без KG ({len(features_without_kg)}) для совместимости со старой моделью"
-                    )
-                    features_to_use = features_without_kg
+            try:
+                pred, conf = self._predict_single_model(symbol, model_type, model_data, df)
+                if pred is not None and conf is not None:
+                    model_predictions.append(pred)
+                    model_confidences.append(conf)
+                    logger.debug(f"[{symbol}] {model_type}: pred={pred:.4f}, conf={conf:.4f}")
                 else:
-                    # Шаг 3: КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ - используем первые N признаков из scaler
-                    # Это для старых моделей которые обучены на подмножестве признаков
-                    logger.warning(
-                        f"[{symbol}] Попытка согласования: scaler={expected_features}, unique={len(unique_features)}, no_kg={len(features_without_kg)}"
-                    )
-
-                    # Проверяем есть ли в scaler информация о названиях признаков
-                    if hasattr(x_scaler, "feature_names_in_") and x_scaler.feature_names_in_ is not None:
-                        scaler_features = list(x_scaler.feature_names_in_)
-                        # Используем только те признаки которые есть и в scaler и в конфиге
-                        features_to_use = [f for f in scaler_features if f in unique_features]
-                        logger.info(f"[{symbol}] Используем {len(features_to_use)} признаков из scaler: {features_to_use}")
-                    else:
-                        # Если нет имен признаков - берем первые N признаков из конфига
-                        # (наиболее вероятные для старых моделей)
-                        features_to_use = unique_features[:expected_features]
-                        logger.warning(f"[{symbol}] Используем первые {len(features_to_use)} признаков: {features_to_use}")
-
-                    # Проверяем что размерность совпала
-                    if len(features_to_use) != expected_features:
-                        logger.error(
-                            f"[{symbol}] Невозможно согласовать размерности: scaler={expected_features}, selected={len(features_to_use)}. Пропуск."
-                        )
-                        return None, None, None
-            else:
-                logger.error(
-                    f"[{symbol}] Scaler ожидает больше признаков ({expected_features}) чем доступно ({len(unique_features)}). Пропуск."
-                )
-                return None, None, None
-
-        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Удаляем модели, несовместимые с финальным набором признаков
-        # ВАЖНО: Проверяем совместимость по КОЛИЧЕСТВУ признаков, а не по составу
-        models_to_remove = []
-        for model_type, model_data in champion_committee.items():
-            model_features = model_data.get("features", [])
-
-            # Проверяем, совпадает ли количество признаков
-            if len(model_features) != len(features_to_use):
-                models_to_remove.append(model_type)
-                logger.warning(
-                    f"[{symbol}] Модель {model_type} несовместима: ожидает {len(model_features)} признаков, доступно {len(features_to_use)}"
-                )
-
-        # НЕ удаляем модели, если это приведет к пустому комитету
-        if models_to_remove and len(models_to_remove) < len(champion_committee):
-            for model_type in models_to_remove:
-                del champion_committee[model_type]
-            logger.info(
-                f"[{symbol}] Удалены несовместимые модели: {models_to_remove}. Осталось моделей: {len(champion_committee)}"
-            )
-        elif models_to_remove:
-            logger.warning(f"[{symbol}] Все модели несовместимы, но оставляем их для попытки прогноза")
-
-        if not champion_committee:
-            logger.error(f"[{symbol}] Комитет моделей пуст. Пропуск.")
+                    logger.warning(f"[{symbol}] {model_type}: не удалось получить предсказание")
+            except Exception as e:
+                logger.error(f"[{symbol}] Ошибка предсказания {model_type}: {e}")
+        
+        if not model_predictions:
+            logger.warning(f"[{symbol}] Все модели не смогли сделать предсказание")
             return None, None, None
-        # ----------------------------------------------------------------------
-
-        # 2. ГАРАНТИРУЕМ НАЛИЧИЕ ВСЕХ ПРИЗНАКОВ В ТЕКУЩЕМ DF
-        df_processed = df.copy()
-        missing_features = []
-
-        for feat in features_to_use:
-            if feat not in df_processed.columns:
-                # Если признак отсутствует (например, KG-признак), добавляем его и заполняем нулями.
-                df_processed[feat] = 0.0
-                missing_features.append(feat)
-
-        if missing_features:
-            logger.warning(
-                f"[{symbol}] Добавлены нулевые заглушки для недостающих признаков: {missing_features}. "
-                f"Размерность: {len(features_to_use)}."
-            )
-
-        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Убеждаемся, что все признаки присутствуют
-        actual_features = [feat for feat in features_to_use if feat in df_processed.columns]
-        if len(actual_features) != len(features_to_use):
-            missing = set(features_to_use) - set(actual_features)
-            logger.error(f"[{symbol}] КРИТИЧЕСКАЯ ОШИБКА: Не все признаки доступны! Отсутствуют: {missing}")
-            return None, None, None
-
-        # 3. Создаем последовательность, используя ТОЧНО тот же порядок признаков
-        # ИСПРАВЛЕНИЕ: Обрабатываем дубликаты признаков для совместимости со старыми моделями
-        unique_features = list(dict.fromkeys(features_to_use))  # Уникальные признаки
-        last_sequence_df = df_processed[unique_features].tail(self.n_steps)
-
-        # Если есть дубликаты, создаем массив с повторениями
-        if len(features_to_use) != len(unique_features):
-            # Создаем маппинг индексов
-            feature_indices = [unique_features.index(feat) for feat in features_to_use]
-            last_sequence_raw = last_sequence_df.values[:, feature_indices]
+        
+        # Усредняем предсказания и уверенности
+        avg_prediction = float(np.mean(model_predictions))
+        avg_confidence = float(np.mean(model_confidences))
+        
+        logger.info(f"[{symbol}] Усреднено {len(model_predictions)} моделей: pred={avg_prediction:.4f}, conf={avg_confidence:.4f}")
+        
+        # Определяем тип сигнала
+        if avg_prediction > 0.55:
+            signal_type = SignalType.BUY
+        elif avg_prediction < 0.45:
+            signal_type = SignalType.SELL
         else:
-            last_sequence_raw = last_sequence_df.values
-
-        if last_sequence_raw.shape[0] < self.n_steps:
+            signal_type = None
+        
+        if signal_type is None:
             return None, None, None
-
-        # --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 1: Принудительная очистка NaN/Inf в сырых данных ---
+        
+        # Создаём TradeSignal
+        entry_price = float(df["close"].iloc[-1])
+        predicted_price = entry_price * (1 + (avg_prediction - 0.5) * 0.01)
+        
+        try:
+            signal = TradeSignal(
+                type=signal_type,
+                confidence=avg_confidence,
+                symbol=symbol,
+                predicted_price=predicted_price,
+            )
+            return signal, None, entry_price
+        except Exception as e:
+            logger.error(f"[{symbol}] Ошибка создания TradeSignal: {e}")
+            return None, None, None
+    
+    def _predict_single_model(
+        self, symbol: str, model_type: str, model_data: Dict, df: pd.DataFrame
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Делает предсказание ОДНОЙ модели с её собственными признаками и scaler.
+        
+        Returns:
+            (prediction, confidence) или (None, None) при ошибке
+        """
+        # 1. Получаем признаки и scaler КОНКРЕТНОЙ модели
+        model_features = model_data.get("features", [])
+        if not model_features:
+            logger.warning(f"[{symbol}] {model_type}: нет списка признаков")
+            return None, None
+        
+        x_scaler = model_data.get("x_scaler") or self.x_scalers.get(symbol)
+        y_scaler = model_data.get("y_scaler") or self.y_scalers.get(symbol)
+        
+        if x_scaler is None:
+            logger.warning(f"[{symbol}] {model_type}: нет x_scaler")
+            return None, None
+        
+        # 2. Проверяем размерность
+        expected_features = x_scaler.n_features_in_ if hasattr(x_scaler, "n_features_in_") else len(model_features)
+        
+        if expected_features != len(model_features):
+            logger.warning(
+                f"[{symbol}] {model_type}: mismatch scaler({expected_features}) vs features({len(model_features)})"
+            )
+            return None, None
+        
+        # 3. Гарантируем наличие всех признаков в df
+        df_processed = df.copy()
+        missing = [f for f in model_features if f not in df_processed.columns]
+        if missing:
+            for feat in missing:
+                df_processed[feat] = 0.0
+            logger.debug(f"[{symbol}] {model_type}: добавлены нули для {missing}")
+        
+        # 4. Берём последние n_steps баров
+        last_sequence = df_processed[model_features].tail(self.n_steps)
+        if last_sequence.shape[0] < self.n_steps:
+            logger.warning(f"[{symbol}] {model_type}: недостаточно данных ({last_sequence.shape[0]} < {self.n_steps})")
+            return None, None
+        
+        last_sequence_raw = last_sequence.values
+        
+        # Очистка NaN/Inf
         if not np.all(np.isfinite(last_sequence_raw)):
-            logger.warning(f"[{symbol}] Обнаружены NaN/inf в сырых данных. Принудительная очистка.")
             last_sequence_raw = np.nan_to_num(last_sequence_raw, nan=0.0, posinf=1e9, neginf=-1e9)
-
-        # 4. Масштабирование
+        
+        # 5. Масштабирование
         try:
             last_sequence_scaled = x_scaler.transform(last_sequence_raw)
-        except ValueError as e:
-            logger.error(f"[{symbol}] Ошибка масштабирования: {e}")
-            logger.error(f"[{symbol}] Размерность входных данных: {last_sequence_raw.shape}")
-            logger.error(
-                f"[{symbol}] Ожидаемая размерность scaler: {x_scaler.n_features_in_ if hasattr(x_scaler, 'n_features_in_') else 'unknown'}"
-            )
-            logger.error(f"[{symbol}] Признаки в данных: {list(df_processed[features_to_use].columns)}")
-            logger.error(f"[{symbol}] Ожидаемые признаки: {features_to_use}")
-
-            # Если размерность не совпадает, пропускаем этот символ
-            if "features" in str(e).lower() or last_sequence_raw.shape[1] != len(features_to_use):
-                logger.warning(f"[{symbol}] Пропуск обработки из-за несовпадения размерности признаков.")
-                return None, None, None
-
-            return None, None, None
-
-        predictions = []
-        prediction_input_numpy = None
-
-        # --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2: ПРИНУДИТЕЛЬНОЕ ИСПОЛЬЗОВАНИЕ CPU ДЛЯ INFERENCE ---
-        # Это устраняет ошибку "Input and parameter tensors are not at the same device"
-        # и предотвращает конфликт с QWebEngineView.
-        inference_device = torch.device("cpu")
-        # ---------------------------------------------------------------------------------
-
-        for model_type, model_data in champion_committee.items():
-            model = model_data.get("model")
-            if not model:
-                continue
-
-            try:
-                if isinstance(model, nn.Module):
-                    model.eval()
-                    with torch.no_grad():
-                        # 1. ПЕРЕНОС ВХОДНОГО ТЕНЗОРА НА CPU
-                        prediction_input_tensor = (
-                            torch.from_numpy(last_sequence_scaled).unsqueeze(0).float().to(inference_device)
-                        )
-
-                        # 2. ПЕРЕНОС МОДЕЛИ НА CPU (на всякий случай, если она была перемещена)
-                        model.to(inference_device)
-
-                        prediction_scaled_tensor = model(prediction_input_tensor)
-
-                        # 3. ПЕРЕНОС РЕЗУЛЬТАТА ОБРАТНО НА CPU ДЛЯ SCALER (уже на CPU)
-                        predicted_price = y_scaler.inverse_transform(prediction_scaled_tensor.cpu().numpy())[0][0]
-                        predictions.append(predicted_price)
-                        prediction_input_numpy = prediction_input_tensor.cpu().numpy()
-
-                elif lgb and isinstance(model, lgb.LGBMRegressor):
-                    # Для LightGBM берем только последнюю строку признаков
-                    last_features_scaled = last_sequence_scaled[-1].reshape(1, -1)
-
-                    # Оптимизация: проверка размерности перед предсказанием
-                    expected_features = model.n_features_in_ if hasattr(model, 'n_features_in_') else None
-                    if expected_features and last_features_scaled.shape[1] != expected_features:
-                        logger.warning(
-                            f"[{symbol}] LightGBM размерность не совпадает: "
-                            f"получено {last_features_scaled.shape[1]}, ожидается {expected_features}. "
-                            f"Добавляю нулевые признаки."
-                        )
-                        # Добавляем нулевые столбцы до ожидаемой размерности
-                        padding = np.zeros((1, expected_features - last_features_scaled.shape[1]))
-                        last_features_scaled = np.hstack([last_features_scaled, padding])
-
-                    prediction_scaled = model.predict(last_features_scaled)
-                    # ИСПРАВЛЕНИЕ: ИСПОЛЬЗУЕМ ЛОКАЛЬНУЮ y_scaler
-                    predicted_price = y_scaler.inverse_transform(prediction_scaled.reshape(-1, 1))[0][0]
-                    predictions.append(predicted_price)
-                    # Сохраняем всю последовательность для возможного XAI анализа
-                    prediction_input_numpy = last_sequence_scaled.reshape(1, self.n_steps, -1)
-                # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
-            except Exception as e:
-                logger.error(f"[{symbol}] Ошибка прогноза от модели '{model_type}': {e}", exc_info=True)
-
-        if not predictions:
-            return None, None, None
-
-        final_predicted_price = np.mean(predictions)
-        current_price = df["close"].iloc[-1]
-        price_change_ratio = (final_predicted_price - current_price) / current_price
-
-        signal_type = SignalType.HOLD
-        if price_change_ratio > self.config.ENTRY_THRESHOLD:
-            signal_type = SignalType.BUY
-        elif price_change_ratio < -self.config.ENTRY_THRESHOLD:
-            signal_type = SignalType.SELL
-
-        # Проверка минимальной уверенности
-        # ИСПРАВЛЕНИЕ: Порог 0.3 (30%) был слишком высоким и блокировал все сигналы.
-        # Используем ENTRY_THRESHOLD из конфига (обычно 0.01 или 1%)
-        confidence = abs(price_change_ratio)
-        min_confidence = self.config.ENTRY_THRESHOLD * 0.5  # Разрешаем сигналы с половиной порога входа
-
-        if confidence < min_confidence:
-            logger.debug(f"[{symbol}] AI сигнал отклонён: confidence={confidence:.4f} < {min_confidence:.4f}")
-            return None, None, current_price
-
-        signal = TradeSignal(type=signal_type, confidence=confidence, symbol=symbol, predicted_price=final_predicted_price)
-
-        logger.info(
-            f"[{symbol}] ✅ AI сигнал: {signal_type.name}, confidence={confidence:.3f}, predicted={final_predicted_price:.2f}, current={current_price:.2f}"
-        )
-
-        return signal, prediction_input_numpy, current_price
+        except Exception as e:
+            logger.error(f"[{symbol}] {model_type}: ошибка масштабирования: {e}")
+            return None, None
+        
+        # 6. Предсказание
+        model = model_data.get("model")
+        if model is None:
+            logger.warning(f"[{symbol}] {model_type}: модель не найдена")
+            return None, None
+        
+        try:
+            if hasattr(model, "predict"):
+                prediction_raw = model.predict(last_sequence_scaled.reshape(1, -1))
+                if hasattr(prediction_raw, "flatten"):
+                    prediction_raw = prediction_raw.flatten()
+                prediction = float(prediction_raw[0])
+            else:
+                logger.warning(f"[{symbol}] {model_type}: модель не поддерживает predict()")
+                return None, None
+        except Exception as e:
+            logger.error(f"[{symbol}] {model_type}: ошибка предсказания: {e}")
+            return None, None
+        
+        # 7. Confidence = отклонение от 0.5 (чем дальше, тем увереннее)
+        confidence = abs(prediction - 0.5) * 2  # Нормализация 0..1
+        confidence = min(max(confidence, 0.01), 1.0)  # Clamp
+        
+        return prediction, confidence
 
     def calculate_shap_values(
         self,
