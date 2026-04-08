@@ -446,10 +446,18 @@ class ModelChampionship:
                     scores[model_name] = metrics
                     logger.info(
                         f"   ✅ {model_name}: Sharpe={metrics.sharpe_ratio:.3f}, "
-                        f"WR={metrics.win_rate:.1%}, PF={metrics.profit_factor:.2f}"
+                        f"WR={metrics.win_rate:.1%}, PF={metrics.profit_factor:.2f}, "
+                        f"DD={metrics.max_drawdown_pct:.1f}%, Trades={metrics.total_trades}"
                     )
                 else:
-                    logger.warning(f"   ❌ {model_name} не прошла порог")
+                    logger.warning(
+                        f"   ❌ {model_name} не прошла порог:\n"
+                        f"      Sharpe={metrics.sharpe_ratio:.3f} (мин: {self.config.championship.min_sharpe_ratio})\n"
+                        f"      WR={metrics.win_rate:.1%} (мин: {self.config.championship.min_win_rate})\n"
+                        f"      PF={metrics.profit_factor:.2f} (мин: {self.config.championship.min_profit_factor})\n"
+                        f"      DD={metrics.max_drawdown_pct:.1f}% (макс: {self.config.championship.max_drawdown_percent})\n"
+                        f"      Trades={metrics.total_trades}"
+                    )
                     
             except Exception as e:
                 logger.error(f"Ошибка оценки модели {model_name}: {e}", exc_info=True)
