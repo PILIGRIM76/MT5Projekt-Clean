@@ -1723,6 +1723,11 @@ class TradingSystem(QObject):
         """Внутренний метод R&D с поддержкой ResourceGovernor."""
         if not self.training_lock.acquire(blocking=False):
             return
+        
+        # === Очистка памяти перед тяжёлой операцией ===
+        from src.core.memory_utils import prepare_for_heavy_task
+        prepare_for_heavy_task()
+        
         training_batch_id = f"batch-{uuid.uuid4()}"
         cycle_start_time = standard_time.time()
         logger.warning(f"--- НАЧАЛО R&D ЦИКЛА (BATCH ID: {training_batch_id}) ---")

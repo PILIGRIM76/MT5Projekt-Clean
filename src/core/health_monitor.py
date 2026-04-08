@@ -114,26 +114,60 @@ class HealthMonitor:
         if now - self._last_overload_alert < self._overload_cooldown:
             return None  # Кулдаун
         
-        if not self.governor or not self.governor.is_overloaded():
+        if not self.governor:
+            return None
+        
+        # Проверяем общий статус перегрузки
+        is_overloaded = self.governor.is_overloaded()
+        
+        # Проверяем уровень алерта по памяти
+        memory_alert = self.governor.get_memory_alert_level()
+        
+        if not is_overloaded and memory_alert == "ok":
             return None
         
         self._last_overload_alert = now
         self._alert_count += 1
         
         load = self.governor.get_load_summary()
-        alert = (
-            f"🚨 ПЕРЕГРУЗКА СИСТЕМЫ (алёрт #{self._alert_count})\n"
-            f"CPU: {load.get('cpu_pct', 0):.1f}%\n"
-            f"RAM: {load.get('ram_used_gb', 0):.1f}GB / {load.get('ram_total_gb', 0):.1f}GB\n"
-            f"GPU: {load.get('gpu_mem_gb', 0):.1f}GB\n"
-            f"Активных задач: {load.get('active_tasks', 0)}"
-        )
         
-        logger.critical(alert)
+        # Формируем сообщение
+        parts = []
+        if is_overloaded:
+            parts.append("🚨 ПЕРЕГРУЗКА СИСТЕМЫ")
+        if memory_alert in ("critical", "warning"):
+            emoji = "🔴" if memory_alert == "critical" else "🟡"
+            parts.append(f"{emoji} ПАМЯТЬ: {memory_alert.upper()}")
         
-        # Принудительное завершение низкоприоритетных задач
-        if self.governor:
-            killed = self.governor.kill_low_priority_tasks()
+        parts.append(f"(алёрт #{self._alert_count})")
+        
+        details = [
+            f"CPU: {load.get('cpu_pct', 0):.1f}%",
+            f"RAM доступно: {load.get('ram_available_gb', 0):.1f}GB / {load.get('ram_total_gb', 0):.1f}GB",
+            f"RAM кэш: {load.get('ram_cached_gb', 0):.1f}GB",
+        ]
+        
+        if load.get('swap_pct', 0) > 0:
+            details.append(f"Swap: {load.get('swap_pct', 0):.0f}% (свободно {load.get('swap_free_gb', 0):.1f}GB)")
+        
+        if load.get('gpu_mem_gb', 0) > 0:
+            details.append(f"GPU: {load.get('gpu_mem_gb', 0):.1f}GB / {load.get('gpu_total_gb', 0):.1f}GB")
+        
+        details.append(f"Активных задач: {load.get('active_tasks', 0)}")
+        
+        alert = "\n".join([" ".join(parts)] + details)
+        
+        if memory_alert == "critical":
+            logger.critical(alert)
+        elif memory_alert == "warning" or is_overloaded:
+            logger.warning(alert)
+        else:
+            logger.info(alert)
+        
+        # Принудительное завершение низкоприоритетных задач при критической нехватке памяти
+        if memory_alert == "critical" or (is_overloaded and memory_alert == "warning"):
+            from src.core.resource_governor import ResourceClass
+            killed = self.governor.kill_low_priority_tasks(ResourceClass.LOW)
             if killed:
                 logger.warning(f"🗑️ Завершены низкоприоритетные задачи: {killed}")
         
