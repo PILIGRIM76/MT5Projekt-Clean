@@ -164,32 +164,51 @@ class Orchestrator:
             else:
                 logger.warning(f"[Orchestrator HR] Стратегия '{name}' в статусе 'incubating', но без даты старта.")
 
-    def apply_drift_penalty(self, strategy_name: str, symbol: str):
+    def apply_drift_penalty(self, strategy_name: str, symbol: str, penalty: float = 0.5):
         """
-        Мягкая реакция: Регистрирует штраф для стратегии/модели из-за дрейфа.
+        Применяет штраф за дрейф модели к конкретной стратегии/символу.
+        
+        Args:
+            strategy_name: Имя стратегии
+            symbol: Символ
+            penalty: Штраф от 0.0 до 1.0 (1.0 = полная блокировка)
         """
-        key = f"{strategy_name}_{symbol}"  # Можно детализировать до символа, если стратегия специфична
-        # В текущей архитектуре стратегии общие, но AI_Model специфична для символа.
-        # Для простоты будем штрафовать стратегию "AI_Model" глобально или использовать более сложный маппинг.
-
-        # Если это AI модель, мы можем уменьшить вес "AI_Model" в аллокации
-        if "AI_Model" in strategy_name:
-            logger.warning(f"[Orchestrator] Применен штраф за дрейф к {strategy_name} ({symbol}).")
-            self.drift_penalties[symbol] = 0.5  # Снижаем риск в 2 раза для этого символа
-
-            # Обновляем директиву риска для конкретного символа через RiskEngine (нужна доработка RiskEngine для по-символьного риска)
-            # В текущей версии RiskEngine управляет общим распределением.
-            # Мы можем добавить директиву блокировки или снижения риска.
-
+        key = f"{strategy_name}_{symbol}"
+        self.drift_penalties[key] = min(penalty, 1.0)  # Ограничение [0, 1]
+        logger.warning(f"⚠️ Drift penalty applied: {key} = {penalty:.2f}")
+        
+        # Если это AI модель, добавляем директиву снижения риска
+        if "AI_Model" in strategy_name and penalty > 0.3:
+            logger.warning(f"[Orchestrator] Снижение риска для {symbol} из-за дрейфа (penalty={penalty:.2f})")
             self.trading_system.add_directive(
-                directive_type=f"REDUCE_RISK_{symbol}", reason="Concept Drift Detected", duration_hours=24, value=0.5
+                directive_type=f"REDUCE_RISK_{symbol}",
+                reason="Concept Drift Detected",
+                duration_hours=24,
+                value=1.0 - penalty,
             )
+
+    def decay_penalties(self, decay_factor: float = 0.95):
+        """Ежедневное затухание штрафов (модель может восстановиться)."""
+        for key in list(self.drift_penalties.keys()):
+            self.drift_penalties[key] *= decay_factor
+            if self.drift_penalties[key] < 0.01:  # Порог очистки
+                del self.drift_penalties[key]
+                logger.debug(f"🧹 Drift penalty cleared: {key}")
+
+    def get_effective_risk(self, strategy_name: str, symbol: str, base_risk: float) -> float:
+        """Возвращает риск с учётом штрафа за дрейф."""
+        key = f"{strategy_name}_{symbol}"
+        penalty = self.drift_penalties.get(key, 0.0)
+        return base_risk * (1.0 - penalty)
 
     def clear_drift_penalty(self, symbol: str):
         """Снимает штраф после переобучения."""
         self.trading_system.delete_directive(f"REDUCE_RISK_{symbol}")
-        if symbol in self.drift_penalties:
-            del self.drift_penalties[symbol]
+        # Удаляем все штрафы для этого символа
+        keys_to_remove = [k for k in self.drift_penalties if symbol in k]
+        for key in keys_to_remove:
+            del self.drift_penalties[key]
+            logger.info(f"✅ Drift penalty cleared: {key}")
 
     def run_cycle(self):
         current_time = time.time()
