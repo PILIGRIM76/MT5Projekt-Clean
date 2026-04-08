@@ -3960,7 +3960,8 @@ class TradingSystem(QObject):
             if self.stop_event.is_set():
                 return
             if not mt5_ensure_connected(path=self.config.MT5_PATH):
-                logger.error("Синхронизация истории: не удалось инициализировать MT5.")
+                # 🔧 OPTIMIZATION: При отсутствии MT5 пропускаем синхронизацию, не спамим ошибкой
+                logger.debug("Синхронизация истории: MT5 недоступен, пропускаю.")
                 return
             try:
                 history_deals = mt5.history_deals_get(from_date, datetime.now())

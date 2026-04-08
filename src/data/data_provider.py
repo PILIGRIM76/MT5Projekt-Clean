@@ -435,7 +435,8 @@ class DataProvider:
         symbol_info = None
         with self.mt5_lock:
             if not mt5_ensure_connected(path=self.config.MT5_PATH):
-                logger.error(f"[{symbol}] Не удалось инициализировать MT5 для проверки символа.")
+                # 🔧 OPTIMIZATION: При ошибке -10004 логируем только один раз, не для каждого символа
+                logger.debug(f"[{symbol}] MT5 недоступен, пропускаю проверку символа.")
                 return None
             try:
                 mt5.symbol_select(real_symbol, True)

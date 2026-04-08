@@ -293,8 +293,9 @@ class RiskEngine:
         # --- Использование mt5_lock и инициализация MT5 ---
         with self.mt5_lock:
             if not mt5_ensure_connected(path=self.config.MT5_PATH):
-                logger.error("check_daily_drawdown: Не удалось инициализировать MT5.")
-                return True
+                # 🔧 OPTIMIZATION: При отсутствии MT5 пропускаем проверку, не спамим ошибкой
+                logger.debug("check_daily_drawdown: MT5 недоступен, пропускаю проверку.")
+                return False
             try:
                 history_deals = mt5.history_deals_get(today_start, datetime.now())
             except Exception as e:
