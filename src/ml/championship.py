@@ -133,10 +133,10 @@ class VirtualTradingEngine:
             if i < 10:
                 logger.debug(f"  📊 Prediction[{i}]: {pred:.4f}, Price: {current_price:.5f}")
             
-            # Логика входа/выхода (пороги снижены для LightGBM classification)
-            if pred > 0.55 and not self._positions:  # Сигнал на покупку
+            # Логика входа/выхода (пороги снижены для LGBMClassifier на коротком окне)
+            if pred > 0.50 and not self._positions:  # Сигнал на покупку (чуть выше случайности)
                 equity = self._open_long(current_price, equity)
-            elif pred < 0.45 and self._positions:  # Сигнал на выход
+            elif pred < 0.50 and self._positions:  # Сигнал на выход (ниже случайности)
                 equity = self._close_long(current_price, equity)
             
             self._equity_curve.append(equity)
