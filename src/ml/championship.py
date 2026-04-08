@@ -129,10 +129,14 @@ class VirtualTradingEngine:
             pred = predictions[i]
             current_price = data.iloc[i]["close"]
             
-            # Логика входа/выхода
-            if pred > 0.6 and not self._positions:  # Сигнал на покупку
+            # Логирование первых 10 предсказаний для отладки
+            if i < 10:
+                logger.debug(f"  📊 Prediction[{i}]: {pred:.4f}, Price: {current_price:.5f}")
+            
+            # Логика входа/выхода (пороги снижены для LightGBM classification)
+            if pred > 0.55 and not self._positions:  # Сигнал на покупку
                 equity = self._open_long(current_price, equity)
-            elif pred < 0.4 and self._positions:  # Сигнал на выход
+            elif pred < 0.45 and self._positions:  # Сигнал на выход
                 equity = self._close_long(current_price, equity)
             
             self._equity_curve.append(equity)
