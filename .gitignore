@@ -122,6 +122,8 @@ $null
 *.csv
 !requirements*.txt
 test_*.py
+!tests/unit/test_*.py
+!tests/integration/test_*.py
 test_*.bat
 check_*.py
 demo_*.py
