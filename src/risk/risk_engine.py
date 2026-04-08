@@ -473,6 +473,10 @@ class RiskEngine:
             self.capital_allocation[default_regime] = allocation
             logger.info(f"💰 Allocation для '{default_regime}': {list(allocation.keys())}")
 
+    def update_regime_capital_allocation(self, new_allocation_matrix: Dict[str, Dict[str, float]]):
+        """Обёртка для обратной совместимости — делегирует в update_capital_allocation."""
+        self.update_capital_allocation(new_allocation_matrix)
+
     def is_trade_safe_from_events(self, symbol: str) -> bool:
         if not self.knowledge_graph_querier:
             return True
