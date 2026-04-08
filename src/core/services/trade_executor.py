@@ -415,7 +415,12 @@ class TradeExecutor:
 
                 # === ПРОВЕРКА АВТОТОРГОВЛИ ПЕРЕД ОТПРАВКОЙ ===
                 try:
-                    auto_trading_enabled = mt5.TerminalInfo(mt5.TERMINAL_TRADE_ALLOWED)
+                    # TERMINAL_TRADE_ALLOWED может отсутствовать в старых версиях MT5
+                    if hasattr(mt5, "TERMINAL_TRADE_ALLOWED"):
+                        auto_trading_enabled = mt5.TerminalInfo(mt5.TERMINAL_TRADE_ALLOWED)
+                    else:
+                        auto_trading_enabled = True  # Fallback
+                    
                     if not auto_trading_enabled:
                         logger.critical(f"[{symbol}] ⚠️ АВТОТОРГОВЛЯ ОТКЛЮЧЕНА! Ордер НЕ отправлен.")
                         logger.critical(f"[{symbol}] Включите Algo Trading в MT5 (Ctrl+E)")

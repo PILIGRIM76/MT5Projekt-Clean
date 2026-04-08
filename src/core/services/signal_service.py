@@ -504,35 +504,37 @@ class SignalService:
         if x_scaler is None:
             logger.warning(f"[{symbol}] {model_type}: нет x_scaler")
             return None, None
-        
-        # 2. Проверяем размерность
-        expected_features = x_scaler.n_features_in_ if hasattr(x_scaler, "n_features_in_") else len(model_features)
-        
-        if expected_features != len(model_features):
-            logger.warning(
-                f"[{symbol}] {model_type}: mismatch scaler({expected_features}) vs features({len(model_features)})"
-            )
-            return None, None
-        
-        # 3. Гарантируем наличие всех признаков в df
+
+        # 2. Гарантируем наличие всех признаков в df
         df_processed = df.copy()
         missing = [f for f in model_features if f not in df_processed.columns]
         if missing:
             for feat in missing:
                 df_processed[feat] = 0.0
             logger.debug(f"[{symbol}] {model_type}: добавлены нули для {missing}")
-        
-        # 4. Берём последние n_steps баров
+
+        # 3. Берём последние n_steps баров
         last_sequence = df_processed[model_features].tail(self.n_steps)
         if last_sequence.shape[0] < self.n_steps:
             logger.warning(f"[{symbol}] {model_type}: недостаточно данных ({last_sequence.shape[0]} < {self.n_steps})")
             return None, None
-        
+
         last_sequence_raw = last_sequence.values
-        
+
         # Очистка NaN/Inf
         if not np.all(np.isfinite(last_sequence_raw)):
             last_sequence_raw = np.nan_to_num(last_sequence_raw, nan=0.0, posinf=1e9, neginf=-1e9)
+
+        # === КРИТИЧЕСКАЯ ПРОВЕРКА: валидация alignment признаков ===
+        expected_features = x_scaler.n_features_in_ if hasattr(x_scaler, "n_features_in_") else len(model_features)
+        actual_features = last_sequence_raw.shape[-1]
+        
+        if expected_features != actual_features:
+            logger.warning(
+                f"[{symbol}] {model_type}: mismatch scaler({expected_features}) vs actual({actual_features})"
+            )
+            return None, None
+        # ================================================================
         
         # 5. Масштабирование
         try:

@@ -737,7 +737,14 @@ class TradingSystem(QObject):
 
             # === ПРОВЕРКА АВТОТОРГОВЛИ ===
             try:
-                auto_trading_enabled = mt5.TerminalInfo(mt5.TERMINAL_TRADE_ALLOWED)
+                # TERMINAL_TRADE_AVAILABLE может отсутствовать в старых версиях MT5
+                if hasattr(mt5, "TERMINAL_TRADE_ALLOWED"):
+                    auto_trading_enabled = mt5.TerminalInfo(mt5.TERMINAL_TRADE_ALLOWED)
+                else:
+                    # Fallback: предполагаем что торговля разрешена
+                    auto_trading_enabled = True
+                    logger.debug("[MT5] TERMINAL_TRADE_ALLOWED отсутствует — предполагаем что торговля разрешена")
+                
                 if not auto_trading_enabled:
                     logger.critical("=" * 60)
                     logger.critical("⚠️  АВТОТОРГОВЛЯ ОТКЛЮЧЕНА В MT5!")
@@ -1746,40 +1753,60 @@ class TradingSystem(QObject):
             data_load_start = standard_time.time()
 
             # Загружаем данные НАПРЯМУЮ через MT5 без использования data_provider,
-            # но с коротким lock, чтобы избежать гонок в MT5.
+            # с повторными попытками при занятости блокировки (exponential backoff)
             logger.info(f"[R&D] Прямая загрузка данных из MT5 для {symbol_to_train}...")
 
-            lock_acquired = self.mt5_lock.acquire(timeout=3)
-            if not lock_acquired:
-                logger.warning("[R&D] MT5 Lock занят. Пропуск загрузки данных для обучения.")
-                df_full = None
-            else:
+            df_full = None
+            max_retries = 3
+            for attempt in range(max_retries):
+                lock_acquired = self.mt5_lock.acquire(timeout=5.0)
+                if not lock_acquired:
+                    wait_time = 1.0 * (attempt + 1)  # Экспоненциальная задержка: 1с, 2с, 3с
+                    logger.warning(
+                        f"[R&D] MT5 Lock занят (попытка {attempt+1}/{max_retries}), ждём {wait_time}с..."
+                    )
+                    self.stop_event.wait(wait_time)
+                    continue
+                
                 try:
                     # Инициализируем отдельное подключение для обучения
                     if not mt5_ensure_connected(path=self.config.MT5_PATH):
                         logger.error(f"[R&D] Не удалось подключиться к MT5 для загрузки данных")
-                        df_full = None
-                    else:
-                        # Загружаем данные
-                        rates = mt5.copy_rates_from_pos(symbol_to_train, timeframe, 0, self.config.TRAINING_DATA_POINTS)
+                        self.mt5_lock.release()
+                        break
+                    
+                    # Загружаем данные
+                    rates = mt5.copy_rates_from_pos(symbol_to_train, timeframe, 0, self.config.TRAINING_DATA_POINTS)
 
-                        if rates is not None and len(rates) > 0:
-                            df_full = pd.DataFrame(rates)
-                            df_full["time"] = pd.to_datetime(df_full["time"], unit="s")
-                            df_full.set_index("time", inplace=True)
-                            logger.info(f"[R&D] Загружено {len(df_full)} баров напрямую из MT5")
-                        else:
-                            logger.warning(f"[R&D] MT5 вернул пустые данные")
-                            df_full = None
-                finally:
+                    if rates is not None and len(rates) > 0:
+                        df_full = pd.DataFrame(rates)
+                        df_full["time"] = pd.to_datetime(df_full["time"], unit="s")
+                        df_full.set_index("time", inplace=True)
+                        logger.info(f"[R&D] Загружено {len(df_full)} баров напрямую из MT5")
+                    else:
+                        logger.warning(f"[R&D] MT5 вернул пустые данные")
+                    
                     mt5_shutdown()
                     self.mt5_lock.release()
+                    break  # Успех — выходим из цикла
+                
+                except Exception as e:
+                    logger.error(f"[R&D] Ошибка загрузки данных (попытка {attempt+1}): {e}")
+                    if self.mt5_lock.locked():
+                        self.mt5_lock.release()
+                    if attempt < max_retries - 1:
+                        self.stop_event.wait(1.0 * (attempt + 1))
 
             data_load_time = standard_time.time() - data_load_start
             logger.info(f"[R&D] Загрузка данных заняла {data_load_time:.2f} сек")
-            if df_full is None or len(df_full) < 1000:
+            
+            if df_full is None:
+                logger.warning(f"[R&D] Не удалось загрузить данные для {symbol_to_train} после {max_retries} попыток. Пропуск.")
+                return
+            
+            if len(df_full) < 1000:
                 logger.warning(
-                    f"[R&D] Недостаточно данных ({len(df_full) if df_full is not None else 0} баров) для {symbol_to_train}. Пропуск."
+                    f"[R&D] Недостаточно данных ({len(df_full)} баров) для {symbol_to_train}. Пропуск."
                 )
                 return
             from src.ml.feature_engineer import FeatureEngineer
