@@ -488,7 +488,16 @@ class SignalService:
         
         try:
             if hasattr(model, "predict"):
-                prediction_raw = model.predict(last_sequence_scaled.reshape(1, -1))
+                # LightGBM / sklearn модели ожидают (n_samples, n_features)
+                # Берём ТОЛЬКО последний бар из последовательности
+                if hasattr(model, "n_features_in_"):
+                    # Это sklearn/LightGBM модель — нужен только последний бар
+                    last_bar = last_sequence_scaled[-1].reshape(1, -1)
+                    prediction_raw = model.predict(last_bar)
+                else:
+                    # LSTM / другая sequence модель — нужна вся последовательность
+                    prediction_raw = model.predict(last_sequence_scaled.reshape(1, -1))
+                
                 if hasattr(prediction_raw, "flatten"):
                     prediction_raw = prediction_raw.flatten()
                 prediction = float(prediction_raw[0])
