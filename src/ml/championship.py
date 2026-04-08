@@ -239,11 +239,16 @@ class VirtualTradingEngine:
     def _get_model_features(self, model_name: str) -> Optional[List[str]]:
         """
         Читает имена признаков из metadata.json модели.
+        Имя модели может быть "XAUUSD_model" или "XAUUSD" — metadata всегда "XAUUSD_metadata.json"
         """
         try:
             # Путь к metadata
             model_dir = self.config.MODEL_DIR if hasattr(self.config, "MODEL_DIR") and self.config.MODEL_DIR else str(Path(self.config.DATABASE_FOLDER) / "ai_models")
-            metadata_file = Path(model_dir) / f"{model_name}_metadata.json"
+            
+            # Извлекаем символ из имени модели: "XAUUSD_model" -> "XAUUSD"
+            symbol = model_name.replace("_model", "").replace("_v2", "").replace("_v3", "").replace("_v4", "")
+            
+            metadata_file = Path(model_dir) / f"{symbol}_metadata.json"
             
             if not metadata_file.exists():
                 logger.warning(f"Metadata не найден: {metadata_file}")
@@ -254,10 +259,10 @@ class VirtualTradingEngine:
             
             features = metadata.get("features")
             if features:
-                logger.debug(f"Модель {model_name} обучена на признаках: {features}")
+                logger.debug(f"Модель {model_name} (символ: {symbol}) обучена на признаках: {features}")
                 return features
             else:
-                logger.warning(f"В metadata {model_name} нет поля 'features'")
+                logger.warning(f"В metadata {symbol} нет поля 'features'")
                 return None
                 
         except Exception as e:

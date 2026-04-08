@@ -106,10 +106,19 @@ class FeatureEngineer:
             features_df["raw_cb"] = events_df.groupby("timestamp")["cb_score"].sum()
             features_df["raw_inf"] = events_df.groupby("timestamp")["inf_score"].sum()
 
+            # === FIX: Нормализуем datetime типы перед merge_asof ===
+            # Приводим оба индекса к одному типу (datetime64[ns])
+            df_sorted = df.sort_index().copy()
+            features_sorted = features_df.sort_index().copy()
+            
+            # Конвертируем в datetime64[ns] (универсальный формат pandas)
+            df_sorted.index = pd.to_datetime(df_sorted.index)
+            features_sorted.index = pd.to_datetime(features_sorted.index)
+
             # Используем merge_asof для привязки новостей к ближайшей ПРЕДЫДУЩЕЙ свече
             df_merged = pd.merge_asof(
-                df.sort_index(),
-                features_df.sort_index(),
+                df_sorted,
+                features_sorted,
                 left_index=True,
                 right_index=True,
                 direction="backward",
