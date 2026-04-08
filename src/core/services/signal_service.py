@@ -60,16 +60,18 @@ class SignalService:
         if not self._active_strategies:
             return True  # Пока оркестратор не принял решение — все разрешены
         
-        # Маппинг имён стратегий
+        # Маппинг имён стратегий → ключи оркестратора
         strategy_key = strategy_name
         if strategy_name.startswith("AI_MF_Consensus") or strategy_name.startswith("AI_Model"):
             strategy_key = "AI_Model"
+        elif strategy_name.startswith("AI_LightGBM") or strategy_name.startswith("AI_LSTM"):
+            strategy_key = "AI_Model"  # AI_LightGBM_Strategy → AI_Model
         elif strategy_name.startswith("RLTradeManager"):
             strategy_key = "RLTradeManager"
         
         is_enabled = strategy_key in self._active_strategies
         if not is_enabled:
-            logger.debug(f"[SignalService] Стратегия {strategy_name} отключена оркестратором")
+            logger.debug(f"[SignalService] Стратегия {strategy_name} (key={strategy_key}) отключена оркестратором")
         return is_enabled
 
     def _create_sequences_for_shap(self, data: np.ndarray, n_steps: int) -> Optional[np.ndarray]:
@@ -468,9 +470,11 @@ class SignalService:
         predicted_price = entry_price * (1 + (avg_prediction - 0.5) * 0.01)
 
         try:
+            # Pydantic требует confidence >= 0.3, поднимаем если ниже
+            pydantic_min_confidence = 0.3
             signal = TradeSignal(
                 type=signal_type,
-                confidence=max(avg_confidence, 0.15),  # Гарантируем минимум для валидации
+                confidence=max(avg_confidence, pydantic_min_confidence),
                 symbol=symbol,
                 predicted_price=predicted_price,
             )

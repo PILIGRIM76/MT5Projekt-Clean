@@ -2362,9 +2362,11 @@ class TradingSystem(QObject):
         if not self.orchestrator_active_strategies:
             return True  # Пока оркестратор не принял решение — все активны
 
-        # Маппинг имён стратегий
+        # Маппинг имён стратегий → ключи оркестратора
         strategy_key = strategy_name
         if strategy_name.startswith("AI_MF_Consensus") or strategy_name.startswith("AI_Model"):
+            strategy_key = "AI_Model"
+        elif strategy_name.startswith("AI_LightGBM") or strategy_name.startswith("AI_LSTM"):
             strategy_key = "AI_Model"
         elif strategy_name.startswith("RLTradeManager"):
             strategy_key = "RLTradeManager"
