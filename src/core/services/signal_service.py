@@ -214,7 +214,7 @@ class SignalService:
         # Если консенсус не достигнут и классика молчит — проверяем AI уверенность
         if final_signal_type == SignalType.HOLD:
             no_classic = len(classic_signals) == 0
-            
+
             # AI-ONLY: когда классика молчит + AI уверен на 20%+ → пропускаем AI сигнал
             if no_classic and ai_signal and ai_signal.confidence >= 0.2:
                 logger.info(
@@ -225,12 +225,10 @@ class SignalService:
                 final_score = ai_signal.confidence * 0.7  # Слегка штрафован
             # Если есть сильные классические сигналы, используем их
             elif classic_signals:
-                # Проверяем, есть ли единогласие среди классических стратегий
                 buy_count = sum(1 for s in classic_signals if s.type == SignalType.BUY)
                 sell_count = sum(1 for s in classic_signals if s.type == SignalType.SELL)
                 total = len(classic_signals)
 
-                # Если 70%+ стратегий согласны, используем классический сигнал
                 if buy_count >= total * 0.7:
                     logger.critical(
                         f"[{symbol}] КОНСЕНСУС не достигнут, но КЛАССИЧЕСКИЕ стратегии голосуют за BUY ({buy_count}/{total})"
@@ -253,9 +251,14 @@ class SignalService:
                         None,
                         float(df["close"].iloc[-1]),
                     )
-
-            logger.info(f"[{symbol}] Многофакторный консенсус не достигнут (Score: {final_score:.2f}). Сигнал отклонен.")
-            return None
+                else:
+                    # Классика есть но нет единогласия
+                    logger.info(f"[{symbol}] Многофакторный консенсус не достигнут (Score: {final_score:.2f}). Сигнал отклонен.")
+                    return None
+            else:
+                # Ни AI, ни классика не дали сигнала
+                logger.info(f"[{symbol}] Многофакторный консенсус не достигнут (Score: {final_score:.2f}). Сигнал отклонен.")
+                return None
 
         # 6. Формирование финального сигнала
         final_signal = TradeSignal(
