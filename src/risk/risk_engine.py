@@ -3,7 +3,7 @@ import logging
 import threading
 import time as standard_time
 from datetime import date, datetime, time, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import MetaTrader5 as mt5
 import numpy as np
@@ -440,12 +440,38 @@ class RiskEngine:
         # Ограничиваем, чтобы избежать выхода за пределы [0, 1] из-за ошибок округления
         return max(0.0, min(1.0, diversity_reward))
 
-    def update_regime_capital_allocation(self, new_allocation_matrix: Dict[str, Dict[str, float]]):
-        self.capital_allocation = new_allocation_matrix
+    @staticmethod
+    def _is_nested(d: Dict) -> bool:
+        """Проверяет, является ли словарь вложенным {str: {str: float}}."""
+        return any(isinstance(v, dict) for v in d.values()) if d else False
 
-    def update_capital_allocation(self, new_allocation: Dict[str, float]):
-        """Обновляет распределение капитала по режимам."""
-        self.capital_allocation = new_allocation
+    def update_capital_allocation(
+        self,
+        allocation: Union[Dict[str, float], Dict[str, Dict[str, float]]],
+        regime: Optional[str] = None,
+    ) -> None:
+        """
+        Универсальный метод обновления распределения капитала.
+        
+        Args:
+            allocation: Плоский словарь {symbol: risk} ИЛИ вложенный {regime: {symbol: risk}}
+            regime: Если указан, применяет allocation только к этому режиму
+        """
+        if regime and isinstance(allocation, dict) and not self._is_nested(allocation):
+            # Плоский словарь + режим → оборачиваем
+            self.capital_allocation[regime] = allocation
+            logger.info(f"💰 Allocation обновлена для режима '{regime}': {list(allocation.keys())}")
+        elif isinstance(allocation, dict) and self._is_nested(allocation):
+            # Вложенная структура → полная замена
+            self.capital_allocation = allocation
+            logger.info(f"💰 Полная замена allocation: {list(allocation.keys())} режимов")
+        else:
+            # Плоский словарь → применяем к дефолтному режиму
+            default_regime = regime or "default"
+            if not isinstance(self.capital_allocation, dict):
+                self.capital_allocation = {}
+            self.capital_allocation[default_regime] = allocation
+            logger.info(f"💰 Allocation для '{default_regime}': {list(allocation.keys())}")
 
     def is_trade_safe_from_events(self, symbol: str) -> bool:
         if not self.knowledge_graph_querier:
