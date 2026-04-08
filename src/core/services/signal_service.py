@@ -211,9 +211,22 @@ class SignalService:
         )
 
         # === ИЗМЕНЕНИЕ: Если консенсус не достигнут, проверяем классические стратегии отдельно ===
+        # + AI-ONLY FALLBACK для Weak Trend режима
         if final_signal_type == SignalType.HOLD:
+            # AI-ONLY FALLBACK: для Weak Trend — снижаем порог когда классика молчит
+            is_weak_trend = market_regime == "Weak Trend"
+            no_classic = len(classic_signals) == 0
+            
+            if is_weak_trend and no_classic and ai_signal and ai_signal.confidence >= 0.2:
+                # Weak Trend + нет классики + AI уверен на 20%+ → пропускаем AI сигнал
+                logger.info(
+                    f"[{symbol}] AI-ONLY (Weak Trend): AI confidence={ai_signal.confidence:.2f} ≥ 0.2, "
+                    f"классика молчит → пропускаем AI сигнал"
+                )
+                final_signal_type = ai_signal.type
+                final_score = ai_signal.confidence * 0.7  # Сlightly penalized score
             # Если есть сильные классические сигналы, используем их
-            if classic_signals:
+            elif classic_signals:
                 # Проверяем, есть ли единогласие среди классических стратегий
                 buy_count = sum(1 for s in classic_signals if s.type == SignalType.BUY)
                 sell_count = sum(1 for s in classic_signals if s.type == SignalType.SELL)
