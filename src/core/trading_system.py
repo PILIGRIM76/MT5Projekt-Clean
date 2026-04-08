@@ -517,6 +517,34 @@ class TradingSystem(QObject):
         self.orchestrator_risk_multiplier: float = 1.0
         # ==========================
 
+        # === ARCHITECTURE: "Единый организм" — 4 слоя координации ===
+        from src.core.resource_governor import get_governor
+        from src.core.task_queue import get_task_queue
+        from src.core.lock_manager import lock_manager
+        from src.core.health_monitor import get_health_monitor
+
+        # 1. ResourceGovernor — контроль CPU/RAM/GPU
+        self.governor = get_governor()
+        logger.info("🎛️ ResourceGovernor инициализирован")
+
+        # 2. PriorityTaskQueue — замена threading.Thread для R&D
+        self.task_queue = get_task_queue(max_workers=4)
+        logger.info("🚀 PriorityTaskQueue инициализирован (4 воркера)")
+
+        # 3. LockHierarchy — иерархия блокировок (будет использоваться вместо прямых mt5_lock)
+        self.lock_manager = lock_manager
+        logger.info("🔒 LockHierarchy инициализирован")
+
+        # 4. HealthMonitor — мониторинг состояния системы
+        self.health_monitor = get_health_monitor(
+            governor=self.governor,
+            task_queue=self.task_queue,
+            lock_manager=self.lock_manager,
+            trading_system=self,
+        )
+        logger.info("📊 HealthMonitor инициализирован")
+        # =============================================================
+
         # Планируем первый запуск чемпионата
         self._championship_next_run = datetime.now()
         logger.info(
@@ -817,6 +845,23 @@ class TradingSystem(QObject):
         try:
             while self.running and not self.stop_event.is_set():
                 iteration_count += 1
+                
+                # === RESOURCE GOVERNOR: проверка перегрузки ===
+                if hasattr(self, 'governor') and self.governor:
+                    from src.core.resource_governor import ResourceClass
+                    
+                    # Критическая операция — всегда разрешена, но логируем перегрузку
+                    if self.governor.is_overloaded():
+                        logger.warning(f"⚠️ Система перегружена! Пропуск итерации #{iteration_count}")
+                        # Принудительно завершаем низкоприоритетные задачи
+                        killed = self.governor.kill_low_priority_tasks()
+                        if killed:
+                            logger.warning(f"🗑️ Завершены задачи: {killed}")
+                        # Пауза для восстановления
+                        self.stop_event.wait(2.0)
+                        continue
+                # ===================================================
+                
                 logger.debug(f"Торговый цикл: итерация #{iteration_count}")
 
                 try:
@@ -1657,6 +1702,25 @@ class TradingSystem(QObject):
 
     # --- ОСТАЛЬНЫЕ МЕТОДЫ (БЕЗ ИЗМЕНЕНИЙ) ---
     def _continuous_training_cycle(self):
+        # === RESOURCE GOVERNOR: проверка можно ли запустить R&D ===
+        if hasattr(self, 'governor') and self.governor:
+            from src.core.resource_governor import ResourceClass
+            task_id = f"rd_cycle_{uuid.uuid4().hex[:6]}"
+            
+            if not self.governor.can_start(task_id, ResourceClass.MEDIUM):
+                logger.warning("⏳ R&D пропущен: система перегружена")
+                return
+            
+            try:
+                self._run_training_with_governor(task_id)
+            finally:
+                self.governor.task_finished(task_id)
+        else:
+            # Fallback: старый путь без governor
+            self._run_training_with_governor(None)
+    
+    def _run_training_with_governor(self, task_id: Optional[str]):
+        """Внутренний метод R&D с поддержкой ResourceGovernor."""
         if not self.training_lock.acquire(blocking=False):
             return
         training_batch_id = f"batch-{uuid.uuid4()}"
@@ -2435,11 +2499,20 @@ class TradingSystem(QObject):
         last_kpi_update_time = 0
         kpi_update_interval = 60
         last_account_update = 0
+        last_health_check = 0  # Для проверки здоровья системы
 
         # Оптимизация: уменьшаем частоту опроса stop_event
         loop_counter = 0
         while not self.stop_event.is_set():
             current_time = standard_time.time()
+
+            # === HEALTH MONITOR: проверка каждые 60 секунд ===
+            if current_time - last_health_check > 60 and hasattr(self, 'health_monitor') and self.health_monitor:
+                alert = self.health_monitor.check_and_alert()
+                if alert:
+                    logger.critical(f"🚨 HEALTH ALERT: {alert}")
+                last_health_check = current_time
+            # =================================================
 
             # Обновляем информацию о счете каждые 5 секунд
             if current_time - last_account_update > 5:
