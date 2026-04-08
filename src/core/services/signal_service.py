@@ -488,19 +488,35 @@ class SignalService:
         
         try:
             if hasattr(model, "predict"):
-                # LightGBM / sklearn модели ожидают (n_samples, n_features)
-                # Берём ТОЛЬКО последний бар из последовательности
+                # LightGBM / sklearn модели
                 if hasattr(model, "n_features_in_"):
                     # Это sklearn/LightGBM модель — нужен только последний бар
                     last_bar = last_sequence_scaled[-1].reshape(1, -1)
-                    prediction_raw = model.predict(last_bar)
+                    
+                    # КРИТИЧНО: для классификаторов используем predict_proba, а не predict
+                    if hasattr(model, "predict_proba"):
+                        # Классификатор → вероятности классов
+                        proba = model.predict_proba(last_bar)
+                        # Берём вероятность класса "1" (рост/BUY)
+                        if proba.ndim == 2 and proba.shape[1] >= 2:
+                            prediction = float(proba[0, 1])
+                        else:
+                            prediction = float(proba[0])
+                    else:
+                        # Регрессор → прямое предсказание
+                        prediction_raw = model.predict(last_bar)
+                        if hasattr(prediction_raw, "flatten"):
+                            prediction_raw = prediction_raw.flatten()
+                        prediction = float(prediction_raw[0])
                 else:
-                    # LSTM / другая sequence модель — нужна вся последовательность
+                    # LSTM / sequence модель — нужна вся последовательность
                     prediction_raw = model.predict(last_sequence_scaled.reshape(1, -1))
+                    if hasattr(prediction_raw, "flatten"):
+                        prediction_raw = prediction_raw.flatten()
+                    prediction = float(prediction_raw[0])
                 
-                if hasattr(prediction_raw, "flatten"):
-                    prediction_raw = prediction_raw.flatten()
-                prediction = float(prediction_raw[0])
+                # Clamp prediction to [0, 1] для вероятностей
+                prediction = max(0.0, min(1.0, prediction))
             else:
                 logger.warning(f"[{symbol}] {model_type}: модель не поддерживает predict()")
                 return None, None
