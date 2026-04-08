@@ -510,6 +510,13 @@ class TradingSystem(QObject):
         self.config._trading_system = self
         logger.info("✅ ModelChampionship инициализирован")
 
+        # === ORCHESTRATOR STATE ===
+        self.orchestrator_active_strategies: Dict[str, bool] = {}  # {strategy_name: is_active}
+        self.orchestrator_current_regime: str = "Default"
+        self.orchestrator_max_positions: int = self.config.MAX_OPEN_POSITIONS
+        self.orchestrator_risk_multiplier: float = 1.0
+        # ==========================
+
         # Планируем первый запуск чемпионата
         self._championship_next_run = datetime.now()
         logger.info(
@@ -2294,13 +2301,6 @@ class TradingSystem(QObject):
             "drift_status": drift_status,
             "news_sentiment": news_sentiment,
         }
-
-    # === ORCHESTRATOR STATE ===
-    self.orchestrator_active_strategies: Dict[str, bool] = {}  # {strategy_name: is_active}
-    self.orchestrator_current_regime: str = "Default"
-    self.orchestrator_max_positions: int = self.config.MAX_OPEN_POSITIONS
-    self.orchestrator_risk_multiplier: float = 1.0
-    # ==========================
 
     def apply_orchestrator_action(self, regime_allocations: Dict[str, Dict[str, float]]):
         """Применяет решение оркестратора — теперь как единый мозг системы."""
