@@ -48,6 +48,7 @@ class SignalService:
 
         # Активные стратегии от оркестратора (обновляются динамически)
         self._active_strategies: set = set()  # Если пусто — все активны
+        self.n_steps = self.config.INPUT_LAYER_SIZE  # Для LSTM последовательностей
 
     def set_active_strategies(self, active_strategies: set):
         """Обновляет список активных стратегий от оркестратора."""
