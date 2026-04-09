@@ -2679,6 +2679,7 @@ class MainWindow(QMainWindow):
 
         current_time = time.time()
         current_thread = threading.current_thread().name
+        interval = 0.0  # ✅ Инициализация по умолчанию
 
         if hasattr(self, "_last_balance_update_time"):
             interval = current_time - self._last_balance_update_time
@@ -2686,10 +2687,11 @@ class MainWindow(QMainWindow):
                 logger.warning(f"⚠️ [GUI-Balance] Большой интервал: {interval:.1f}с (thread: {current_thread})")
         self._last_balance_update_time = current_time
 
-        logger.debug(
-            f"[GUI-Balance] update_balance вызван: balance={balance:.2f}, equity={equity:.2f}, "
-            f"thread={current_thread}, interval={interval:.2f}s"
-        )
+        if interval > 0:
+            logger.debug(
+                f"[GUI-Balance] update_balance вызван: balance={balance:.2f}, equity={equity:.2f}, "
+                f"thread={current_thread}, interval={interval:.2f}s"
+            )
 
         self.balance_label.setText(f"Баланс: {balance:.2f}")
         self.equity_label.setText(f"Эквити: {equity:.2f}")
