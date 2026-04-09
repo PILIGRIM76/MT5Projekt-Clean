@@ -50,7 +50,8 @@ class AccountManager(QObject):
     """
 
     # 🔹 Сигнал для обновления эквити в GUI (безопасно из любого потока)
-    equity_updated = Signal(float, float)  # balance, equity
+    # Отправляет dict для совместимости с GUIDispatcher
+    equity_updated = Signal(dict)  # {'balance': float, 'equity': float}
 
     def __init__(self):
         super().__init__()  # Инициализация QObject
@@ -115,7 +116,15 @@ class AccountManager(QObject):
             or abs(self.equity - self._last_emitted_equity) > 0.01
         ):
             try:
-                self.equity_updated.emit(self.balance, self.equity)
+                self.equity_updated.emit(
+                    {
+                        "balance": self.balance,
+                        "equity": self.equity,
+                        "profit": self.equity - self.balance,
+                        "account_type": self.account_type,
+                        "currency": self.currency,
+                    }
+                )
                 self._last_emitted_balance = self.balance
                 self._last_emitted_equity = self.equity
             except Exception as e:

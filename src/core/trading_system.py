@@ -421,13 +421,28 @@ class TradingSystem(QObject):
         self.account_manager = AccountManager()
         logger.info("Account Manager инициализирован")
 
-        # 🔹 Подключаем сигнал AccountManager к bridge для отправки в GUI
+        # 🚦 Инициализация GUI Traffic Dispatcher (3 независимых канала)
+        from src.gui.gui_dispatcher import GUIDispatcher
+
+        self.gui_dispatcher = GUIDispatcher(equity_interval_ms=3000, chart_interval_ms=10000)
+        logger.info("GUIDispatcher инициализирован")
+
+        # 🔹 Подключаем AccountManager → Dispatcher → Bridge
+        # Канал 1: Эквити (высокий приоритет)
         if self.bridge:
             try:
-                self.account_manager.equity_updated.connect(lambda b, e: self.bridge.balance_updated.emit(b, e))
-                logger.info("✅ Сигнал AccountManager.equity_updated подключён к bridge.balance_updated")
+                # AccountManager → Dispatcher
+                self.account_manager.equity_updated.connect(self.gui_dispatcher.push_equity_data)
+
+                # Dispatcher → Bridge → GUI
+                self.gui_dispatcher.equity_data_ready.connect(
+                    lambda data: self.bridge.balance_updated.emit(data["balance"], data["equity"])
+                )
+                logger.info("✅ Канал 1: AccountManager → Dispatcher → Bridge (equity)")
             except Exception as e:
-                logger.warning(f"Не удалось подключить сигнал equity_updated: {e}")
+                logger.warning(f"Не удалось подключить канал 1 (equity): {e}")
+        else:
+            logger.warning("⚠️ Bridge не инициализирован, сигналы не будут доходить до GUI")
 
         self.risk_engine = RiskEngine(
             self.config,
