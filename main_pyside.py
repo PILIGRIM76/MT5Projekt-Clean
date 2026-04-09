@@ -3142,13 +3142,27 @@ class MainWindow(QMainWindow):
                 if df_clean["time"].dtype == "object" or np.issubdtype(df_clean["time"].dtype, np.datetime64):
                     df_clean["time"] = pd.to_datetime(df_clean["time"])
                     x_data = df_clean["time"].values.astype("datetime64[ms]").astype("int64")
-                else:
-                    # Если уже числа (timestamp) — переводим в миллисекунды
+                elif np.issubdtype(df_clean["time"].dtype, np.number):
+                    # Если уже числа (timestamp в секундах) — переводим в миллисекунды
                     x_data = (df_clean["time"].values * 1000).astype("int64")
+                else:
+                    # Fallback: пробуем сконвертировать
+                    df_clean["time"] = pd.to_datetime(df_clean["time"], errors="coerce")
+                    x_data = df_clean["time"].values.astype("datetime64[ms]").astype("int64")
             else:
-                # Fallback: используем index
-                df_clean["time"] = pd.to_datetime(df_clean.index)
-                x_data = df_clean["time"].values.astype("datetime64[ms]").astype("int64")
+                # 🔹 КРИТИЧЕСКИЙ FALLBACK: Если нет колонки 'time'
+                # MT5 возвращает 'time' как секунды с epoch, но если колонки нет — генерируем
+                logger.warning(f"🔍 [DIAG] Колонка 'time' отсутствует, генерируем временную ось")
+                now_ms = int(pd.Timestamp.utcnow().timestamp() * 1000)
+                # Предполагаем H1 интервал (3600000 мс) между барами
+                interval_ms = 3600000
+                n_bars = len(df_clean)
+                x_data = np.array(
+                    [now_ms - (n_bars - 1 - i) * interval_ms for i in range(n_bars)],
+                    dtype="int64",
+                )
+                # Добавляем колонку time для последующей обработки
+                df_clean["time"] = pd.to_datetime(x_data, unit="ms")
 
             # Удаляем дубликаты по времени
             df_clean["_x_timestamp"] = x_data
@@ -3187,11 +3201,13 @@ class MainWindow(QMainWindow):
                 f"цена {close_vals.min():.5f} - {close_vals.max():.5f}, "
                 f"время {x_data[0]} - {x_data[-1]} (ms)"
             )
-            logger.info(f"🔍 [DIAG] candlestick_data shape: ({len(candlestick_data)}, 5)")
             logger.info(f"🔍 [DIAG] x_data dtype: {x_data.dtype}, range: {x_data.min():.0f} - {x_data.max():.0f}")
 
             # 4. Формируем данные свечей: (timestamp_ms, open, high, low, close)
             candlestick_data = np.column_stack((x_data, open_vals, high_vals, low_vals, close_vals))
+
+            # 🔍 ДИАГНОСТИКА: Теперь candlestick_data создана
+            logger.info(f"🔍 [DIAG] candlestick_data shape: {candlestick_data.shape}")
 
             # 5. Отрисовка свечей
             self.candlestick_item.setData(candlestick_data)
