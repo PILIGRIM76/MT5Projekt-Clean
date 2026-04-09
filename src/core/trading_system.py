@@ -421,6 +421,14 @@ class TradingSystem(QObject):
         self.account_manager = AccountManager()
         logger.info("Account Manager инициализирован")
 
+        # 🔹 Подключаем сигнал AccountManager к bridge для отправки в GUI
+        if self.bridge:
+            try:
+                self.account_manager.equity_updated.connect(lambda b, e: self.bridge.balance_updated.emit(b, e))
+                logger.info("✅ Сигнал AccountManager.equity_updated подключён к bridge.balance_updated")
+            except Exception as e:
+                logger.warning(f"Не удалось подключить сигнал equity_updated: {e}")
+
         self.risk_engine = RiskEngine(
             self.config,
             self,
