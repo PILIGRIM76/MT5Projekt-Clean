@@ -403,6 +403,13 @@ class MainWindow(QMainWindow):
         self.current_chart_timeframe = "H1"
         self.current_chart_symbol = "EURUSD"
 
+        # 🔹 Debounce таймер для графика (не чаще 1 раза в 5 сек)
+        self._chart_update_timer = QTimer(self)
+        self._chart_update_timer.setSingleShot(True)
+        self._chart_update_timer.timeout.connect(self._do_chart_update)
+        self._pending_chart_data = None
+        self._last_chart_symbol = None
+
         # --- КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Запуск тяжелой инициализации в QThreadPool ---
         # Запускаем сразу, не ждем 100мс, но в фоновом потоке
         self.start_heavy_initialization()
@@ -3107,180 +3114,151 @@ class MainWindow(QMainWindow):
         self.request_chart_update()
 
     def request_chart_update(self):
-        """Запрашивает обновление графика у торговой системы."""
-        if hasattr(self.trading_system, "request_chart_data"):
-            timeframe_mt5 = self.timeframe_map.get(self.current_chart_timeframe, mt5.TIMEFRAME_H1)
-            self.trading_system.request_chart_data(self.current_chart_symbol, timeframe_mt5)
+        """
+        Запрашивает обновление графика с debounce (не чаще 1 раза в 5 сек).
+        Предотвращает блокировку GUI частыми обновлениями.
+        """
+        timeframe_mt5 = self.timeframe_map.get(self.current_chart_timeframe, mt5.TIMEFRAME_H1)
+        symbol = self.current_chart_symbol
+
+        # Сохраняем.pending данные
+        self._pending_chart_data = (symbol, timeframe_mt5)
+
+        # Перезапускаем таймер: если новые данные придут за 5 сек — обновим один раз
+        if not self._chart_update_timer.isActive():
+            self._chart_update_timer.start(5000)  # 5 секунд
         else:
-            logger.warning("[GUI-Chart] Метод request_chart_data не найден в trading_system")
+            logger.debug(f"[GUI-Chart] Debounce: обновление отложено для {symbol}")
+
+    def _do_chart_update(self):
+        """Выполняет отложенное обновление графика (вызывается из главного потока)."""
+        if self._pending_chart_data:
+            symbol, timeframe_mt5 = self._pending_chart_data
+            self._pending_chart_data = None
+
+            logger.info(f"[GUI-Chart] Debounce завершён, запрашиваем {symbol} TF={timeframe_mt5}")
+            if hasattr(self.trading_system, "request_chart_data"):
+                self.trading_system.request_chart_data(symbol, timeframe_mt5)
+            else:
+                logger.warning("[GUI-Chart] Метод request_chart_data не найден в trading_system")
 
     def update_candle_chart(self, df: pd.DataFrame, symbol: str):
         """
         Обновляет график свечей в стиле MT5.
-        Корректно обрабатывает Pandas -> NumPy конвертацию.
-        Включает полную диагностику данных.
+        🔹 БЕЗ блокировки GUI — защищённая версия.
+        🔹 Если вызван из фонового потока — перенаправляет в главный.
         """
-        # 🔍 ДИАГНОСТИКА: Информация о входящих данных
-        logger.info(
-            f"[GUI-Chart] update_candle_chart вызван: symbol={symbol}, "
-            f"df is None={df is None}, df.empty={df.empty if df is not None else 'N/A'}, "
-            f"len={len(df) if df is not None else 0}"
-        )
+        import time as _time
 
-        # 1. Проверка на пустоту
-        if df is None or df.empty or len(df) < 2:
-            logger.warning(f"[GUI-Chart] Данные недостаточны для отображения графика {symbol}")
-            self.candlestick_item.setData(None)
-            self.volume_item.setOpts(x=[], height=[])
+        # 🔹 1. Защита: выполняем только в главном потоке
+        if threading.current_thread() is not threading.main_thread():
+            # Перенаправляем в главный поток и выходим
+            logger.debug(f"[GUI-Chart] Перенаправление в главный поток: {symbol}")
+            QTimer.singleShot(0, lambda: self.update_candle_chart(df, symbol))
             return
 
+        start = _time.time()
+
         try:
-            # 🔍 ДИАГНОСТИКА: Подробная информация о DataFrame
-            logger.info(f"🔍 [DIAG] DataFrame type: {type(df)}, shape: {df.shape}")
-            logger.info(f"🔍 [DIAG] Columns: {df.columns.tolist()}")
-            logger.info(f"🔍 [DIAG] First row: {df.iloc[0].to_dict()}")
-            logger.info(f"🔍 [DIAG] Last row: {df.iloc[-1].to_dict()}")
-            logger.info(f"🔍 [DIAG] Price range: {df['close'].min():.5f} - {df['close'].max():.5f}")
-            if "time" in df.columns:
-                logger.info(f"🔍 [DIAG] Time range: {df['time'].min()} - {df['time'].max()}")
-                logger.info(f"🔍 [DIAG] Time dtype: {df['time'].dtype}")
-            else:
-                logger.info(f"🔍 [DIAG] Колонка 'time' отсутствует, используем index")
+            # 🔹 2. Быстрый выход если нет данных
+            if df is None or df.empty or len(df) < 2:
+                logger.debug(f"[GUI-Chart] {symbol}: нет данных, пропускаем")
+                self.candlestick_item.setData(None)
+                self.volume_item.setOpts(x=[], height=[])
+                return
 
-            # 2. Очистка от дубликатов и NaN
-            df_clean = df.copy()
+            # 🔹 3. Берём только последние 200 баров (лёгкая отрисовка)
+            df_clean = df.tail(200).copy()
 
-            # Проверяем есть ли колонка 'time'
+            # Подготовка X (время)
             if "time" in df_clean.columns:
-                # Если 'time' — объект datetime, конвертируем в миллисекунды
                 if df_clean["time"].dtype == "object" or np.issubdtype(df_clean["time"].dtype, np.datetime64):
                     df_clean["time"] = pd.to_datetime(df_clean["time"])
                     x_data = df_clean["time"].values.astype("datetime64[ms]").astype("int64")
                 elif np.issubdtype(df_clean["time"].dtype, np.number):
-                    # Если уже числа (timestamp в секундах) — переводим в миллисекунды
                     x_data = (df_clean["time"].values * 1000).astype("int64")
                 else:
-                    # Fallback: пробуем сконвертировать
                     df_clean["time"] = pd.to_datetime(df_clean["time"], errors="coerce")
                     x_data = df_clean["time"].values.astype("datetime64[ms]").astype("int64")
             else:
-                # 🔹 КРИТИЧЕСКИЙ FALLBACK: Если нет колонки 'time'
-                # MT5 возвращает 'time' как секунды с epoch, но если колонки нет — генерируем
-                logger.warning(f"🔍 [DIAG] Колонка 'time' отсутствует, генерируем временную ось")
-                now_ms = int(pd.Timestamp.utcnow().timestamp() * 1000)
-                # Предполагаем H1 интервал (3600000 мс) между барами
+                # Fallback: генерируем время
+                now_ms = int(pd.Timestamp.now("UTC").timestamp() * 1000)
                 interval_ms = 3600000
                 n_bars = len(df_clean)
-                x_data = np.array(
-                    [now_ms - (n_bars - 1 - i) * interval_ms for i in range(n_bars)],
-                    dtype="int64",
-                )
-                # Добавляем колонку time для последующей обработки
+                x_data = np.array([now_ms - (n_bars - 1 - i) * interval_ms for i in range(n_bars)], dtype="int64")
                 df_clean["time"] = pd.to_datetime(x_data, unit="ms")
 
-            # Удаляем дубликаты по времени
+            # Очистка от дубликатов/NaN
             df_clean["_x_timestamp"] = x_data
-            before_dedup = len(df_clean)
             df_clean = df_clean.drop_duplicates(subset="_x_timestamp", keep="last")
             df_clean = df_clean.dropna(subset=["open", "high", "low", "close"])
-            after_dedup = len(df_clean)
-            if before_dedup != after_dedup:
-                logger.warning(f"🔍 [DIAG] Удалено {before_dedup - after_dedup} дубликатов/NaN строк")
-
-            # Пересчитываем x_data после очистки
             x_data = df_clean["_x_timestamp"].values.astype("int64")
 
-            # 3. Ограничиваем до 200 последних баров
-            if len(df_clean) > 200:
-                df_chart = df_clean.tail(200)
-                x_data = x_data[-200:]
-                logger.debug(f"[GUI-Chart] График обрезан до 200 баров из {len(df_clean)}")
-            else:
-                df_chart = df_clean
+            if len(x_data) < 2:
+                logger.debug(f"[GUI-Chart] {symbol}: после очистки осталось {len(x_data)} баров")
+                return
 
-            # Извлекаем OHLCV в NumPy массивы
-            open_vals = df_chart["open"].values.astype(np.float64)
-            high_vals = df_chart["high"].values.astype(np.float64)
-            low_vals = df_chart["low"].values.astype(np.float64)
-            close_vals = df_chart["close"].values.astype(np.float64)
+            # Извлекаем OHLCV
+            open_vals = df_clean["open"].values.astype(np.float64)
+            high_vals = df_clean["high"].values.astype(np.float64)
+            low_vals = df_clean["low"].values.astype(np.float64)
+            close_vals = df_clean["close"].values.astype(np.float64)
             volume_vals = (
-                df_chart["tick_volume"].values.astype(np.float64)
-                if "tick_volume" in df_chart.columns
+                df_clean["tick_volume"].values.astype(np.float64)
+                if "tick_volume" in df_clean.columns
                 else np.zeros(len(x_data))
             )
 
-            # 🔍 ДИАГНОСТИКА: Информация о подготовленных данных
-            logger.info(
-                f"✅ [DIAG] {symbol}: {len(x_data)} баров, "
-                f"цена {close_vals.min():.5f} - {close_vals.max():.5f}, "
-                f"время {x_data[0]} - {x_data[-1]} (ms)"
-            )
-            logger.info(f"🔍 [DIAG] x_data dtype: {x_data.dtype}, range: {x_data.min():.0f} - {x_data.max():.0f}")
-
-            # 4. Формируем данные свечей: (timestamp_ms, open, high, low, close)
+            # Формируем данные свечей
             candlestick_data = np.column_stack((x_data, open_vals, high_vals, low_vals, close_vals))
 
-            # 🔍 ДИАГНОСТИКА: Теперь candlestick_data создана
-            logger.info(f"🔍 [DIAG] candlestick_data shape: {candlestick_data.shape}")
-
-            # 5. Отрисовка свечей
+            # Отрисовка свечей
             self.candlestick_item.setData(candlestick_data)
-            logger.debug(f"[GUI-Chart] Данные свечей установлены: {len(candlestick_data)} баров")
 
-            # 6. Обновление объёма в стиле MT5
-            volume_colors = []
-            for i in range(len(df_chart)):
-                if close_vals[i] >= open_vals[i]:
-                    volume_colors.append(pg.mkBrush("#00C853"))  # Зелёный
-                else:
-                    volume_colors.append(pg.mkBrush("#FF1744"))  # Красный
+            # Обновление объёма
+            volume_colors = [
+                pg.mkBrush("#00C853") if close_vals[i] >= open_vals[i] else pg.mkBrush("#FF1744") for i in range(len(df_clean))
+            ]
 
-            # Ширина бара = 70% от среднего интервала
-            if len(x_data) > 1:
-                avg_interval = np.diff(x_data).mean()
-                bar_width = avg_interval * 0.7
-            else:
-                bar_width = 3600000  # 1 час в миллисекундах
-
+            bar_width = np.diff(x_data).mean() * 0.7 if len(x_data) > 1 else 3600000
             self.volume_item.setOpts(
-                x=x_data.astype(np.float64),  # pyqtgraph ожидает float для оси X
+                x=x_data.astype(np.float64),
                 height=volume_vals,
                 width=bar_width,
                 brushes=volume_colors,
             )
 
-            # 7. Обновляем заголовок
+            # Заголовок
             self.price_plot.setTitle(f"График {symbol}")
 
-            # 8. Устанавливаем диапазон осей
-            if len(x_data) > 1:
-                # X диапазон (в миллисекундах)
-                time_span = x_data[-1] - x_data[0]
-                x_padding = max(time_span * 0.05, 3600000)  # 5% или минимум 1 час
-                x_min = float(x_data[0] - x_padding)
-                x_max = float(x_data[-1] + x_padding)
+            # Авто-масштаб только при смене символа
+            if self._last_chart_symbol != symbol:
+                if len(x_data) > 1:
+                    time_span = x_data[-1] - x_data[0]
+                    x_padding = max(time_span * 0.05, 3600000)
+                    x_min = float(x_data[0] - x_padding)
+                    x_max = float(x_data[-1] + x_padding)
 
-                # Y диапазон (цена)
-                price_range = max(high_vals) - min(low_vals)
-                y_padding = max(price_range * 0.1, price_range * 0.01)  # 10% или минимум 1%
-                y_min = float(min(low_vals) - y_padding)
-                y_max = float(max(high_vals) + y_padding)
+                    price_range = max(high_vals) - min(low_vals)
+                    y_padding = max(price_range * 0.1, price_range * 0.01)
+                    y_min = float(min(low_vals) - y_padding)
+                    y_max = float(max(high_vals) + y_padding)
 
-                self.price_plot.setXRange(x_min, x_max, padding=0)
-                self.price_plot.setYRange(y_min, y_max, padding=0.05)
+                    self.price_plot.setXRange(x_min, x_max, padding=0)
+                    self.price_plot.setYRange(y_min, y_max, padding=0.05)
 
-                logger.debug(
-                    f"[GUI-Chart] Диапазон: X=[{x_data[0]}, {x_data[-1]}] ({time_span/3600000:.1f}ч), "
-                    f"Y=[{y_min:.5f}, {y_max:.5f}]"
-                )
+                self._last_chart_symbol = symbol
 
-            logger.info(f"[GUI-Chart] График {symbol} успешно обновлен: {len(candlestick_data)} баров")
+            # 🔹 Диагностика времени выполнения
+            elapsed_ms = (_time.time() - start) * 1000
+            if elapsed_ms > 100:
+                logger.warning(f"⚠️ [GUI-Chart] {symbol} обновлялся {elapsed_ms:.0f} мс (медленно!)")
+            else:
+                logger.debug(f"✅ [GUI-Chart] {symbol}: {len(candlestick_data)} баров, {elapsed_ms:.0f} мс")
 
         except Exception as e:
-            logger.error(f"[GUI-Chart] Ошибка при обновлении графика {symbol}: {e}", exc_info=True)
-            import traceback
-
-            traceback.print_exc()
+            # 🔹 НИКОГДА не даём ошибке графика "уронить" весь GUI
+            logger.debug(f"⚠️ [GUI-Chart] {symbol} ошибка (не критично): {e}")
 
     def update_trade_arrows(self, symbol: str):
         """Обновляет стрелки сделок на графике."""
