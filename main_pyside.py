@@ -410,6 +410,13 @@ class MainWindow(QMainWindow):
         self._pending_chart_data = None
         self._last_chart_symbol = None
 
+        # 🔍 ДИАГНОСТИКА ПОТОКОВ
+        import threading as _threading
+
+        print(f"🔍 [THREAD-DEBUG] MainWindow создан в: {_threading.current_thread().name}")
+        print(f"🔍 [THREAD-DEBUG] GUI-поток: {_threading.main_thread().name}")
+        print(f"🔍 [THREAD-DEBUG] _chart_update_timer активен: {self._chart_update_timer.isActive()}")
+
         # --- КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Запуск тяжелой инициализации в QThreadPool ---
         # Запускаем сразу, не ждем 100мс, но в фоновом потоке
         self.start_heavy_initialization()
@@ -2686,12 +2693,16 @@ class MainWindow(QMainWindow):
 
         current_time = time.time()
         current_thread = threading.current_thread().name
+
+        # 🔍 ТОЧЕЧНАЯ ДИАГНОСТИКА БАЛАНСА
+        print(f"💰 [BALANCE-DEBUG] {time.strftime('%H:%M:%S')} | " f"equity={equity:.2f} | " f"thread={current_thread}")
+
         interval = 0.0  # ✅ Инициализация по умолчанию
 
         if hasattr(self, "_last_balance_update_time"):
             interval = current_time - self._last_balance_update_time
-            if interval > 10:
-                logger.warning(f"⚠️ [GUI-Balance] Большой интервал: {interval:.1f}с (thread: {current_thread})")
+            if interval > 5.0:
+                print(f"⚠️ [BALANCE-DEBUG] Большой интервал: {interval:.1f}с")
         self._last_balance_update_time = current_time
 
         if interval > 0:
@@ -3149,6 +3160,14 @@ class MainWindow(QMainWindow):
         🔹 Если вызван из фонового потока — перенаправляет в главный.
         """
         import time as _time
+
+        # 🔍 ТОЧЕЧНАЯ ДИАГНОСТИКА ГРАФИКА
+        print(
+            f"📊 [CHART-DEBUG] {_time.strftime('%H:%M:%S')} | "
+            f"thread={threading.current_thread().name} | "
+            f"df.empty={df.empty if df is not None else 'None'} | "
+            f"len={len(df) if df is not None else 0}"
+        )
 
         # 🔹 1. Защита: выполняем только в главном потоке
         if threading.current_thread() is not threading.main_thread():
