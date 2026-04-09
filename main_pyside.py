@@ -2739,47 +2739,62 @@ class MainWindow(QMainWindow):
 
     def _force_gui_sync(self, equity: float):
         """
-        Принудительная синхронизация GUI — минимальный код.
+        Финальный фикс: сохраняет формат + гарантирует перерисовку.
         Адаптировано под архитектуру БЕЗ self.ui (прямые self.equity_label).
         """
-        # 🔹 1. Проверка: есть ли equity_label?
-        if not hasattr(self, "equity_label") or self.equity_label is None:
-            logger.error("❌ self.equity_label is None")
-            return
+        try:
+            if not hasattr(self, "equity_label") or self.equity_label is None:
+                return
 
-        lbl = self.equity_label
+            lbl = self.equity_label
 
-        # 🔹 2. Проверка: виджет жив и видим?
-        if not lbl.isVisible():
-            logger.warning("⚠️ equity_label is HIDDEN")
-        if not lbl.isEnabled():
-            logger.warning("⚠️ equity_label is DISABLED")
+            # 🔹 1. Сохраняем ОРИГИНАЛЬНЫЙ текст целиком
+            original_text = lbl.text()
 
-        # 🔹 3. Сохраняем оригинальный текст
-        original = lbl.text()
+            # 🔹 2. Формируем новый текст, СОХРАНЯЯ префикс
+            if "Эквити:" in original_text or "Equity:" in original_text:
+                import re
 
-        # 🔹 4. Обновляем текст + явный маркер
-        new_text = f"{equity:.2f} ✓"
-        lbl.setText(new_text)
+                match = re.match(r"^([^\d]*)(\d+\.?\d*)", original_text)
+                if match:
+                    prefix = match.group(1).strip()
+                    new_text = f"{prefix} {equity:.2f} ✓"
+                else:
+                    new_text = f"{original_text} ✓"
+            else:
+                new_text = f"{equity:.2f} ✓"
 
-        # 🔹 5. ЯВНАЯ перерисовка (критично!)
-        lbl.repaint()
-        lbl.update()
+            # 🔹 3. Обновляем текст
+            lbl.setText(new_text)
 
-        # 🔹 6. Возврат через 800 мс БЕЗ lambda-захвата
-        def restore_text():
-            if lbl is not None and lbl.isVisible():
-                lbl.setText(original)
-                lbl.repaint()
+            # 🔹 4. ЯВНАЯ перерисовка + проталкивание событий
+            from PySide6.QtCore import QTimer
+            from PySide6.QtWidgets import QApplication
 
-        if threading.current_thread() is threading.main_thread():
-            QTimer.singleShot(800, restore_text)
-        else:
-            from PySide6.QtCore import QMetaObject, Qt
+            lbl.repaint()
+            lbl.update()
+            QApplication.processEvents()
+            QApplication.processEvents()
 
-            QMetaObject.invokeMethod(lbl, restore_text, Qt.ConnectionType.QueuedConnection)
+            # 🔹 5. Возврат через 600 мс
+            def restore():
+                if lbl is not None and lbl.isVisible():
+                    lbl.setText(original_text)
+                    lbl.repaint()
+                    lbl.update()
+                    QApplication.processEvents()
 
-        logger.info(f"✅ GUI sync: '{original}' → '{new_text}' → (restore)")
+            if threading.current_thread() is threading.main_thread():
+                QTimer.singleShot(600, restore)
+            else:
+                from PySide6.QtCore import QMetaObject, Qt
+
+                QMetaObject.invokeMethod(lbl, restore, Qt.ConnectionType.QueuedConnection)
+
+            logger.debug(f"✅ Final sync: '{original_text}' → '{new_text}'")
+
+        except Exception as e:
+            logger.debug(f"⚠️ Final sync skipped: {e}")
 
     def _debug_balance_update(self, equity: float):
         """
