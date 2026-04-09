@@ -2714,6 +2714,10 @@ class MainWindow(QMainWindow):
         self.balance_label.setText(f"Баланс: {balance:.2f}")
         self.equity_label.setText(f"Эквити: {equity:.2f}")
 
+        # 🔍 ВИЗУАЛЬНЫЙ ТЕСТ: мигающая зелёная рамка при обновлении (0.5 сек)
+        self.equity_label.setStyleSheet("border: 2px solid #2ecc71; border-radius: 4px;")
+        QTimer.singleShot(500, lambda: self.equity_label.setStyleSheet(""))
+
         # Принудительное обновление виджетов
         self.balance_label.update()
         self.equity_label.update()
