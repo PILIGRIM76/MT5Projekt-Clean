@@ -518,10 +518,10 @@ class TradingSystem(QObject):
         # ==========================
 
         # === ARCHITECTURE: "Единый организм" — 4 слоя координации ===
+        from src.core.health_monitor import get_health_monitor
+        from src.core.lock_manager import lock_manager
         from src.core.resource_governor import get_governor
         from src.core.task_queue import get_task_queue
-        from src.core.lock_manager import lock_manager
-        from src.core.health_monitor import get_health_monitor
 
         # 1. ResourceGovernor — контроль CPU/RAM/GPU
         self.governor = get_governor()
@@ -547,18 +547,18 @@ class TradingSystem(QObject):
 
         # Планируем первый запуск чемпионата
         self._championship_next_run = datetime.now()
-        logger.info(
-            f"🏆 Первый запуск чемпионата: {self._championship_next_run.strftime('%Y-%m-%d %H:%M')}"
-        )
+        logger.info(f"🏆 Первый запуск чемпионата: {self._championship_next_run.strftime('%Y-%m-%d %H:%M')}")
 
         # Инициализация HotReloadManager (с поддержкой файлового мониторинга)
         import os
 
         repo_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        
+
         # Директории для наблюдения (конфиги, модели)
         watch_dirs = []
-        model_dir = self.config.MODEL_DIR if self.config.MODEL_DIR else str(SyncPath(self.config.DATABASE_FOLDER) / "ai_models")
+        model_dir = (
+            self.config.MODEL_DIR if self.config.MODEL_DIR else str(SyncPath(self.config.DATABASE_FOLDER) / "ai_models")
+        )
         if SyncPath(model_dir).exists():
             watch_dirs.append(model_dir)
             logger.info(f"👁️ HotReload наблюдает за моделями: {model_dir}")
@@ -772,7 +772,7 @@ class TradingSystem(QObject):
                     # Fallback: предполагаем что торговля разрешена
                     auto_trading_enabled = True
                     logger.debug("[MT5] TERMINAL_TRADE_ALLOWED отсутствует — предполагаем что торговля разрешена")
-                
+
                 if not auto_trading_enabled:
                     logger.critical("=" * 60)
                     logger.critical("⚠️  АВТОТОРГОВЛЯ ОТКЛЮЧЕНА В MT5!")
@@ -845,11 +845,11 @@ class TradingSystem(QObject):
         try:
             while self.running and not self.stop_event.is_set():
                 iteration_count += 1
-                
+
                 # === RESOURCE GOVERNOR: проверка перегрузки ===
-                if hasattr(self, 'governor') and self.governor:
+                if hasattr(self, "governor") and self.governor:
                     from src.core.resource_governor import ResourceClass
-                    
+
                     # Критическая операция — всегда разрешена, но логируем перегрузку
                     if self.governor.is_overloaded():
                         logger.warning(f"⚠️ Система перегружена! Пропуск итерации #{iteration_count}")
@@ -861,7 +861,7 @@ class TradingSystem(QObject):
                         self.stop_event.wait(2.0)
                         continue
                 # ===================================================
-                
+
                 logger.debug(f"Торговый цикл: итерация #{iteration_count}")
 
                 try:
@@ -1703,14 +1703,15 @@ class TradingSystem(QObject):
     # --- ОСТАЛЬНЫЕ МЕТОДЫ (БЕЗ ИЗМЕНЕНИЙ) ---
     def _continuous_training_cycle(self):
         # === RESOURCE GOVERNOR: проверка можно ли запустить R&D ===
-        if hasattr(self, 'governor') and self.governor:
+        if hasattr(self, "governor") and self.governor:
             from src.core.resource_governor import ResourceClass
+
             task_id = f"rd_cycle_{uuid.uuid4().hex[:6]}"
-            
+
             if not self.governor.can_start(task_id, ResourceClass.MEDIUM):
                 logger.warning("⏳ R&D пропущен: система перегружена")
                 return
-            
+
             try:
                 self._run_training_with_governor(task_id)
             finally:
@@ -1718,16 +1719,17 @@ class TradingSystem(QObject):
         else:
             # Fallback: старый путь без governor
             self._run_training_with_governor(None)
-    
+
     def _run_training_with_governor(self, task_id: Optional[str]):
         """Внутренний метод R&D с поддержкой ResourceGovernor."""
         if not self.training_lock.acquire(blocking=False):
             return
-        
+
         # === Очистка памяти перед тяжёлой операцией ===
         from src.core.memory_utils import prepare_for_heavy_task
+
         prepare_for_heavy_task()
-        
+
         training_batch_id = f"batch-{uuid.uuid4()}"
         cycle_start_time = standard_time.time()
         logger.warning(f"--- НАЧАЛО R&D ЦИКЛА (BATCH ID: {training_batch_id}) ---")
@@ -1831,19 +1833,17 @@ class TradingSystem(QObject):
                 lock_acquired = self.mt5_lock.acquire(timeout=5.0)
                 if not lock_acquired:
                     wait_time = 1.0 * (attempt + 1)  # Экспоненциальная задержка: 1с, 2с, 3с
-                    logger.warning(
-                        f"[R&D] MT5 Lock занят (попытка {attempt+1}/{max_retries}), ждём {wait_time}с..."
-                    )
+                    logger.warning(f"[R&D] MT5 Lock занят (попытка {attempt+1}/{max_retries}), ждём {wait_time}с...")
                     self.stop_event.wait(wait_time)
                     continue
-                
+
                 try:
                     # Инициализируем отдельное подключение для обучения
                     if not mt5_ensure_connected(path=self.config.MT5_PATH):
                         logger.error(f"[R&D] Не удалось подключиться к MT5 для загрузки данных")
                         self.mt5_lock.release()
                         break
-                    
+
                     # Загружаем данные
                     rates = mt5.copy_rates_from_pos(symbol_to_train, timeframe, 0, self.config.TRAINING_DATA_POINTS)
 
@@ -1854,11 +1854,11 @@ class TradingSystem(QObject):
                         logger.info(f"[R&D] Загружено {len(df_full)} баров напрямую из MT5")
                     else:
                         logger.warning(f"[R&D] MT5 вернул пустые данные")
-                    
+
                     mt5_shutdown()
                     self.mt5_lock.release()
                     break  # Успех — выходим из цикла
-                
+
                 except Exception as e:
                     logger.error(f"[R&D] Ошибка загрузки данных (попытка {attempt+1}): {e}")
                     if self.mt5_lock.locked():
@@ -1868,15 +1868,15 @@ class TradingSystem(QObject):
 
             data_load_time = standard_time.time() - data_load_start
             logger.info(f"[R&D] Загрузка данных заняла {data_load_time:.2f} сек")
-            
+
             if df_full is None:
-                logger.warning(f"[R&D] Не удалось загрузить данные для {symbol_to_train} после {max_retries} попыток. Пропуск.")
-                return
-            
-            if len(df_full) < 1000:
                 logger.warning(
-                    f"[R&D] Недостаточно данных ({len(df_full)} баров) для {symbol_to_train}. Пропуск."
+                    f"[R&D] Не удалось загрузить данные для {symbol_to_train} после {max_retries} попыток. Пропуск."
                 )
+                return
+
+            if len(df_full) < 1000:
+                logger.warning(f"[R&D] Недостаточно данных ({len(df_full)} баров) для {symbol_to_train}. Пропуск.")
                 return
             from src.ml.feature_engineer import FeatureEngineer
 
@@ -2140,6 +2140,34 @@ class TradingSystem(QObject):
             mt5.TIMEFRAME_W1: 604800,
         }
         return timeframe_map.get(tf_code, 3600)
+
+    def request_chart_data(self, symbol: str, timeframe: int, bars: int = 500):
+        """
+        Возвращает данные свечей для графика по запросу GUI.
+
+        Args:
+            symbol: Символ (напр. "EURUSD")
+            timeframe: MT5 таймфрейм (напр. mt5.TIMEFRAME_H1)
+            bars: Количество баров (по умолчанию 500)
+        """
+        try:
+            logger.info(f"[Chart] Запрос данных для {symbol} TF={timeframe} bars={bars}")
+
+            # Получаем данные у DataProvider
+            df = self.data_provider.get_historical_data(symbol, timeframe, bars)
+
+            if df is not None and not df.empty:
+                # Проверяем что есть колонка 'time' для графика
+                if "time" not in df.columns and df.index.name == "time":
+                    df = df.reset_index()
+
+                # Отправляем на график
+                self._safe_gui_update("update_candle_chart", df, symbol)
+                logger.info(f"[Chart] Данные отправлены: {len(df)} баров для {symbol}")
+            else:
+                logger.warning(f"[Chart] Нет данных для {symbol} TF={timeframe}")
+        except Exception as e:
+            logger.error(f"[Chart] Ошибка запроса данных: {e}", exc_info=True)
 
     def _load_champion_models_into_memory(self, symbols_to_check: List[str]):
         limit = self.config.TOP_N_SYMBOLS
@@ -2419,14 +2447,15 @@ class TradingSystem(QObject):
 
         # Сохраняем в состоянии
         self.orchestrator_active_strategies = {
-            strategy: (strategy in active_strategies)
-            for strategy in current_allocation.keys()
+            strategy: (strategy in active_strategies) for strategy in current_allocation.keys()
         }
 
         # 4. Обновляем SignalService — какие стратегии разрешены
-        if hasattr(self, 'signal_service') and self.signal_service:
+        if hasattr(self, "signal_service") and self.signal_service:
             self.signal_service.set_active_strategies(active_strategies)
-            logger.info(f"[Orchestrator] SignalService обновлён: {len(active_strategies)} активных стратегий: {active_strategies}")
+            logger.info(
+                f"[Orchestrator] SignalService обновлён: {len(active_strategies)} активных стратегий: {active_strategies}"
+            )
 
         # 5. Динамические risk-параметры от оркестратора
         total_active = len(active_strategies)
@@ -2448,7 +2477,9 @@ class TradingSystem(QObject):
         active_list = [s for s, active in self.orchestrator_active_strategies.items() if active]
         logger.info(f"[Orchestrator] Текущий режим: {current_regime}")
         logger.info(f"[Orchestrator] Активные стратегии ({len(active_list)}): {active_list}")
-        logger.info(f"[Orchestrator] Max positions: {self.orchestrator_max_positions}, Risk multiplier: {self.orchestrator_risk_multiplier}")
+        logger.info(
+            f"[Orchestrator] Max positions: {self.orchestrator_max_positions}, Risk multiplier: {self.orchestrator_risk_multiplier}"
+        )
         logger.info(f"[Orchestrator] Применяемое распределение: {current_allocation}")
 
         self.orchestrator_allocation_updated.emit(current_allocation)
@@ -2512,7 +2543,7 @@ class TradingSystem(QObject):
             current_time = standard_time.time()
 
             # === HEALTH MONITOR: проверка каждые 60 секунд ===
-            if current_time - last_health_check > 60 and hasattr(self, 'health_monitor') and self.health_monitor:
+            if current_time - last_health_check > 60 and hasattr(self, "health_monitor") and self.health_monitor:
                 alert = self.health_monitor.check_and_alert()
                 if alert:
                     logger.critical(f"🚨 HEALTH ALERT: {alert}")
@@ -2595,8 +2626,12 @@ class TradingSystem(QObject):
                                 logger.debug(f"[Monitoring] Задержка {delay} сек перед повторной попыткой")
 
                                 # ОБНОВЛЯЕМ GUI последними известными значениями
-                                if hasattr(self, '_last_known_balance') and self._last_known_balance > 0:
-                                    self._safe_gui_update("update_balance", self._last_known_balance, self._last_known_equity or self._last_known_balance)
+                                if hasattr(self, "_last_known_balance") and self._last_known_balance > 0:
+                                    self._safe_gui_update(
+                                        "update_balance",
+                                        self._last_known_balance,
+                                        self._last_known_equity or self._last_known_balance,
+                                    )
 
                                 self.stop_event.wait(delay)
                                 continue
@@ -3584,7 +3619,8 @@ class TradingSystem(QObject):
                     X_holdout_sequences, _ = self._create_sequences(X_holdout_scaled, self.config.INPUT_LAYER_SIZE)
                     if X_holdout_sequences is None:
                         continue
-                    with torch.no_grad():
+                    # ИНФЕРЕНС: Используем inference_mode для оптимизации
+                    with torch.inference_mode():
                         y_pred_scaled = model(torch.from_numpy(X_holdout_sequences).float()).numpy()
                     y_true_unscaled_aligned = holdout_df_cleaned["close"].values[self.config.INPUT_LAYER_SIZE :]
                 elif model_type.upper() == "LIGHTGBM":
@@ -4854,11 +4890,9 @@ class TradingSystem(QObject):
 
             # Запускаем чемпионат (в executor чтобы не блокировать)
             import asyncio
+
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: self.championship.run_championship(candidates, data, symbol)
-            )
+            result = await loop.run_in_executor(None, lambda: self.championship.run_championship(candidates, data, symbol))
 
             if result:
                 logger.info(f"🏆 Чемпионат завершён! Победитель: {result.winner}")
@@ -4887,14 +4921,14 @@ class TradingSystem(QObject):
     def _load_historical_data_for_championship(self, symbol: str) -> Optional[pd.DataFrame]:
         """
         Загружает исторические данные для чемпионата.
-        
+
         Returns:
             DataFrame с OHLCV данными
         """
         try:
             # Загружаем из БД
             window = self.config.championship.evaluation_window
-            
+
             if self.db_manager:
                 query = """
                     SELECT timestamp, open, high, low, close, tick_volume as volume
@@ -4905,22 +4939,23 @@ class TradingSystem(QObject):
                 """
                 # Зависит от реализации БД — может потребоваться адаптация
                 pass
-            
+
             # Fallback: запрашиваем из MT5
-            import MetaTrader5 as mt5
             from datetime import timedelta
-            
+
+            import MetaTrader5 as mt5
+
             rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, window * 2)
             if rates is None or len(rates) == 0:
                 return None
-            
+
             df = pd.DataFrame(rates)
             df["time"] = pd.to_datetime(df["time"], unit="s")
             df.set_index("time", inplace=True)
             df.rename(columns={"tick_volume": "volume"}, inplace=True)
-            
+
             return df
-            
+
         except Exception as e:
             logger.error(f"Ошибка загрузки данных для чемпионата: {e}")
             return None
@@ -4935,7 +4970,11 @@ class TradingSystem(QObject):
 
             accuracy_data = {}
             # Используем model_loader для получения пути к моделям
-            models_path = self.model_loader._resolve_model_dir() if self.model_loader else Path(self.config.DATABASE_FOLDER) / "ai_models"
+            models_path = (
+                self.model_loader._resolve_model_dir()
+                if self.model_loader
+                else Path(self.config.DATABASE_FOLDER) / "ai_models"
+            )
 
             for symbol in self.config.SYMBOLS_WHITELIST:
                 metadata_file = models_path / f"{symbol}_metadata.json"
@@ -4967,7 +5006,11 @@ class TradingSystem(QObject):
 
             progress_data = {}
             # Используем model_loader для получения пути к моделям
-            models_path = self.model_loader._resolve_model_dir() if self.model_loader else Path(self.config.DATABASE_FOLDER) / "ai_models"
+            models_path = (
+                self.model_loader._resolve_model_dir()
+                if self.model_loader
+                else Path(self.config.DATABASE_FOLDER) / "ai_models"
+            )
 
             for symbol in self.config.SYMBOLS_WHITELIST:
                 metadata_file = models_path / f"{symbol}_metadata.json"

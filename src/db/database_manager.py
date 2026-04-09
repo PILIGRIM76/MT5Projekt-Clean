@@ -228,7 +228,8 @@ class DatabaseManager:
 
                         buffer = io.BytesIO(model_record.model_data)
                         model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
-                        model.eval()
+                        model.eval()  # Eval-режим для инференса
+                        logger.debug(f"✅ PyTorch модель {model_record.model_type} загружена для {symbol}")
                     elif lgb and "LightGBM" in m_type:
                         model = safe_pickle_loads(model_record.model_data)
                 except Exception as e:
@@ -1895,7 +1896,8 @@ class DatabaseManager:
                 buffer = io.BytesIO(model_record.model_data)
                 # Загрузка state_dict с явным указанием map_location
                 model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
-                model.eval()
+                model.eval()  # Eval-режим для инференса
+                logger.debug(f"✅ PyTorch модель {model_record.model_type} загружена (ID: {model_id})")
 
             elif "LightGBM" in model_record.model_type:
                 model = safe_pickle_loads(model_record.model_data)
@@ -2154,19 +2156,19 @@ class DatabaseManager:
     def save_championship_result(self, result: Dict[str, Any]) -> bool:
         """
         Сохраняет результат чемпионата моделей в БД.
-        
+
         Args:
             result: Dict с результатами чемпионата
-            
+
         Returns:
             True если успешно
         """
         try:
             import json as json_module
-            
+
             # Сохраняем как JSON в лог-файл (резервный вариант)
             log_path = Path(self.config.DATABASE_FOLDER) / "championship_log.json"
-            
+
             results = []
             if log_path.exists():
                 try:
@@ -2174,20 +2176,19 @@ class DatabaseManager:
                         results = json_module.load(f)
                 except Exception:
                     results = []
-            
+
             results.append(result)
-            
+
             # Храним последние 100 результатов
             if len(results) > 100:
                 results = results[-100:]
-            
+
             with open(log_path, "w", encoding="utf-8") as f:
                 json_module.dump(results, f, ensure_ascii=False, indent=2)
-            
+
             logger.info(f"🏆 Результат чемпионата сохранён в БД: {result.get('winner', 'unknown')}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Ошибка сохранения результата чемпионата: {e}")
             return False
-

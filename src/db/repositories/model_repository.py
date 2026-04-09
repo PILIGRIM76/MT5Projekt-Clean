@@ -63,12 +63,14 @@ class ModelRepository:
                     model = SimpleLSTM(input_dim=len(model_record.features_list))
                     buffer = io.BytesIO(model_record.model_data)
                     model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
-                    model.eval()
+                    model.eval()  # Eval-режим для инференса
+                    logger.debug(f"✅ LSTM модель загружена для {symbol}")
                 elif model_type == "Transformer_PyTorch":
                     model = TimeSeriesTransformer(input_dim=len(model_record.features_list))
                     buffer = io.BytesIO(model_record.model_data)
                     model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
-                    model.eval()
+                    model.eval()  # Eval-режим для инференса
+                    logger.debug(f"✅ Transformer модель загружена для {symbol}")
                 elif model_type == "LightGBM":
                     import lightgbm as lgb
 
@@ -106,12 +108,14 @@ class ModelRepository:
                 model = SimpleLSTM(input_dim=len(model_record.features_list))
                 buffer = io.BytesIO(model_record.model_data)
                 model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
-                model.eval()
+                model.eval()  # Eval-режим для инференса
+                logger.debug(f"✅ LSTM модель загружена (ID: {model_id})")
             elif model_record.model_type == "Transformer_PyTorch":
                 model = TimeSeriesTransformer(input_dim=len(model_record.features_list))
                 buffer = io.BytesIO(model_record.model_data)
                 model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
-                model.eval()
+                model.eval()  # Eval-режим для инференса
+                logger.debug(f"✅ Transformer модель загружена (ID: {model_id})")
             elif model_record.model_type == "LightGBM":
                 import lightgbm as lgb
 

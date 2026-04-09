@@ -24,7 +24,7 @@ import tempfile
 import threading
 import time
 import warnings
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -398,6 +398,10 @@ class MainWindow(QMainWindow):
         # Предполагаем, что kg_enabled_checkbox существует после _init_widgets
         self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
         self.on_kg_toggle()
+
+        # --- Инициализация toolbar графика ---
+        self.current_chart_timeframe = "H1"
+        self.current_chart_symbol = "EURUSD"
 
         # --- КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Запуск тяжелой инициализации в QThreadPool ---
         # Запускаем сразу, не ждем 100мс, но в фоновом потоке
@@ -1344,20 +1348,141 @@ class MainWindow(QMainWindow):
     def _create_right_panel(self, vector_db_tab=None):
         right_widget = QTabWidget()
 
-        # --- ВКЛАДКА "ОСНОВНОЙ ГРАФИК" ---
+        # --- ВКЛАДКА "ОСНОВНОЙ ГРАФИК" (стиль MT5) ---
+        # Создаём виджет с layout для добавления toolbar
+        chart_container = QWidget()
+        chart_main_layout = QVBoxLayout(chart_container)
+        chart_main_layout.setContentsMargins(0, 0, 0, 0)
+        chart_main_layout.setSpacing(2)
+
+        # 🎯 Toolbar с выбором таймфрейма и символа
+        chart_toolbar = QFrame()
+        chart_toolbar.setObjectName("ChartToolbar")
+        chart_toolbar.setStyleSheet("""
+            #ChartToolbar {
+                background-color: #1e1e1e;
+                border-bottom: 1px solid #333;
+                padding: 4px;
+            }
+        """)
+        toolbar_layout = QHBoxLayout(chart_toolbar)
+        toolbar_layout.setContentsMargins(8, 4, 8, 4)
+
+        # Выбор символа
+        toolbar_layout.addWidget(QLabel("Символ:"))
+        self.chart_symbol_combo = QComboBox()
+        self.chart_symbol_combo.setMinimumWidth(120)
+        self.chart_symbol_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #2d2d2d;
+                color: #fff;
+                border: 1px solid #555;
+                border-radius: 3px;
+                padding: 4px 8px;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid #888;
+                border-top: 3px solid transparent;
+                border-bottom: 3px solid transparent;
+                margin-right: 5px;
+            }
+        """)
+        # Заполняем символами из конфига
+        self.chart_symbol_combo.addItems(self.config.SYMBOLS_WHITELIST[:10])  # Первые 10
+        self.chart_symbol_combo.setCurrentText("EURUSD")
+        self.chart_symbol_combo.currentTextChanged.connect(self.on_chart_symbol_changed)
+        toolbar_layout.addWidget(self.chart_symbol_combo)
+
+        toolbar_layout.addSpacing(16)
+
+        # Выбор таймфрейма
+        toolbar_layout.addWidget(QLabel("Таймфрейм:"))
+        self.chart_timeframe_combo = QComboBox()
+        self.chart_timeframe_combo.setMinimumWidth(80)
+        self.chart_timeframe_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #2d2d2d;
+                color: #fff;
+                border: 1px solid #555;
+                border-radius: 3px;
+                padding: 4px 8px;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid #888;
+                border-top: 3px solid transparent;
+                border-bottom: 3px solid transparent;
+                margin-right: 5px;
+            }
+        """)
+        self.timeframe_map = {
+            "M1": mt5.TIMEFRAME_M1,
+            "M5": mt5.TIMEFRAME_M5,
+            "M15": mt5.TIMEFRAME_M15,
+            "M30": mt5.TIMEFRAME_M30,
+            "H1": mt5.TIMEFRAME_H1,
+            "H4": mt5.TIMEFRAME_H4,
+            "D1": mt5.TIMEFRAME_D1,
+        }
+        self.chart_timeframe_combo.addItems(list(self.timeframe_map.keys()))
+        self.chart_timeframe_combo.setCurrentText("H1")  # По умолчанию H1
+        self.chart_timeframe_combo.currentTextChanged.connect(self.on_chart_timeframe_changed)
+        toolbar_layout.addWidget(self.chart_timeframe_combo)
+
+        toolbar_layout.addStretch()
+
+        # Кнопка обновления
+        self.chart_refresh_btn = QPushButton("🔄 Обновить")
+        self.chart_refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0078D4;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 4px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1084D9;
+            }
+            QPushButton:pressed {
+                background-color: #006CBE;
+            }
+        """)
+        self.chart_refresh_btn.clicked.connect(self.on_chart_refresh_clicked)
+        toolbar_layout.addWidget(self.chart_refresh_btn)
+
+        chart_main_layout.addWidget(chart_toolbar)
+
+        # График
         self.chart_layout_widget = pg.GraphicsLayoutWidget()
-        right_widget.addTab(self.chart_layout_widget, "Основной График")
+        chart_main_layout.addWidget(self.chart_layout_widget)
+
+        right_widget.addTab(chart_container, "📊 Основной График")
+
         self.price_plot = self.chart_layout_widget.addPlot(row=0, col=0)
 
         # Используем форматирование дат на нижней оси
         self.price_plot.setAxisItems({"bottom": pg.DateAxisItem()})
 
-        grid_pen = pg.mkPen(color="#888", style=Qt.DotLine)
-        self.price_plot.showGrid(x=True, y=True, alpha=0.3)
+        # 🎨 MT5 стиль: тёмная сетка с низкой прозрачностью
+        grid_pen = pg.mkPen(color="#444", style=Qt.DotLine, width=0.5)
+        self.price_plot.showGrid(x=True, y=True, alpha=0.15)
         self.price_plot.getAxis("bottom").setPen(grid_pen)
         self.price_plot.getAxis("left").setPen(grid_pen)
-        self.price_plot.getAxis("left").setWidth(60)
+        self.price_plot.getAxis("left").setWidth(70)  # Шире для цены
         self.price_plot.disableAutoRange()
+
+        # 🔧 ИСПРАВЛЕНИЕ: НЕ вызываем setDownsampling/setClipToView!
+        # Эти методы вызывают AttributeError когда в графике есть ScatterPlotItem
+        # (торговые стрелки), у которых нет методов setDownsampling/setAlpha
 
         self.regime_region = pg.LinearRegionItem(
             values=[0, 1], orientation="vertical", movable=False, brush=QColor(0, 0, 0, 0)
@@ -1373,18 +1498,22 @@ class MainWindow(QMainWindow):
 
         self.chart_layout_widget.nextRow()
         self.volume_plot = self.chart_layout_widget.addPlot(row=1, col=0)
-        self.volume_plot.setMaximumHeight(150)
-        self.volume_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.volume_plot.setMaximumHeight(120)  # Чуть меньше для объёма
+        # 🎨 MT5 стиль для объёма
+        self.volume_plot.showGrid(x=True, y=True, alpha=0.15)
         self.volume_plot.getAxis("bottom").setPen(grid_pen)
         self.volume_plot.getAxis("left").setPen(grid_pen)
-        self.volume_plot.getAxis("left").setWidth(60)
+        self.volume_plot.getAxis("left").setWidth(70)
         self.volume_plot.setXLink(self.price_plot)
+        # Скрываем метки оси X для объёма (уже есть на основном графике)
+        self.volume_plot.hideAxis("bottom")
 
         self.candlestick_item = CustomCandlestickItem()
         self.price_plot.addItem(self.candlestick_item)
-        self.volume_item = BarGraphItem(x=[], height=[], width=0.8, brush="#50fa7b")
-        self.ema50_item = pg.PlotDataItem(pen=pg.mkPen("c", width=2))
-        self.ema200_item = pg.PlotDataItem(pen=pg.mkPen("y", width=2))
+        self.volume_item = BarGraphItem(x=[], height=[], width=0.8)
+        # 🎨 MT5 стиль EMA: яркие цвета
+        self.ema50_item = pg.PlotDataItem(pen=pg.mkPen("#FFA500", width=2))  # Оранжевый EMA50
+        self.ema200_item = pg.PlotDataItem(pen=pg.mkPen("#00BFFF", width=2))  # Голубой EMA200
         self.trade_arrows_item = pg.ScatterPlotItem()
         self.price_plot.addItem(self.ema50_item)
         self.price_plot.addItem(self.ema200_item)
@@ -1489,9 +1618,11 @@ class MainWindow(QMainWindow):
         # 3. Создаем ОТДЕЛЬНЫЙ виджет для графика режима наблюдателя
         self.observer_pnl_plot_widget = pg.PlotWidget(title="Доходность (Режим Наблюдателя)")
         self.observer_pnl_plot = self.observer_pnl_plot_widget.getPlotItem()
+        # ✅ ИСПРАВЛЕНИЕ: Устанавливаем DateAxis для правильной оси X (время)
+        self.observer_pnl_plot.setAxisItems({"bottom": pg.DateAxisItem()})
         self.observer_pnl_plot.showGrid(x=True, y=True, alpha=0.3)
         self.observer_pnl_plot.getAxis("left").setLabel("Баланс (симуляция)", units="USD")
-        self.observer_pnl_plot.getAxis("bottom").setLabel("Количество виртуальных сделок")
+        self.observer_pnl_plot.getAxis("bottom").setLabel("Время совершения сделок")
         self.observer_pnl_curve = self.observer_pnl_plot.plot(pen=pg.mkPen("c", width=2))
 
         # Ошибка предсказаний (Drift)
@@ -1812,6 +1943,8 @@ class MainWindow(QMainWindow):
         self.bt_report_text.setReadOnly(True)
         self.bt_equity_chart_widget = pg.GraphicsLayoutWidget()
         self.bt_equity_plot = self.bt_equity_chart_widget.addPlot(title="Кривая доходности (Equity)")
+        # ✅ ИСПРАВЛЕНИЕ: Устанавливаем DateAxis для правильной оси X (время)
+        self.bt_equity_plot.setAxisItems({"bottom": pg.DateAxisItem()})
         self.bt_equity_curve = self.bt_equity_plot.plot(pen="g")
         results_splitter.addWidget(self.bt_report_text)
         results_splitter.addWidget(self.bt_equity_chart_widget)
@@ -2200,7 +2333,22 @@ class MainWindow(QMainWindow):
             report_text += f"{key}: {value}\n"
         self.bt_report_text.setText(report_text)
         if not equity_df.empty:
-            self.bt_equity_curve.setData(x=np.arange(len(equity_df)), y=equity_df["equity"].values)
+            # ✅ ИСПРАВЛЕНИЕ: Используем реальное время вместо arange
+            if "time" in equity_df.columns:
+                equity_df = equity_df.copy()
+                equity_df["time"] = pd.to_datetime(equity_df["time"])
+                x_values = equity_df["time"].values.astype("datetime64[ms]").astype(np.int64) // 10**6
+            elif "datetime" in equity_df.columns:
+                equity_df = equity_df.copy()
+                equity_df["datetime"] = pd.to_datetime(equity_df["datetime"])
+                x_values = equity_df["datetime"].values.astype("datetime64[ms]").astype(np.int64) // 10**6
+            else:
+                # Fallback: генерируем время
+                logger.warning("[GUI-Backtest] Колонка 'time' не найдена, используется fallback")
+                now = datetime.now()
+                x_values = np.array([(now - timedelta(minutes=len(equity_df) - i)).timestamp() for i in range(len(equity_df))])
+
+            self.bt_equity_curve.setData(x=x_values.tolist(), y=equity_df["equity"].values.tolist())
         else:
             self.bt_equity_curve.clear()
         self.bt_run_button.setEnabled(True)
@@ -2726,6 +2874,7 @@ class MainWindow(QMainWindow):
             logger.error(f"[GUI-Dialog] Ошибка при работе с окном настроек: {e}", exc_info=True)
 
     def update_observer_pnl_chart(self, pnl_history: list):
+        """Обновляет график P&L наблюдателя с правильной осью X (время)."""
         if not pnl_history:
             self.observer_pnl_curve.setData(x=[], y=[])
             return
@@ -2734,9 +2883,18 @@ class MainWindow(QMainWindow):
             cumulative_pnl = np.cumsum(pnl_history)
             equity_curve = initial_balance + cumulative_pnl
 
-            # Преобразуем в списки для совместимости с pyqtgraph
-            x_data = list(np.arange(len(equity_curve)))
-            y_data = [float(v) for v in equity_curve]
+            # ✅ ИСПРАВЛЕНИЕ: Используем реальное время вместо arange
+            # Если pnl_history содержит объекты с time_close — используем их
+            if hasattr(pnl_history[-1], "time_close"):
+                timestamps = np.array([deal.time_close.timestamp() for deal in pnl_history])
+            else:
+                # Fallback: используем текущее время минус интервал
+                now = datetime.now().timestamp()
+                timestamps = np.array([now - (len(pnl_history) - i) * 3600 for i in range(len(pnl_history))])
+                logger.warning("[GUI-Observer] time_close не найден, используется fallback по времени")
+
+            x_data = timestamps.tolist()
+            y_data = equity_curve.tolist()
 
             self.observer_pnl_curve.setData(x=x_data, y=y_data)
             self.observer_pnl_plot.setTitle(f"Доходность (Наблюдатель: {cumulative_pnl[-1]:.2f})")
@@ -2916,76 +3074,212 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"[GUI-RetrainProgress] Ошибка при обновлении графика: {e}", exc_info=True)
 
+    # === 🎯 Обработчики toolbar графика ===
+    def on_chart_symbol_changed(self, symbol: str):
+        """Обработчик изменения символа на графике."""
+        self.current_chart_symbol = symbol
+        logger.info(f"[GUI-Chart] Символ изменён на: {symbol}")
+        self.request_chart_update()
+
+    def on_chart_timeframe_changed(self, timeframe: str):
+        """Обработчик изменения таймфрейма на графике."""
+        self.current_chart_timeframe = timeframe
+        logger.info(f"[GUI-Chart] Таймфрейм изменён на: {timeframe}")
+        self.request_chart_update()
+
+    def on_chart_refresh_clicked(self):
+        """Обработчик кнопки обновления графика."""
+        logger.info(f"[GUI-Chart] Запрошено обновление: {self.current_chart_symbol} {self.current_chart_timeframe}")
+        self.request_chart_update()
+
+    def request_chart_update(self):
+        """Запрашивает обновление графика у торговой системы."""
+        if hasattr(self.trading_system, "request_chart_data"):
+            timeframe_mt5 = self.timeframe_map.get(self.current_chart_timeframe, mt5.TIMEFRAME_H1)
+            self.trading_system.request_chart_data(self.current_chart_symbol, timeframe_mt5)
+        else:
+            logger.warning("[GUI-Chart] Метод request_chart_data не найден в trading_system")
+
     def update_candle_chart(self, df: pd.DataFrame, symbol: str):
+        """
+        Обновляет график свечей в стиле MT5.
+        Корректно обрабатывает Pandas -> NumPy конвертацию.
+        """
         logger.info(
-            f"[GUI-Chart] update_candle_chart вызван: symbol={symbol}, df is None={df is None}, df.empty={df.empty if df is not None else 'N/A'}, len={len(df) if df is not None else 0}"
+            f"[GUI-Chart] update_candle_chart вызван: symbol={symbol}, "
+            f"df is None={df is None}, df.empty={df.empty if df is not None else 'N/A'}, "
+            f"len={len(df) if df is not None else 0}"
         )
+
+        # 1. Проверка на пустоту
         if df is None or df.empty or len(df) < 2:
             logger.warning(f"[GUI-Chart] Данные недостаточны для отображения графика {symbol}")
+            self.candlestick_item.setData(None)
+            self.volume_item.setOpts(x=[], height=[])
             return
-        try:
-            df = df.sort_index()  # Гарантируем хронологию
-            logger.info(f"[GUI-Chart] Обновление графика для {symbol}, баров: {len(df)}")
-            self.price_plot.setTitle(f"График {symbol}")
-            # Оптимизация: используем последние 200 баров без копирования лишних данных
-            if len(df) > 200:
-                df_chart = df.tail(200)
-                logger.debug(f"[GUI-Chart] График обрезан до 200 баров из {len(df)}")
-            else:
-                df_chart = df
 
-            # Оптимизация: преобразование данных в numpy массивы для ускорения
-            timestamps = (pd.to_datetime(df_chart.index).astype(np.int64) / 1e9).astype(np.float64)
+        try:
+            # 2. Очистка от дубликатов и NaN
+            df_clean = df.copy()
+
+            # Проверяем есть ли колонка 'time'
+            if "time" in df_clean.columns:
+                # Если 'time' — объект datetime, конвертируем в миллисекунды
+                if df_clean["time"].dtype == "object" or np.issubdtype(df_clean["time"].dtype, np.datetime64):
+                    df_clean["time"] = pd.to_datetime(df_clean["time"])
+                    x_data = df_clean["time"].values.astype("datetime64[ms]").astype("int64")
+                else:
+                    # Если уже числа (timestamp) — переводим в миллисекунды
+                    x_data = (df_clean["time"].values * 1000).astype("int64")
+            else:
+                # Fallback: используем index
+                df_clean["time"] = pd.to_datetime(df_clean.index)
+                x_data = df_clean["time"].values.astype("datetime64[ms]").astype("int64")
+
+            # Удаляем дубликаты по времени
+            df_clean["_x_timestamp"] = x_data
+            df_clean = df_clean.drop_duplicates(subset="_x_timestamp", keep="last")
+            df_clean = df_clean.dropna(subset=["open", "high", "low", "close"])
+
+            # Пересчитываем x_data после очистки
+            x_data = df_clean["_x_timestamp"].values.astype("int64")
+
+            # 3. Ограничиваем до 200 последних баров
+            if len(df_clean) > 200:
+                df_chart = df_clean.tail(200)
+                x_data = x_data[-200:]
+                logger.debug(f"[GUI-Chart] График обрезан до 200 баров из {len(df_clean)}")
+            else:
+                df_chart = df_clean
+
+            # Извлекаем OHLCV в NumPy массивы
             open_vals = df_chart["open"].values.astype(np.float64)
             high_vals = df_chart["high"].values.astype(np.float64)
             low_vals = df_chart["low"].values.astype(np.float64)
             close_vals = df_chart["close"].values.astype(np.float64)
+            volume_vals = (
+                df_chart["tick_volume"].values.astype(np.float64)
+                if "tick_volume" in df_chart.columns
+                else np.zeros(len(x_data))
+            )
 
-            candlestick_data = np.column_stack((timestamps, open_vals, high_vals, low_vals, close_vals))
+            # 4. Формируем данные свечей: (timestamp_ms, open, high, low, close)
+            candlestick_data = np.column_stack((x_data, open_vals, high_vals, low_vals, close_vals))
+
+            # 5. Отрисовка свечей
             self.candlestick_item.setData(candlestick_data)
             logger.debug(f"[GUI-Chart] Данные свечей установлены: {len(candlestick_data)} баров")
 
-            # Обновление объема
-            volume_vals = df_chart["tick_volume"].values
-            self.volume_item.setOpts(x=timestamps, height=volume_vals)
+            # 6. Обновление объёма в стиле MT5
+            volume_colors = []
+            for i in range(len(df_chart)):
+                if close_vals[i] >= open_vals[i]:
+                    volume_colors.append(pg.mkBrush("#00C853"))  # Зелёный
+                else:
+                    volume_colors.append(pg.mkBrush("#FF1744"))  # Красный
 
-            # === ИСПРАВЛЕНИЕ: Устанавливаем диапазон вручную с правильным масштабом ===
-            if len(timestamps) > 1:
-                # Вычисляем диапазон по X (время)
-                time_span = timestamps[-1] - timestamps[0]
-                x_padding = max(time_span * 0.1, 3600)  # Минимум 1 час отступ
-                x_min = timestamps[0] - x_padding
-                x_max = timestamps[-1] + x_padding
+            # Ширина бара = 70% от среднего интервала
+            if len(x_data) > 1:
+                avg_interval = np.diff(x_data).mean()
+                bar_width = avg_interval * 0.7
+            else:
+                bar_width = 3600000  # 1 час в миллисекундах
 
-                # Вычисляем диапазон по Y (цена) с учетом волатильности
+            self.volume_item.setOpts(
+                x=x_data.astype(np.float64),  # pyqtgraph ожидает float для оси X
+                height=volume_vals,
+                width=bar_width,
+                brushes=volume_colors,
+            )
+
+            # 7. Обновляем заголовок
+            self.price_plot.setTitle(f"График {symbol}")
+
+            # 8. Устанавливаем диапазон осей
+            if len(x_data) > 1:
+                # X диапазон (в миллисекундах)
+                time_span = x_data[-1] - x_data[0]
+                x_padding = max(time_span * 0.05, 3600000)  # 5% или минимум 1 час
+                x_min = float(x_data[0] - x_padding)
+                x_max = float(x_data[-1] + x_padding)
+
+                # Y диапазон (цена)
                 price_range = max(high_vals) - min(low_vals)
-                # Минимум 1 единица отступ
-                y_padding = max(price_range * 0.1, 1.0)
-                y_min = min(low_vals) - y_padding
-                y_max = max(high_vals) + y_padding
+                y_padding = max(price_range * 0.1, price_range * 0.01)  # 10% или минимум 1%
+                y_min = float(min(low_vals) - y_padding)
+                y_max = float(max(high_vals) + y_padding)
 
-                # Применяем диапазон с небольшим отступом
-                self.price_plot.setXRange(x_min, x_max, padding=0.02)
-                self.price_plot.setYRange(y_min, y_max, padding=0.02)
+                self.price_plot.setXRange(x_min, x_max, padding=0)
+                self.price_plot.setYRange(y_min, y_max, padding=0.05)
+
                 logger.debug(
-                    f"[GUI-Chart] Диапазон установлен: X=[{x_min:.0f}, {x_max:.0f}] ({time_span/3600:.1f}ч), Y=[{y_min:.2f}, {y_max:.2f}] ({price_range:.2f})"
+                    f"[GUI-Chart] Диапазон: X=[{x_data[0]}, {x_data[-1]}] ({time_span/3600000:.1f}ч), "
+                    f"Y=[{y_min:.5f}, {y_max:.5f}]"
                 )
 
-            logger.info(f"[GUI-Chart] График {symbol} успешно обновлен, {len(candlestick_data)} баров отображено")
+            logger.info(f"[GUI-Chart] График {symbol} успешно обновлен: {len(candlestick_data)} баров")
+
         except Exception as e:
             logger.error(f"[GUI-Chart] Ошибка при обновлении графика {symbol}: {e}", exc_info=True)
 
     def update_trade_arrows(self, symbol: str):
-        trade_points = []
+        """Обновляет стрелки сделок на графике."""
+        if not self.chart_trade_history:
+            self.trade_arrows_item.clear()
+            return
+
+        buy_positions = []
+        sell_positions = []
+
         for deal in self.chart_trade_history:
             if deal.symbol == symbol:
                 timestamp = deal.time_open.timestamp()
                 price = deal.price_open
-                arrow_symbol, color = ("t1", "g") if deal.trade_type == "BUY" else ("t", "r")
-                trade_points.append(
-                    {"pos": (timestamp, price), "symbol": arrow_symbol, "brush": pg.mkBrush(color), "size": 15}
-                )
-        self.trade_arrows_item.setData(trade_points)
+
+                if deal.trade_type == "BUY":
+                    buy_positions.append(
+                        {
+                            "x": timestamp,
+                            "y": price,
+                            "brush": pg.mkBrush("#00C853"),  # Зелёная стрелка вверх
+                            "symbol": "t1",
+                            "size": 12,
+                            "pen": pg.mkPen("#00C853", width=1),
+                        }
+                    )
+                else:
+                    sell_positions.append(
+                        {
+                            "x": timestamp,
+                            "y": price,
+                            "brush": pg.mkBrush("#FF1744"),  # Красная стрелка вниз
+                            "symbol": "t",
+                            "size": 12,
+                            "pen": pg.mkPen("#FF1744", width=1),
+                        }
+                    )
+
+        # Обновляем стрелки раздельно для разных типов
+        if buy_positions:
+            self.trade_arrows_item.setData(
+                x=[p["x"] for p in buy_positions],
+                y=[p["y"] for p in buy_positions],
+                brush=[p["brush"] for p in buy_positions],
+                symbol="t1",
+                size=12,
+                pen=pg.mkPen("#00C853", width=1),
+            )
+        elif sell_positions:
+            self.trade_arrows_item.setData(
+                x=[p["x"] for p in sell_positions],
+                y=[p["y"] for p in sell_positions],
+                brush=[p["brush"] for p in sell_positions],
+                symbol="t",
+                size=12,
+                pen=pg.mkPen("#FF1744", width=1),
+            )
+        else:
+            self.trade_arrows_item.clear()
 
     def update_market_regime_viz(self, regime: str):
         color = self.regime_colors.get(regime, QColor(0, 0, 0, 0))

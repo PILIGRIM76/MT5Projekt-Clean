@@ -64,9 +64,7 @@ class ModelLoader:
             )
 
         if not model_dir.is_dir():
-            raise NotADirectoryError(
-                f"🚫 MODEL_DIR указывает на файл, а не директорию: {model_dir}"
-            )
+            raise NotADirectoryError(f"🚫 MODEL_DIR указывает на файл, а не директорию: {model_dir}")
 
         self._validated = True
         logger.info(f"✅ Директория моделей валидна: {model_dir}")
@@ -176,16 +174,16 @@ class ModelLoader:
     def reload_active_model(self) -> Optional[Any]:
         """
         Перезагружает активную модель (используется после смены чемпионата).
-        
+
         Returns:
             Загруженная модель или None при ошибке
         """
         old_model = self.config.ACTIVE_MODEL
         logger.info(f"🔄 Перезагрузка активной модели: {old_model}")
-        
+
         # Очищаем кэш
         self.clear_cache(old_model)
-        
+
         # Загружаем заново
         return self.load_model(force_reload=True)
 
@@ -231,7 +229,7 @@ class ModelLoader:
 
         # Проверяем несколько вариантов имени файла
         candidates = [
-            model_dir / f"{model_name}.{ext}",              # lstm_v4.h5, EURUSD_model.joblib
+            model_dir / f"{model_name}.{ext}",  # lstm_v4.h5, EURUSD_model.joblib
         ]
 
         # Для keras проверяем оба расширения
@@ -295,13 +293,24 @@ class ModelLoader:
             raise RuntimeError(f"Ошибка загрузки Keras модели: {e}") from e
 
     def _load_pytorch_model(self, model_path: Path) -> Any:
-        """Загрузка PyTorch модели."""
+        """Загрузка PyTorch модели через DeviceManager (оптимизировано)."""
         try:
-            import torch  # type: ignore
+            from src.utils.device_manager import TORCH_AVAILABLE, device_manager  # type: ignore
 
-            model = torch.load(str(model_path), map_location="cpu", weights_only=False)
-            logger.debug(f"🔥 PyTorch модель загружена: {model_path}")
-            return model
+            if TORCH_AVAILABLE:
+                # Используем DeviceManager с кэшированием и inference_mode
+                model = device_manager.load_model(str(model_path), model_path.stem)
+                if model is not None:
+                    logger.debug(f"🔥 PyTorch модель загружена через DeviceManager: {model_path}")
+                    return model
+                raise RuntimeError("DeviceManager вернул None")
+            else:
+                # Fallback без оптимизаций
+                import torch  # type: ignore
+
+                model = torch.load(str(model_path), map_location="cpu", weights_only=False)
+                logger.debug(f"🔥 PyTorch модель загружена (fallback): {model_path}")
+                return model
         except ImportError:
             raise ImportError("🚫 Требуется torch: pip install torch")
         except Exception as e:
@@ -343,33 +352,33 @@ def create_model_loader(config: Any) -> ModelLoader:
 
 
 def validate_models_at_startup(config: Any) -> bool:
-        """
-        Валидирует конфигурацию моделей при старте системы.
+    """
+    Валидирует конфигурацию моделей при старте системы.
 
-        Returns:
-            True если всё в порядке, False если есть проблемы
-        """
-        loader = create_model_loader(config)
+    Returns:
+        True если всё в порядке, False если есть проблемы
+    """
+    loader = create_model_loader(config)
 
-        try:
-            model_dir = loader.validate_model_dir()
-            logger.info(f"✅ Валидация директории моделей: {model_dir}")
+    try:
+        model_dir = loader.validate_model_dir()
+        logger.info(f"✅ Валидация директории моделей: {model_dir}")
 
-            # Проверяем наличие активной модели
-            active_path = loader.get_model_path(config.ACTIVE_MODEL)
-            if active_path.exists():
-                logger.info(f"✅ Активная модель найдена: {active_path}")
+        # Проверяем наличие активной модели
+        active_path = loader.get_model_path(config.ACTIVE_MODEL)
+        if active_path.exists():
+            logger.info(f"✅ Активная модель найдена: {active_path}")
+        else:
+            logger.warning(f"⚠️ Активная модель не найдена: {active_path}")
+            backup_path = loader.get_model_path(config.BACKUP_MODEL)
+            if backup_path.exists():
+                logger.info(f"✅ Резервная модель найдена: {backup_path}")
             else:
-                logger.warning(f"⚠️ Активная модель не найдена: {active_path}")
-                backup_path = loader.get_model_path(config.BACKUP_MODEL)
-                if backup_path.exists():
-                    logger.info(f"✅ Резервная модель найдена: {backup_path}")
-                else:
-                    logger.error(f"🚫 Резервная модель также не найдена: {backup_path}")
-                    return False
+                logger.error(f"🚫 Резервная модель также не найдена: {backup_path}")
+                return False
 
-            return True
+        return True
 
-        except Exception as e:
-            logger.error(f"❌ Валидация моделей не удалась: {e}")
-            return False
+    except Exception as e:
+        logger.error(f"❌ Валидация моделей не удалась: {e}")
+        return False

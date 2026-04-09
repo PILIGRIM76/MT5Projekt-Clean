@@ -48,9 +48,7 @@ def setup_hotreload_log_file(log_path: str = "logs/hotreload.log"):
 
         fh = logging.FileHandler(log_path, encoding="utf-8")
         fh.setLevel(logging.DEBUG)
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         fh.setFormatter(formatter)
         hotreload_logger.addHandler(fh)
         hotreload_logger.setLevel(logging.DEBUG)
@@ -171,9 +169,7 @@ class StrategyReloadHandler:
             self._debounce_timer.daemon = True
             self._debounce_timer.start()
 
-            hotreload_logger.debug(
-                f"📝 Зафиксировано изменение: {path.name} ({change_type})"
-            )
+            hotreload_logger.debug(f"📝 Зафиксировано изменение: {path.name} ({change_type})")
 
     def _apply_pending_changes(self):
         """Применяет накопленные изменения после debounce."""
@@ -186,25 +182,17 @@ class StrategyReloadHandler:
 
             for change in changes:
                 try:
-                    hotreload_logger.info(
-                        f"🔥 Hot reload: обработка {change.file_path.name} ({change.change_type})"
-                    )
+                    hotreload_logger.info(f"🔥 Hot reload: обработка {change.file_path.name} ({change.change_type})")
 
                     if self.manager.config.dry_run:
-                        hotreload_logger.warning(
-                            f"🧪 DRY_RUN: Изменение {change.file_path.name} проигнорировано"
-                        )
+                        hotreload_logger.warning(f"🧪 DRY_RUN: Изменение {change.file_path.name} проигнорировано")
                         continue
 
                     self.manager.validate_and_apply(change)
-                    hotreload_logger.info(
-                        f"✅ Hot reload: {change.file_path.name} успешно применён"
-                    )
+                    hotreload_logger.info(f"✅ Hot reload: {change.file_path.name} успешно применён")
 
                 except Exception as e:
-                    hotreload_logger.error(
-                        f"❌ Hot reload отклонён ({change.file_path.name}): {e}"
-                    )
+                    hotreload_logger.error(f"❌ Hot reload отклонён ({change.file_path.name}): {e}")
                     self.manager._rollback_change(change)
 
 
@@ -377,9 +365,7 @@ class HotReloadManager:
                 # Для JSON — сохраняем содержимое
                 with open(file_path, "r", encoding="utf-8") as f:
                     change.backup_config = json.load(f)
-                self._config_backups[str(file_path)] = copy.deepcopy(
-                    change.backup_config
-                )
+                self._config_backups[str(file_path)] = copy.deepcopy(change.backup_config)
             else:
                 # Для бинарных файлов — читаем байты
                 change.backup_data = file_path.read_bytes()
@@ -414,9 +400,7 @@ class HotReloadManager:
 
                     # Специальная обработка ACTIVE_MODEL
                     if key == "ACTIVE_MODEL" and hasattr(self.trading_system, "model_loader"):
-                        hotreload_logger.info(
-                            f"🔄 Перезагрузка активной модели: {value}"
-                        )
+                        hotreload_logger.info(f"🔄 Перезагрузка активной модели: {value}")
                         self.trading_system.model_loader.clear_cache()
                         # Перезагружаем модель
                         if hasattr(self.trading_system.model_loader, "reload_active_model"):
@@ -497,8 +481,7 @@ class HotReloadManager:
             if key in config:
                 if not isinstance(config[key], expected_type):
                     raise ValueError(
-                        f"Неверный тип для {key}: ожидался {expected_type.__name__}, "
-                        f"получен {type(config[key]).__name__}"
+                        f"Неверный тип для {key}: ожидался {expected_type.__name__}, " f"получен {type(config[key]).__name__}"
                     )
 
     def _validate_keras_model(self, file_path: Path):
@@ -517,14 +500,24 @@ class HotReloadManager:
             raise ValueError(f"Невалидная Keras модель {file_path.name}: {e}")
 
     def _validate_pytorch_model(self, file_path: Path):
-        """Валидация PyTorch модели."""
+        """Валидация PyTorch модели через DeviceManager (оптимизировано)."""
         try:
-            import torch
+            from src.utils.device_manager import TORCH_AVAILABLE, device_manager
 
-            state_dict = torch.load(str(file_path), map_location="cpu", weights_only=False)
-            if state_dict is None:
-                raise ValueError("Модель не загрузилась")
-            hotreload_logger.debug(f"✅ PyTorch модель валидна: {file_path.name}")
+            if TORCH_AVAILABLE:
+                # Используем DeviceManager для валидации с кэшированием
+                model = device_manager.load_model(str(file_path), file_path.stem)
+                if model is None:
+                    raise ValueError("Модель не загрузилась")
+                hotreload_logger.debug(f"✅ PyTorch модель валидна: {file_path.name}")
+            else:
+                # Fallback без оптимизаций
+                import torch
+
+                state_dict = torch.load(str(file_path), map_location="cpu", weights_only=False)
+                if state_dict is None:
+                    raise ValueError("Модель не загрузилась")
+                hotreload_logger.debug(f"✅ PyTorch модель валидна (fallback): {file_path.name}")
         except ImportError:
             hotreload_logger.warning("⚠️ PyTorch не установлен — пропуск валидации")
         except Exception as e:
@@ -803,9 +796,7 @@ class HotReloadManager:
         return {
             "local_commit": local_commit,
             "remote_commit": remote_commit,
-            "has_updates": local_commit != remote_commit
-            if (local_commit and remote_commit)
-            else False,
+            "has_updates": local_commit != remote_commit if (local_commit and remote_commit) else False,
             "monitoring": self._monitoring,
             "last_check": self._last_check_time if self._last_check_time > 0 else None,
             "dry_run": self.config.dry_run,
