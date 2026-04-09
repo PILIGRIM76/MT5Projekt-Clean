@@ -2714,9 +2714,8 @@ class MainWindow(QMainWindow):
         self.balance_label.setText(f"Баланс: {balance:.2f}")
         self.equity_label.setText(f"Эквити: {equity:.2f}")
 
-        # 🔍 ВИЗУАЛЬНЫЙ ТЕСТ: мигающая зелёная рамка при обновлении (0.5 сек)
-        self.equity_label.setStyleSheet("border: 2px solid #2ecc71; border-radius: 4px;")
-        QTimer.singleShot(500, lambda: self.equity_label.setStyleSheet(""))
+        # 🔍 ВИЗУАЛЬНЫЙ ТЕСТ: безопасная мигающая рамка
+        self._debug_balance_update(equity)
 
         # Принудительное обновление виджетов
         self.balance_label.update()
@@ -2734,6 +2733,44 @@ class MainWindow(QMainWindow):
             self.open_pnl_label.update()
         else:
             logger.warning("[GUI-Balance] open_pnl_label не найден!")
+
+    def _debug_balance_update(self, equity: float):
+        """
+        Безопасный визуальный тест обновления интерфейса.
+        НЕ ломает систему при ошибке — эквити всё равно обновится в логе.
+        """
+        try:
+            # 🔹 1. Проверка: существует ли виджет?
+            if not hasattr(self, "equity_label") or self.equity_label is None:
+                logger.warning("⚠️ [DEBUG] self.equity_label is None!")
+                return
+
+            lbl = self.equity_label
+
+            # 🔹 2. Проверка: виджет жив?
+            if not lbl.isVisible() or not lbl.isEnabled():
+                logger.warning(f"⚠️ [DEBUG] equity_label visible={lbl.isVisible()}, enabled={lbl.isEnabled()}")
+
+            # 🔹 3. Безопасное обновление стиля (только в главном потоке)
+            if threading.current_thread() is threading.main_thread():
+                original_style = lbl.styleSheet()
+                lbl.setStyleSheet("border: 2px solid #2ecc71; border-radius: 4px;")
+                QTimer.singleShot(500, lambda: lbl.setStyleSheet(original_style))
+                logger.debug("✅ [DEBUG] Style updated successfully")
+            else:
+
+                def update_style():
+                    original_style = lbl.styleSheet()
+                    lbl.setStyleSheet("border: 2px solid #2ecc71; border-radius: 4px;")
+                    QTimer.singleShot(500, lambda: lbl.setStyleSheet(original_style))
+
+                from PySide6.QtCore import QMetaObject, Qt
+
+                QMetaObject.invokeMethod(self, update_style, Qt.ConnectionType.QueuedConnection)
+                logger.debug("✅ [DEBUG] Style update queued for main thread")
+
+        except Exception as e:
+            logger.error(f"❌ [DEBUG] Style update failed: {e}", exc_info=True)
 
     def _toggle_debug_logs(self, state):
         """Включает или выключает режим отладки (DEBUG) для логирования."""
