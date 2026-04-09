@@ -3104,7 +3104,9 @@ class MainWindow(QMainWindow):
         """
         Обновляет график свечей в стиле MT5.
         Корректно обрабатывает Pandas -> NumPy конвертацию.
+        Включает полную диагностику данных.
         """
+        # 🔍 ДИАГНОСТИКА: Информация о входящих данных
         logger.info(
             f"[GUI-Chart] update_candle_chart вызван: symbol={symbol}, "
             f"df is None={df is None}, df.empty={df.empty if df is not None else 'N/A'}, "
@@ -3119,6 +3121,18 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            # 🔍 ДИАГНОСТИКА: Подробная информация о DataFrame
+            logger.info(f"🔍 [DIAG] DataFrame type: {type(df)}, shape: {df.shape}")
+            logger.info(f"🔍 [DIAG] Columns: {df.columns.tolist()}")
+            logger.info(f"🔍 [DIAG] First row: {df.iloc[0].to_dict()}")
+            logger.info(f"🔍 [DIAG] Last row: {df.iloc[-1].to_dict()}")
+            logger.info(f"🔍 [DIAG] Price range: {df['close'].min():.5f} - {df['close'].max():.5f}")
+            if "time" in df.columns:
+                logger.info(f"🔍 [DIAG] Time range: {df['time'].min()} - {df['time'].max()}")
+                logger.info(f"🔍 [DIAG] Time dtype: {df['time'].dtype}")
+            else:
+                logger.info(f"🔍 [DIAG] Колонка 'time' отсутствует, используем index")
+
             # 2. Очистка от дубликатов и NaN
             df_clean = df.copy()
 
@@ -3138,8 +3152,12 @@ class MainWindow(QMainWindow):
 
             # Удаляем дубликаты по времени
             df_clean["_x_timestamp"] = x_data
+            before_dedup = len(df_clean)
             df_clean = df_clean.drop_duplicates(subset="_x_timestamp", keep="last")
             df_clean = df_clean.dropna(subset=["open", "high", "low", "close"])
+            after_dedup = len(df_clean)
+            if before_dedup != after_dedup:
+                logger.warning(f"🔍 [DIAG] Удалено {before_dedup - after_dedup} дубликатов/NaN строк")
 
             # Пересчитываем x_data после очистки
             x_data = df_clean["_x_timestamp"].values.astype("int64")
@@ -3162,6 +3180,15 @@ class MainWindow(QMainWindow):
                 if "tick_volume" in df_chart.columns
                 else np.zeros(len(x_data))
             )
+
+            # 🔍 ДИАГНОСТИКА: Информация о подготовленных данных
+            logger.info(
+                f"✅ [DIAG] {symbol}: {len(x_data)} баров, "
+                f"цена {close_vals.min():.5f} - {close_vals.max():.5f}, "
+                f"время {x_data[0]} - {x_data[-1]} (ms)"
+            )
+            logger.info(f"🔍 [DIAG] candlestick_data shape: ({len(candlestick_data)}, 5)")
+            logger.info(f"🔍 [DIAG] x_data dtype: {x_data.dtype}, range: {x_data.min():.0f} - {x_data.max():.0f}")
 
             # 4. Формируем данные свечей: (timestamp_ms, open, high, low, close)
             candlestick_data = np.column_stack((x_data, open_vals, high_vals, low_vals, close_vals))
@@ -3221,6 +3248,9 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"[GUI-Chart] Ошибка при обновлении графика {symbol}: {e}", exc_info=True)
+            import traceback
+
+            traceback.print_exc()
 
     def update_trade_arrows(self, symbol: str):
         """Обновляет стрелки сделок на графике."""
