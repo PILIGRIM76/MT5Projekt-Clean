@@ -417,6 +417,9 @@ class MainWindow(QMainWindow):
         print(f"🔍 [THREAD-DEBUG] GUI-поток: {_threading.main_thread().name}")
         print(f"🔍 [THREAD-DEBUG] _chart_update_timer активен: {self._chart_update_timer.isActive()}")
 
+        # 🔍 ДИАГНОСТИКА ВИДЖЕТА ЭКВИТИ
+        self._debug_equity_widget()
+
         # --- КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Запуск тяжелой инициализации в QThreadPool ---
         # Запускаем сразу, не ждем 100мс, но в фоновом потоке
         self.start_heavy_initialization()
@@ -2736,6 +2739,27 @@ class MainWindow(QMainWindow):
 
         # 🔍 ПУЛЕНЕПРОБИВАЕМАЯ ДИАГНОСТИКА: принудительная синхронизация GUI
         self._force_gui_sync(equity)
+
+    def _debug_equity_widget(self):
+        """Проверяет тип и свойства виджета эквити."""
+        lbl = getattr(self, "equity_label", None)
+        if lbl is None:
+            logger.error("❌ equity_label NOT FOUND")
+            # Ищем похожие виджеты
+            for name in dir(self):
+                obj = getattr(self, name)
+                if hasattr(obj, "text") and hasattr(obj, "setText"):
+                    logger.info(f"🔍 Found: {name} (type: {type(obj).__name__}, text: '{obj.text()}')")
+            return
+
+        logger.info(f"✅ equity_label found:")
+        logger.info(f"   - Type: {type(lbl).__name__}")
+        logger.info(f"   - Visible: {lbl.isVisible()}")
+        logger.info(f"   - Enabled: {lbl.isEnabled()}")
+        logger.info(f"   - Text: '{lbl.text()}'")
+        logger.info(f"   - StyleSheet: '{lbl.styleSheet()}'")
+        logger.info(f"   - Parent: {lbl.parent().objectName() if lbl.parent() else 'None'}")
+        logger.info(f"   - Geometry: {lbl.geometry()}")
 
     def _force_gui_sync(self, equity: float):
         """
