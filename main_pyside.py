@@ -1099,10 +1099,14 @@ class MainWindow(QMainWindow):
         thread_status_box.setObjectName("ThreadStatusBox")
 
         account_box = QFrame()
+        account_box.setObjectName("AccountInfoBox")
+        account_box.setVisible(True)  # ✅ Гарантируем видимость
 
         account_layout = QVBoxLayout(account_box)
         self.balance_label = QLabel("Баланс: N/A")
+        self.balance_label.setVisible(True)
         self.equity_label = QLabel("Эквити: N/A")
+        self.equity_label.setVisible(True)  # ✅ Гарантируем видимость
         self.uptime_label = QLabel("Время работы: -")
         self.uptime_label.setStyleSheet("font-weight: bold; color: #50fa7b;")
         self.pc_time_label = QLabel("PC Время: --:--:--")
