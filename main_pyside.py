@@ -2734,6 +2734,53 @@ class MainWindow(QMainWindow):
         else:
             logger.warning("[GUI-Balance] open_pnl_label не найден!")
 
+        # 🔍 ПУЛЕНЕПРОБИВАЕМАЯ ДИАГНОСТИКА: принудительная синхронизация GUI
+        self._force_gui_sync(equity)
+
+    def _force_gui_sync(self, equity: float):
+        """
+        Принудительная синхронизация GUI — минимальный код.
+        Адаптировано под архитектуру БЕЗ self.ui (прямые self.equity_label).
+        """
+        # 🔹 1. Проверка: есть ли equity_label?
+        if not hasattr(self, "equity_label") or self.equity_label is None:
+            logger.error("❌ self.equity_label is None")
+            return
+
+        lbl = self.equity_label
+
+        # 🔹 2. Проверка: виджет жив и видим?
+        if not lbl.isVisible():
+            logger.warning("⚠️ equity_label is HIDDEN")
+        if not lbl.isEnabled():
+            logger.warning("⚠️ equity_label is DISABLED")
+
+        # 🔹 3. Сохраняем оригинальный текст
+        original = lbl.text()
+
+        # 🔹 4. Обновляем текст + явный маркер
+        new_text = f"{equity:.2f} ✓"
+        lbl.setText(new_text)
+
+        # 🔹 5. ЯВНАЯ перерисовка (критично!)
+        lbl.repaint()
+        lbl.update()
+
+        # 🔹 6. Возврат через 800 мс БЕЗ lambda-захвата
+        def restore_text():
+            if lbl is not None and lbl.isVisible():
+                lbl.setText(original)
+                lbl.repaint()
+
+        if threading.current_thread() is threading.main_thread():
+            QTimer.singleShot(800, restore_text)
+        else:
+            from PySide6.QtCore import QMetaObject, Qt
+
+            QMetaObject.invokeMethod(lbl, restore_text, Qt.ConnectionType.QueuedConnection)
+
+        logger.info(f"✅ GUI sync: '{original}' → '{new_text}' → (restore)")
+
     def _debug_balance_update(self, equity: float):
         """
         Безопасный визуальный тест обновления интерфейса.
