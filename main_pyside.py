@@ -3488,8 +3488,12 @@ class MainWindow(QMainWindow):
         Обновляет график свечей в стиле MT5.
         🔹 БЕЗ блокировки GUI — защищённая версия.
         🔹 Если вызван из фонового потока — перенаправляет в главный.
+        🔹 Ограничивает до 200 баров для быстрой отрисовки.
+        🔹 Добавляет QApplication.processEvents() после тяжёлых операций.
         """
         import time as _time
+
+        start = _time.time()
 
         # 🔍 ТОЧЕЧНАЯ ДИАГНОСТИКА ГРАФИКА
         print(
@@ -3506,8 +3510,6 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, lambda: self.update_candle_chart(df, symbol))
             return
 
-        start = _time.time()
-
         try:
             # 🔹 2. Быстрый выход если нет данных
             if df is None or df.empty or len(df) < 2:
@@ -3516,7 +3518,7 @@ class MainWindow(QMainWindow):
                 self.volume_item.setOpts(x=[], height=[])
                 return
 
-            # 🔹 3. Берём только последние 200 баров (лёгкая отрисовка)
+            # 🔹 3. Берём ТОЛЬКО последние 200 баров (лёгкая отрисовка)
             df_clean = df.tail(200).copy()
 
             # Подготовка X (время)
@@ -3563,6 +3565,11 @@ class MainWindow(QMainWindow):
 
             # Отрисовка свечей
             self.candlestick_item.setData(candlestick_data)
+
+            # 🔥 КРИТИЧНО: Отдаём управление GUI после setData
+            from PySide6.QtWidgets import QApplication
+
+            QApplication.processEvents()
 
             # Обновление объёма
             volume_colors = [
