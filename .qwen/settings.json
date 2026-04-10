@@ -64,5 +64,16 @@
       "Bash(@echo *)"
     ]
   },
+  "env": {
+    "PYTHONPATH": "${workspaceFolder}",
+    "PYTHONUNBUFFERED": "1"
+  },
+  "setup": {
+    "commands": [
+      "cd ${workspaceFolder}",
+      "if exist .env (for /f \"tokens=*\" %i in (.env) do set %i)"
+    ],
+    "description": "Load environment variables from .env file"
+  },
   "$version": 3
 }
