@@ -4807,6 +4807,12 @@ class TradingSystem(QObject):
         """
         Callback функция для автоматического переобучения.
         Вызывается планировщиком по расписанию.
+
+        УЛУЧШЕНИЕ: Автоматически определяет символы требующие переобучения:
+        1. Scaler mismatch (14 vs 20 признаков)
+        2. Отсутствие scaler
+        3. Истекшее время с последнего обучения
+        4. Новые символы добавленные в whitelist
         """
         try:
             logger.info("=" * 80)
@@ -4815,28 +4821,40 @@ class TradingSystem(QObject):
             logger.info(f"   Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             logger.info("=" * 80)
 
-            # Импортируем функцию из smart_retrain
+            # 1. АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ символов для переобучения
+            if hasattr(self, "auto_trainer") and self.auto_trainer:
+                symbols_to_retrain = self.auto_trainer.get_symbols_needing_retrain()
+
+                if not symbols_to_retrain:
+                    logger.info("✅ Все символы обучены и актуальны - переобучение не требуется")
+                    return
+
+                # Ограничиваем количество символов
+                symbols_to_retrain = symbols_to_retrain[:max_symbols]
+                logger.info(f"🎯 Автоматически отобрано {len(symbols_to_retrain)} символов для переобучения")
+            else:
+                # Fallback: используем все символы из whitelist
+                symbols_to_retrain = list(self.config.SYMBOLS_WHITELIST)[:max_symbols]
+                logger.warning("⚠️ AutoTrainer не найден, используем все символы из whitelist")
+
+            # 2. Запускаем переобучение через smart_retrain
             from smart_retrain import smart_retrain_models
 
-            # Запускаем обучение
-            logger.info("📢 Вызов smart_retrain_models()...")
-            result = smart_retrain_models(max_symbols=max_symbols, max_workers=max_workers)
+            logger.info(f"📢 Запуск smart_retrain_models для {len(symbols_to_retrain)} символов...")
+            result = smart_retrain_models(symbols=symbols_to_retrain, max_workers=max_workers)
             logger.info(f"✅ Результат переобучения: {result}")
 
             logger.info("✅ Автоматическое переобучение завершено")
 
-            # Перезагружаем модели чемпионов после автообучения
+            # 3. Перезагружаем модели чемпионов после автообучения
             try:
-                symbols_for_reload = []
-                if hasattr(self, "latest_ranked_list") and self.latest_ranked_list:
-                    symbols_for_reload = [item["symbol"] for item in self.latest_ranked_list]
-                else:
-                    symbols_for_reload = list(self.config.SYMBOLS_WHITELIST)
+                symbols_for_reload = symbols_to_retrain  # Перезагружаем только переобученные
                 self._load_champion_models_into_memory(symbols_for_reload)
+                logger.info(f"✅ Перезагружено {len(symbols_for_reload)} моделей")
             except Exception as reload_error:
                 logger.error(f"Ошибка перезагрузки моделей после автообучения: {reload_error}", exc_info=True)
 
-            # ОТПРАВКА ДАННЫХ В GUI ПОСЛЕ ОБУЧЕНИЯ
+            # 4. ОТПРАВКА ДАННЫХ В GUI ПОСЛЕ ОБУЧЕНИЯ
             if self.bridge:
                 logger.info("📊 Отправка данных в GUI...")
                 self._send_model_accuracy_to_gui()

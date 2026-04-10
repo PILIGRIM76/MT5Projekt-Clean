@@ -190,6 +190,115 @@ class AutoTrainer:
 
         return needs_retrain
 
+    def check_scaler_mismatch(self, symbol: str) -> dict:
+        """
+        Проверяет mismatch между scaler и текущим конфигом признаков.
+
+        Returns:
+            dict: {'needs_fix': bool, 'scaler_features': int, 'config_features': int, 'has_names': bool}
+        """
+        import joblib
+
+        result = {"needs_fix": False, "scaler_features": 0, "config_features": 0, "has_names": False, "scaler_exists": False}
+
+        try:
+            scaler_path = self.models_path / f"{symbol}_scaler.joblib"
+            result["config_features"] = len(self.config.FEATURES_TO_USE)
+
+            if not scaler_path.exists():
+                logger.debug(f"[{symbol}] Скалер не найден — требуется обучение")
+                result["needs_fix"] = True
+                return result
+
+            result["scaler_exists"] = True
+            scaler = joblib.load(scaler_path)
+
+            result["scaler_features"] = getattr(scaler, "n_features_in_", 0)
+            result["has_names"] = hasattr(scaler, "feature_names_in_")
+
+            # Проверяем mismatch
+            if result["scaler_features"] != result["config_features"]:
+                result["needs_fix"] = True
+                logger.warning(
+                    f"⚠️ [{symbol}] Scaler mismatch: "
+                    f"scaler={result['scaler_features']}, "
+                    f"config={result['config_features']}"
+                )
+
+            # Проверяем наличие feature_names_in_
+            if not result["has_names"]:
+                result["needs_fix"] = True
+                logger.warning(f"⚠️ [{symbol}] Scaler без feature_names_in_")
+
+        except Exception as e:
+            logger.error(f"[{symbol}] Ошибка проверки scaler: {e}")
+            result["needs_fix"] = True
+
+        return result
+
+    def get_symbols_needing_retrain(self, symbols: list = None) -> list:
+        """
+        Возвращает список символов требующих переобучения.
+
+        Проверяет:
+        1. Scaler mismatch (14 vs 20 признаков)
+        2. Отсутствие scaler
+        3. Истекшее время с последнего обучения
+        4. Деградацию производительности
+
+        Args:
+            symbols: Список символов для проверки (если None — все из конфига)
+
+        Returns:
+            list: Символы требующие переобучения
+        """
+        if symbols is None:
+            symbols = self.config.SYMBOLS_WHITELIST
+
+        needs_retrain = []
+
+        for symbol in symbols:
+            # 1. Проверяем scaler mismatch
+            scaler_check = self.check_scaler_mismatch(symbol)
+
+            if scaler_check["needs_fix"]:
+                reasons = []
+                if not scaler_check["scaler_exists"]:
+                    reasons.append("scaler отсутствует")
+                elif scaler_check["scaler_features"] != scaler_check["config_features"]:
+                    reasons.append(f"mismatch: {scaler_check['scaler_features']} vs {scaler_check['config_features']}")
+                if not scaler_check["has_names"]:
+                    reasons.append("нет feature_names_in_")
+
+                logger.info(f"🔧 [{symbol}] Требуется переобучение: {', '.join(reasons)}")
+                needs_retrain.append(symbol)
+                continue
+
+            # 2. Проверяем время последнего обучения
+            metadata_path = self.models_path / f"{symbol}_metadata.json"
+            if metadata_path.exists():
+                import json
+
+                try:
+                    with open(metadata_path, "r", encoding="utf-8") as f:
+                        metadata = json.load(f)
+
+                    trained_at = datetime.fromisoformat(metadata.get("trained_at", metadata.get("created_at")))
+                    hours_since = (datetime.now() - trained_at).total_seconds() / 3600
+
+                    if hours_since >= self.retrain_interval_hours:
+                        logger.info(f"⏰ [{symbol}] Прошло {hours_since:.0f}ч (порог: {self.retrain_interval_hours}ч)")
+                        needs_retrain.append(symbol)
+                except Exception as e:
+                    logger.error(f"[{symbol}] Ошибка чтения metadata: {e}")
+                    needs_retrain.append(symbol)
+            else:
+                logger.info(f"📁 [{symbol}] Metadata отсутствует")
+                needs_retrain.append(symbol)
+
+        logger.info(f"📊 Найдено {len(needs_retrain)}/{len(symbols)} символов требующих переобучения")
+        return needs_retrain
+
     def mark_retrained(self, symbol: str):
         """Отмечает что модель была переобучена (для адаптивного триггера)."""
         from datetime import datetime
