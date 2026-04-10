@@ -435,11 +435,14 @@ class MainWindow(QMainWindow):
         self.balance_display_timer.start()
 
         # 🔥🔥 ЯДЕРНЫЙ ТЕСТ: Баланс + Эквити + Прибыль 🔥🔥
-        # Работает ВСЕГДА, но берёт только реальные данные (без фейков)
+        # Работает КАЖДЫЕ 2 сек независимо от сигналов
         def nuclear_force_update():
             import logging
 
             nuke_logger = logging.getLogger(__name__)
+
+            # 🔹 ЯВНАЯ диагностика КАЖДОГО вызова (print всегда виден)
+            print("🔄 [NUCLEAR-TIMER] nuclear_force_update вызван")
 
             try:
                 current_equity = 0.0
@@ -460,8 +463,11 @@ class MainWindow(QMainWindow):
                             or getattr(acc, "_floating_pl", 0.0)
                         )
 
+                        print(f"📊 [NUCLEAR-DATA] balance={current_balance}, equity={current_equity}, pnl={current_pnl}")
+
                 # Если данных НЕТ — просто выходим (НЕ обновляем виджеты)
                 if current_equity == 0.0:
+                    print("⏸️ [NUCLEAR] Нет данных equity — пропускаю обновление")
                     return  # Нет данных — не трогаем виджеты
 
                 # Если PnL не найден — вычисляем
