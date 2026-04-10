@@ -434,7 +434,7 @@ class MainWindow(QMainWindow):
         self.balance_display_timer.timeout.connect(self._force_balance_display_check)
         self.balance_display_timer.start()
 
-        # 🔥🔥 ЯДЕРНЫЙ ТЕСТ: Принудительное обновление каждые 2 секунды 🔥🔥
+        # 🔥🔥 ЯДЕРНЫЙ ТЕСТ: Баланс + Эквити + Прибыль 🔥🔥
         # Гарантирует что GUI обновляется независимо от сигналов
         def nuclear_force_update():
             import logging
@@ -445,6 +445,7 @@ class MainWindow(QMainWindow):
             try:
                 current_equity = 0.0
                 current_balance = 0.0
+                current_pnl = 0.0  # <-- Добавляем переменную для прибыли
 
                 # 1. Пытаемся получить данные напрямую из системы
                 if hasattr(self, "trading_system") and self.trading_system:
@@ -453,16 +454,32 @@ class MainWindow(QMainWindow):
                         current_balance = getattr(acc, "balance", 0.0)
                         current_equity = getattr(acc, "equity", 0.0)
 
+                        # Пытаемся получить прибыль (разные варианты имён атрибутов)
+                        current_pnl = (
+                            getattr(acc, "_last_profit", 0.0)
+                            or getattr(acc, "_last_pnl", 0.0)
+                            or getattr(acc, "_floating_pl", 0.0)
+                        )
+
                 # Если данных нет — генерируем тестовые (чтобы увидеть движение)
                 if current_equity == 0.0:
                     current_equity = 81480.00 + random.uniform(-5, 5)
                     current_balance = 81404.41
                     nuke_logger.debug("🧪 [NUCLEAR] Using test data (no live data available)")
 
+                # Если PnL не найден — вычисляем из эквити и баланса
+                if current_pnl == 0.0 and current_equity != 0.0:
+                    if current_balance > 0:
+                        current_pnl = current_equity - current_balance
+                    else:
+                        current_pnl = random.uniform(-50, 50)  # Случайная прибыль для теста
+
                 # 2. Прямое обновление виджетов (без посредников!)
                 if hasattr(self, "equity_label") and self.equity_label:
                     self.equity_label.setText(f"Эквити: {current_equity:.2f}")
-                    self.equity_label.setStyleSheet("color: #00FF00; font-weight: bold; font-size: 14px;")
+                    # Цвет эквити: зелёный если плюс, красный если минус
+                    color_eq = "#00FF00" if current_equity >= current_balance else "#FF4444"
+                    self.equity_label.setStyleSheet(f"color: {color_eq}; font-weight: bold; font-size: 14px;")
                     self.equity_label.repaint()
                     self.equity_label.setVisible(True)
 
@@ -471,12 +488,35 @@ class MainWindow(QMainWindow):
                     self.balance_label.repaint()
                     self.balance_label.setVisible(True)
 
+                # 🔥 НОВАЯ ЧАСТЬ: Обновление Прибыли (PnL) 🔥
+                # Возможные имена виджета прибыли
+                pnl_labels = ["open_pnl_label", "pnl_label", "label_profit", "lbl_floating_pl"]
+                pnl_found = False
+
+                for name in pnl_labels:
+                    if hasattr(self, name):
+                        pnl_widget = getattr(self, name)
+                        if pnl_widget:
+                            pnl_widget.setText(f"{current_pnl:+.2f}")  # Формат: +12.34 или -5.67
+                            # Цвет прибыли
+                            color_pnl = "#00FF00" if current_pnl >= 0 else "#FF4444"
+                            pnl_widget.setStyleSheet(f"color: {color_pnl}; font-weight: bold;")
+                            pnl_widget.repaint()
+                            pnl_found = True
+                            nuke_logger.info(f"✅ [NUCLEAR] PnL updated via '{name}': {current_pnl:+.2f}")
+                            break
+
+                if not pnl_found:
+                    nuke_logger.debug(f"🔍 [NUCLEAR] PnL widget not found in: {pnl_labels}")
+
                 # 3. Обработка событий Qt
                 from PySide6.QtWidgets import QApplication
 
                 QApplication.processEvents()
 
-                nuke_logger.info(f"🚀 [NUCLEAR TEST] GUI Updated: Equity={current_equity:.2f}, Balance={current_balance:.2f}")
+                nuke_logger.info(
+                    f"🚀 [NUCLEAR TEST] Full Update: Bal={current_balance:.2f}, Eq={current_equity:.2f}, PnL={current_pnl:+.2f}"
+                )
 
             except Exception as e:
                 nuke_logger.error(f"❌ [NUCLEAR TEST] Error: {e}", exc_info=True)
