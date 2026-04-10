@@ -488,26 +488,55 @@ class MainWindow(QMainWindow):
                     self.balance_label.repaint()
                     self.balance_label.setVisible(True)
 
-                # 🔥 НОВАЯ ЧАСТЬ: Обновление Прибыли (PnL) 🔥
-                # Возможные имена виджета прибыли
-                pnl_labels = ["open_pnl_label", "pnl_label", "label_profit", "lbl_floating_pl"]
+                # 🔥 НОВАЯ ЧАСТЬ: Обновление Прибыли (PnL) с ЖЁСТКОЙ ПЕРЕРИСОВКОЙ 🔥
+                pnl_value = current_equity - current_balance
+
+                # Расширенный список возможных имён виджета
+                pnl_labels = [
+                    "open_pnl_label",
+                    "pnl_label",
+                    "label_profit",
+                    "lbl_floating_pl",
+                    "ui_open_pnl_label",
+                    "ui_lbl_profit",
+                ]
                 pnl_found = False
 
                 for name in pnl_labels:
                     if hasattr(self, name):
                         pnl_widget = getattr(self, name)
                         if pnl_widget:
-                            pnl_widget.setText(f"{current_pnl:+.2f}")  # Формат: +12.34 или -5.67
-                            # Цвет прибыли
-                            color_pnl = "#00FF00" if current_pnl >= 0 else "#FF4444"
-                            pnl_widget.setStyleSheet(f"color: {color_pnl}; font-weight: bold;")
-                            pnl_widget.repaint()
+                            # 1. Устанавливаем текст
+                            text_val = f"{pnl_value:+.2f}"  # Формат: +12.34 или -5.67
+                            pnl_widget.setText(text_val)
+
+                            # 2. Устанавливаем цвет (Зелёный/Красный)
+                            color = "#00FF00" if pnl_value >= 0 else "#FF4444"
+                            style = f"color: {color}; font-weight: bold; font-size: 14px;"
+                            pnl_widget.setStyleSheet(style)
+
+                            # 3. ЖЁСТКАЯ ПЕРЕРИСОВКА (Критично!)
+                            pnl_widget.repaint()  # Принудительная отрисовка
+                            pnl_widget.update()  # Обновление состояния
+
+                            # 4. Проталкивание событий GUI
+                            from PySide6.QtWidgets import QApplication
+
+                            QApplication.processEvents()
+
+                            pnl_widget.setVisible(True)  # Гарантируем видимость
+
                             pnl_found = True
-                            nuke_logger.info(f"✅ [NUCLEAR] PnL updated via '{name}': {current_pnl:+.2f}")
+                            nuke_logger.info(f"✅ [NUCLEAR] PnL VISUALLY updated via '{name}': {text_val}")
                             break
 
                 if not pnl_found:
-                    nuke_logger.debug(f"🔍 [NUCLEAR] PnL widget not found in: {pnl_labels}")
+                    # Если ни один виджет не найден — пишем ошибку в лог ЯВНО
+                    nuke_logger.error(f"❌ [NUCLEAR] PnL Widget NOT FOUND! Tried: {', '.join(pnl_labels)}")
+                    # Для отладки: выводим все атрибуты, содержащие 'pnl' или 'profit'
+                    possible_attrs = [attr for attr in dir(self) if "pnl" in attr.lower() or "profit" in attr.lower()]
+                    if possible_attrs:
+                        nuke_logger.warning(f"💡 Возможно, виджет называется иначе: {possible_attrs}")
 
                 # 3. Обработка событий Qt
                 from PySide6.QtWidgets import QApplication
