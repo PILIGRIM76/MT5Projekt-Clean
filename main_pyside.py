@@ -3800,12 +3800,13 @@ class MainWindow(QMainWindow):
             symbols = list(progress_data.keys())
             hours = [progress_data[s] for s in symbols]
 
-            # Цветовое кодирование: красный > 1ч (пора переобучать), жёлтый 0.5-1ч, зелёный < 0.5ч
+            # Цветовое кодирование: красный > 24ч (пора переобучать),
+            # жёлтый 12-24ч (скоро пора), зелёный < 12ч (всё ок)
             colors = []
             for h in hours:
-                if h >= 1.0:
+                if h >= 24.0:
                     colors.append("#ff5555")  # Красный - пора переобучать!
-                elif h >= 0.5:
+                elif h >= 12.0:
                     colors.append("#ffb86c")  # Оранжевый - скоро пора
                 else:
                     colors.append("#50fa7b")  # Зелёный - ещё рано
