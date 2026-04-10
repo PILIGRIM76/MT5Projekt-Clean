@@ -60,7 +60,8 @@
       "Bash(pip index *)",
       "Bash(d *)",
       "Bash(@if *)",
-      "Bash(sed *)"
+      "Bash(sed *)",
+      "Bash(@echo *)"
     ]
   },
   "$version": 3

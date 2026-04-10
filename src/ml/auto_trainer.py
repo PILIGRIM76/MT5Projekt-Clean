@@ -398,8 +398,11 @@ class AutoTrainer:
             # Разделяем на train/validation
             X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=self.validation_split, shuffle=False)
 
-            # Скалирование
+            # Скалирование — сохраняем имена признаков в scaler
             scaler = StandardScaler()
+            # Устанавливаем feature_names_in_ вручную (StandardScaler хранит его)
+            scaler.feature_names_in_ = np.array(feature_columns)
+            scaler.n_features_in_ = len(feature_columns)
             X_train_scaled = scaler.fit_transform(X_train)
             X_val_scaled = scaler.transform(X_val)
 

@@ -59,7 +59,7 @@ class SignalService:
         """Проверяет, разрешена ли стратегия оркестратором."""
         if not self._active_strategies:
             return True  # Пока оркестратор не принял решение — все разрешены
-        
+
         # Маппинг имён стратегий → ключи оркестратора
         strategy_key = strategy_name
         if strategy_name.startswith("AI_MF_Consensus") or strategy_name.startswith("AI_Model"):
@@ -68,7 +68,7 @@ class SignalService:
             strategy_key = "AI_Model"  # AI_LightGBM_Strategy → AI_Model
         elif strategy_name.startswith("RLTradeManager"):
             strategy_key = "RLTradeManager"
-        
+
         is_enabled = strategy_key in self._active_strategies
         if not is_enabled:
             logger.debug(f"[SignalService] Стратегия {strategy_name} (key={strategy_key}) отключена оркестратором")
@@ -168,9 +168,7 @@ class SignalService:
 
         # === ПРОВЕРКА ОРКЕСТРАТОРА: активна ли стратегия? ===
         if not self.is_strategy_enabled(primary_strategy_name):
-            logger.info(
-                f"[{symbol}] Оркестратор отключил {primary_strategy_name} → переходим к AI"
-            )
+            logger.info(f"[{symbol}] Оркестратор отключил {primary_strategy_name} → переходим к AI")
             primary_strategy_name = "AI_Model"
         # ======================================================
 
@@ -288,7 +286,9 @@ class SignalService:
                     )
                 else:
                     # Классика есть но нет единогласия
-                    logger.info(f"[{symbol}] Многофакторный консенсус не достигнут (Score: {final_score:.2f}). Сигнал отклонен.")
+                    logger.info(
+                        f"[{symbol}] Многофакторный консенсус не достигнут (Score: {final_score:.2f}). Сигнал отклонен."
+                    )
                     return None
             else:
                 # Ни AI, ни классика не дали сигнала
@@ -426,7 +426,7 @@ class SignalService:
         # === НОВЫЙ ПОДХОД: каждая модель предсказывает отдельно ===
         model_predictions = []
         model_confidences = []
-        
+
         for model_type, model_data in champion_committee.items():
             try:
                 pred, conf = self._predict_single_model(symbol, model_type, model_data, df)
@@ -438,17 +438,19 @@ class SignalService:
                     logger.warning(f"[{symbol}] {model_type}: не удалось получить предсказание")
             except Exception as e:
                 logger.error(f"[{symbol}] Ошибка предсказания {model_type}: {e}")
-        
+
         if not model_predictions:
             logger.warning(f"[{symbol}] Все модели не смогли сделать предсказание")
             return None, None, None
-        
+
         # Усредняем предсказания и уверенности
         avg_prediction = float(np.mean(model_predictions))
         avg_confidence = float(np.mean(model_confidences))
-        
-        logger.info(f"[{symbol}] Усреднено {len(model_predictions)} моделей: pred={avg_prediction:.4f}, conf={avg_confidence:.4f}")
-        
+
+        logger.info(
+            f"[{symbol}] Усреднено {len(model_predictions)} моделей: pred={avg_prediction:.4f}, conf={avg_confidence:.4f}"
+        )
+
         # Определяем тип сигнала
         if avg_prediction > 0.55:
             signal_type = SignalType.BUY
@@ -456,7 +458,7 @@ class SignalService:
             signal_type = SignalType.SELL
         else:
             signal_type = None
-        
+
         if signal_type is None:
             return None, None, None
 
@@ -482,28 +484,62 @@ class SignalService:
         except Exception as e:
             logger.error(f"[{symbol}] Ошибка создания TradeSignal: {e}")
             return None, None, None
-    
+
     def _predict_single_model(
         self, symbol: str, model_type: str, model_data: Dict, df: pd.DataFrame
     ) -> Tuple[Optional[float], Optional[float]]:
         """
         Делает предсказание ОДНОЙ модели с её собственными признаками и scaler.
-        
+
         Returns:
             (prediction, confidence) или (None, None) при ошибке
         """
-        # 1. Получаем признаки и scaler КОНКРЕТНОЙ модели
-        model_features = model_data.get("features", [])
-        if not model_features:
-            logger.warning(f"[{symbol}] {model_type}: нет списка признаков")
-            return None, None
-        
+        # 1. Получаем scaler — он авторитетный источник кол-ва признаков
         x_scaler = model_data.get("x_scaler") or self.x_scalers.get(symbol)
         y_scaler = model_data.get("y_scaler") or self.y_scalers.get(symbol)
-        
+
         if x_scaler is None:
             logger.warning(f"[{symbol}] {model_type}: нет x_scaler")
             return None, None
+
+        # Авторитетное количество признаков из scaler
+        expected_n_features = x_scaler.n_features_in_ if hasattr(x_scaler, "n_features_in_") else None
+
+        # 2. Получаем список признаков модели
+        model_features = model_data.get("features", [])
+
+        # 3. Если scaler был сохранён с feature_names_in_ — используем ИХ
+        if hasattr(x_scaler, "feature_names_in_"):
+            scaler_feature_names = list(x_scaler.feature_names_in_)
+            # Проверяем что все признаки есть в DataFrame
+            available = [f for f in scaler_feature_names if f in df.columns]
+            if len(available) == len(scaler_feature_names):
+                model_features = scaler_feature_names
+                logger.debug(f"[{symbol}] {model_type}: {len(model_features)} признаков из scaler")
+            else:
+                missing = set(scaler_feature_names) - set(available)
+                logger.warning(f"[{symbol}] {model_type}: нет признаков в df: {missing}")
+                # Добавляем недостающие с нулями
+                for f in missing:
+                    df[f] = 0.0
+                model_features = scaler_feature_names
+        elif expected_n_features:
+            # scaler без имён — пробуем использовать model_features
+            if len(model_features) == expected_n_features:
+                pass  # Совпадает — всё ок
+            elif len(model_features) > expected_n_features:
+                # Model features больше — обрезаем
+                model_features = model_features[:expected_n_features]
+                logger.info(f"[{symbol}] {model_type}: обрезано до {expected_n_features} признаков")
+            else:
+                # Model features меньше — дополняем нулями из df
+                needed = expected_n_features - len(model_features)
+                extra = [f for f in df.columns if f not in model_features][:needed]
+                for f in extra:
+                    if f not in df.columns:
+                        df[f] = 0.0
+                model_features = model_features + extra
+                logger.info(f"[{symbol}] {model_type}: дополнено до {expected_n_features} признаков")
 
         # 2. Гарантируем наличие всех признаков в df
         df_processed = df.copy()
@@ -528,34 +564,88 @@ class SignalService:
         # === КРИТИЧЕСКАЯ ПРОВЕРКА: валидация alignment признаков ===
         expected_features = x_scaler.n_features_in_ if hasattr(x_scaler, "n_features_in_") else len(model_features)
         actual_features = last_sequence_raw.shape[-1]
-        
+
         if expected_features != actual_features:
+            # Подробное логирование для диагностики
             logger.warning(
-                f"[{symbol}] {model_type}: mismatch scaler({expected_features}) vs actual({actual_features})"
+                f"[{symbol}] {model_type}: mismatch scaler({expected_features}) vs actual({actual_features}). "
+                f"model_features count={len(model_features)}, first_5={model_features[:5]}"
             )
-            return None, None
+
+            # Попытка восстановления №1: если у scaler есть feature_names_in_, используем их
+            if hasattr(x_scaler, "feature_names_in_"):
+                scaler_features = list(x_scaler.feature_names_in_)
+                logger.info(f"[{symbol}] {model_type}: Восстановление признаков из scaler: {scaler_features[:5]}...")
+
+                # Добавляем недостающие признаки
+                missing_from_scaler = [f for f in scaler_features if f not in df_processed.columns]
+                for feat in missing_from_scaler:
+                    df_processed[feat] = 0.0
+
+                # Берём только те признаки, что ожидает scaler (в правильном порядке!)
+                available = [f for f in scaler_features if f in df_processed.columns]
+                last_sequence = df_processed[available].tail(self.n_steps)
+                last_sequence_raw = last_sequence.values
+
+                # Проверяем ещё раз
+                if last_sequence_raw.shape[-1] != expected_features:
+                    logger.error(
+                        f"[{symbol}] {model_type}: Не удалось выровнять признаки. "
+                        f"Ожидается: {expected_features}, получено: {last_sequence_raw.shape[-1]}"
+                    )
+                    return None, None
+
+                logger.info(f"[{symbol}] {model_type}: Признаки выровнены: {last_sequence_raw.shape[-1]} features")
+
+            # Попытка восстановления №2: пробуем обрезать или дополнить признаки
+            elif actual_features < expected_features:
+                logger.warning(
+                    f"[{symbol}] {model_type}: Нехватка признаков ({actual_features} < {expected_features}). "
+                    f"Попытка дополнить нулями..."
+                )
+                # Дополняем нулями до нужного размера
+                padding = np.zeros((last_sequence_raw.shape[0], expected_features - actual_features))
+                last_sequence_raw = np.hstack([last_sequence_raw, padding])
+                logger.info(f"[{symbol}] {model_type}: Дополнено до {last_sequence_raw.shape[-1]} признаков")
+
+            elif actual_features > expected_features:
+                logger.warning(
+                    f"[{symbol}] {model_type}: Избыток признаков ({actual_features} > {expected_features}). "
+                    f"Обрезаем до первых {expected_features}..."
+                )
+                # Обрезаем до нужного размера
+                last_sequence_raw = last_sequence_raw[:, :expected_features]
+                logger.info(f"[{symbol}] {model_type}: Обрезано до {last_sequence_raw.shape[-1]} признаков")
+
+            else:
+                # scaler не хранит имена признаков — fallback невозможен
+                logger.error(
+                    f"[{symbol}] {model_type}: КРИТИЧЕСКИЙ mismatch scaler({expected_features}) vs actual({actual_features}). "
+                    f"Модель НЕ может быть использована. Запустите force_retrain_all.py"
+                )
+                return None, None
         # ================================================================
-        
+
         # 5. Масштабирование
         try:
             last_sequence_scaled = x_scaler.transform(last_sequence_raw)
         except Exception as e:
             logger.error(f"[{symbol}] {model_type}: ошибка масштабирования: {e}")
             return None, None
-        
+
         # 6. Предсказание
         model = model_data.get("model")
         if model is None:
             logger.warning(f"[{symbol}] {model_type}: модель не найдена")
             return None, None
-        
+
         try:
             if hasattr(model, "predict"):
                 # LightGBM / sklearn модели
                 if hasattr(model, "n_features_in_"):
                     # Это sklearn/LightGBM модель — нужен только последний бар
                     last_bar = last_sequence_scaled[-1].reshape(1, -1)
-                    
+
                     # КРИТИЧНО: для классификаторов используем predict_proba, а не predict
                     if hasattr(model, "predict_proba"):
                         # Классификатор → вероятности классов
@@ -577,7 +667,7 @@ class SignalService:
                     if hasattr(prediction_raw, "flatten"):
                         prediction_raw = prediction_raw.flatten()
                     prediction = float(prediction_raw[0])
-                
+
                 # Clamp prediction to [0, 1] для вероятностей
                 prediction = max(0.0, min(1.0, prediction))
             else:
@@ -586,11 +676,11 @@ class SignalService:
         except Exception as e:
             logger.error(f"[{symbol}] {model_type}: ошибка предсказания: {e}")
             return None, None
-        
+
         # 7. Confidence = отклонение от 0.5 (чем дальше, тем увереннее)
         confidence = abs(prediction - 0.5) * 2  # Нормализация 0..1
         confidence = min(max(confidence, 0.01), 1.0)  # Clamp
-        
+
         return prediction, confidence
 
     def calculate_shap_values(

@@ -3816,7 +3816,7 @@ class MainWindow(QMainWindow):
             self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
 
             # Обновляем заголовок
-            symbols_to_retrain = sum(1 for h in hours if h >= 1.0)
+            symbols_to_retrain = sum(1 for h in hours if h >= 24.0)  # ИСПРАВЛЕНО: порог 24 часа как в TradingSystem
             self.retrain_progress_widget.setTitle(f"⏰ Прогресс переобучения (требуют: {symbols_to_retrain})")
 
             # Сохраняем данные
