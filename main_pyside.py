@@ -420,6 +420,13 @@ class MainWindow(QMainWindow):
         # 🔍 ДИАГНОСТИКА ВИДЖЕТА ЭКВИТИ
         self._debug_equity_widget()
 
+        # 🔥 WATCHDOG: Таймер принудительного обновления эквити (каждые 5 сек)
+        # Это запасной канал на случай если основной сигнал потеряется
+        self.equity_watchdog_timer = QTimer(self)
+        self.equity_watchdog_timer.setInterval(5000)
+        self.equity_watchdog_timer.timeout.connect(self._force_equity_refresh)
+        self.equity_watchdog_timer.start()
+
         # --- КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Запуск тяжелой инициализации в QThreadPool ---
         # Запускаем сразу, не ждем 100мс, но в фоновом потоке
         self.start_heavy_initialization()
@@ -2692,57 +2699,71 @@ class MainWindow(QMainWindow):
         self.status_label.setText(message)
         self.status_label.setStyleSheet("color: red;" if is_error else "")
 
+    @Slot(float, float)
     def update_balance(self, balance, equity):
-        """Обновляет баланс и эквити, а также рассчитывает открытый PnL."""
-        # 🔍 ДИАГНОСТИКА: Отслеживаем интервалы обновлений
+        """
+        Безопасное обновление баланса с защитой от зависаний.
+        Watchdog: гарантирует выполнение даже если предыдущее обновление застряло.
+        """
         import threading
         import time
 
-        current_time = time.time()
-        current_thread = threading.current_thread().name
+        try:
+            # 🔹 1. Проверка: мы в главном потоке?
+            from PySide6.QtCore import QCoreApplication, QMetaObject, Qt
 
-        # 🔍 ТОЧЕЧНАЯ ДИАГНОСТИКА БАЛАНСА
-        print(f"💰 [BALANCE-DEBUG] {time.strftime('%H:%M:%S')} | " f"equity={equity:.2f} | " f"thread={current_thread}")
+            if threading.current_thread() is not threading.main_thread():
+                # Перенаправляем в главный поток и выходим
+                from PySide6.QtCore import Q_ARG
 
-        interval = 0.0  # ✅ Инициализация по умолчанию
+                QMetaObject.invokeMethod(
+                    self,
+                    "update_balance",
+                    Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(float, balance),
+                    Q_ARG(float, equity),
+                )
+                return
 
-        if hasattr(self, "_last_balance_update_time"):
-            interval = current_time - self._last_balance_update_time
-            if interval > 5.0:
-                print(f"⚠️ [BALANCE-DEBUG] Большой интервал: {interval:.1f}с")
-        self._last_balance_update_time = current_time
+            # 🔹 2. Быстрая диагностика
+            current_time = time.time()
+            current_thread = threading.current_thread().name
+            print(f"💰 [BALANCE-DEBUG] {time.strftime('%H:%M:%S')} | equity={equity:.2f} | thread={current_thread}")
 
-        if interval > 0:
-            logger.debug(
-                f"[GUI-Balance] update_balance вызван: balance={balance:.2f}, equity={equity:.2f}, "
-                f"thread={current_thread}, interval={interval:.2f}s"
-            )
+            interval = 0.0
+            if hasattr(self, "_last_balance_update_time"):
+                interval = current_time - self._last_balance_update_time
+                if interval > 5.0:
+                    print(f"⚠️ [BALANCE-DEBUG] Большой интервал: {interval:.1f}с")
+            self._last_balance_update_time = current_time
 
-        self.balance_label.setText(f"Баланс: {balance:.2f}")
-        self.equity_label.setText(f"Эквити: {equity:.2f}")
+            # 🔹 3. Минимальное обновление (никаких тяжёлых операций!)
+            self.balance_label.setText(f"Баланс: {balance:.2f}")
+            self.equity_label.setText(f"Эквити: {equity:.2f}")
+            self.equity_label.setVisible(True)  # Гарантируем видимость
 
-        # 🔍 ВИЗУАЛЬНЫЙ ТЕСТ: безопасная мигающая рамка
-        self._debug_balance_update(equity)
+            # 🔹 4. Открытый PnL
+            open_pnl = equity - balance
+            open_pnl_pct = (open_pnl / balance * 100) if balance > 0 else 0
 
-        # Принудительное обновление виджетов
-        self.balance_label.update()
-        self.equity_label.update()
+            if hasattr(self, "open_pnl_label"):
+                color = "#50fa7b" if open_pnl >= 0 else "#ff5555"
+                pnl_text = f"<span style='font-weight: bold; color:{color}'>{open_pnl:+.2f} ({open_pnl_pct:+.2f}%)</span>"
+                self.open_pnl_label.setText(pnl_text)
 
-        # Рассчитываем и обновляем открытый PnL (разница между эквити и балансом)
-        open_pnl = equity - balance
-        open_pnl_pct = (open_pnl / balance * 100) if balance > 0 else 0
+            # 🔹 5. Принудительная перерисовка
+            self.balance_label.update()
+            self.equity_label.update()
+            self.balance_label.repaint()
+            self.equity_label.repaint()
 
-        # Обновляем метку открытого PnL (незакрытые позиции)
-        if hasattr(self, "open_pnl_label"):
-            color = "#50fa7b" if open_pnl >= 0 else "#ff5555"
-            pnl_text = f"<span style='font-weight: bold; color:{color}'>{open_pnl:+.2f} ({open_pnl_pct:+.2f}%)</span>"
-            self.open_pnl_label.setText(pnl_text)
-            self.open_pnl_label.update()
-        else:
-            logger.warning("[GUI-Balance] open_pnl_label не найден!")
-
-        # 🔍 ПУЛЕНЕПРОБИВАЕМАЯ ДИАГНОСТИКА: принудительная синхронизация GUI
-        self._force_gui_sync(equity)
+        except Exception as e:
+            # 🔹 6. НИКОГДА не даём ошибке остановить обновление
+            logger.error(f"❌ Ошибка обновления GUI баланса: {e}", exc_info=True)
+            # Попытка восстановить видимость
+            if hasattr(self, "equity_label"):
+                self.equity_label.setVisible(True)
+                self.equity_label.show()
 
     def _debug_equity_widget(self):
         """Проверяет тип и свойства виджета эквити."""
@@ -2764,6 +2785,24 @@ class MainWindow(QMainWindow):
         logger.info(f"   - StyleSheet: '{lbl.styleSheet()}'")
         logger.info(f"   - Parent: {lbl.parent().objectName() if lbl.parent() else 'None'}")
         logger.info(f"   - Geometry: {lbl.geometry()}")
+
+    def _force_equity_refresh(self):
+        """
+        Watchdog: принудительно запрашивает баланс у AccountManager и обновляет GUI.
+        Это запасной канал на случай если основной сигнал потерялся.
+        """
+        try:
+            if hasattr(self, "trading_system") and self.trading_system:
+                acc_manager = getattr(self.trading_system, "account_manager", None)
+                if acc_manager and hasattr(acc_manager, "update_info"):
+                    # Обновляем данные из MT5
+                    success = acc_manager.update_info()
+                    if success:
+                        # Прямое обновление GUI (минуя сигнал)
+                        self.update_balance(acc_manager.balance, acc_manager.equity)
+                        logger.debug("🔄 [WATCHDOG] Balance refreshed via direct call")
+        except Exception as e:
+            logger.debug(f"⚠️ [WATCHDOG] Refresh failed: {e}")
 
     def _force_gui_sync(self, equity: float):
         """
