@@ -2740,6 +2740,17 @@ class TradingSystem(QObject):
                                 f"[Monitoring-Debug] Вызываю update_balance: {account_info.balance}, {account_info.equity}"
                             )
                             self._safe_gui_update("update_balance", account_info.balance, account_info.equity)
+
+                            # 🔥 КРИТИЧНО: Обрабатываем события Qt после обновления баланса
+                            # Это предотвращает блокировку очереди событий тяжёлыми операциями
+                            try:
+                                from PySide6.QtWidgets import QApplication
+
+                                if QApplication.instance():
+                                    QApplication.processEvents()
+                            except Exception:
+                                pass  # Игнорируем ошибки processEvents в фоновом потоке
+
                             self._last_known_balance = account_info.balance
                             self._last_known_equity = account_info.equity
                         else:
