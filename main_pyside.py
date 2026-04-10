@@ -435,49 +435,39 @@ class MainWindow(QMainWindow):
         self.balance_display_timer.start()
 
         # 🔥🔥 ЯДЕРНЫЙ ТЕСТ: Баланс + Эквити + Прибыль 🔥🔥
-        # Гарантирует что GUI обновляется независимо от сигналов
+        # Работает ВСЕГДА, но берёт только реальные данные (без фейков)
         def nuclear_force_update():
             import logging
-            import random
 
             nuke_logger = logging.getLogger(__name__)
-
-            # 🔹 НЕ обновляем эквити/PnL пока система НЕ запущена
-            if not hasattr(self, "trading_system") or not self.trading_system:
-                return
-
-            # Проверяем флаг running — торговля ещё не запущена
-            if not getattr(self.trading_system, "running", False):
-                return
 
             try:
                 current_equity = 0.0
                 current_balance = 0.0
-                current_pnl = 0.0  # <-- Добавляем переменную для прибыли
+                current_pnl = 0.0
 
-                # 1. Пытаемся получить данные напрямую из системы
-                if hasattr(self.trading_system, "account_manager"):
-                    acc = self.trading_system.account_manager
-                    current_balance = getattr(acc, "balance", 0.0)
-                    current_equity = getattr(acc, "equity", 0.0)
+                # Получаем данные из системы (если доступны)
+                if hasattr(self, "trading_system") and self.trading_system:
+                    if hasattr(self.trading_system, "account_manager"):
+                        acc = self.trading_system.account_manager
+                        current_balance = getattr(acc, "balance", 0.0)
+                        current_equity = getattr(acc, "equity", 0.0)
 
-                    # Пытаемся получить прибыль (разные варианты имён атрибутов)
-                    current_pnl = (
-                        getattr(acc, "_last_profit", 0.0)
-                        or getattr(acc, "_last_pnl", 0.0)
-                        or getattr(acc, "_floating_pl", 0.0)
-                    )
+                        # Пытаемся получить прибыль
+                        current_pnl = (
+                            getattr(acc, "_last_profit", 0.0)
+                            or getattr(acc, "_last_pnl", 0.0)
+                            or getattr(acc, "_floating_pl", 0.0)
+                        )
 
-                # Если данных нет — НЕ генерируем фейковые (пока система не запущена)
+                # Если данных НЕТ — просто выходим (НЕ обновляем виджеты)
                 if current_equity == 0.0:
-                    return  # Просто выходим, не показываем тестовые данные
+                    return  # Нет данных — не трогаем виджеты
 
-                # Если PnL не найден — вычисляем из эквити и баланса
+                # Если PnL не найден — вычисляем
                 if current_pnl == 0.0 and current_equity != 0.0:
                     if current_balance > 0:
                         current_pnl = current_equity - current_balance
-                    else:
-                        current_pnl = random.uniform(-50, 50)  # Случайная прибыль для теста
 
                 # 2. Прямое обновление виджетов (без посредников!)
                 if hasattr(self, "equity_label") and self.equity_label:
