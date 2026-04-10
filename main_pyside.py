@@ -2751,11 +2751,17 @@ class MainWindow(QMainWindow):
                 pnl_text = f"<span style='font-weight: bold; color:{color}'>{open_pnl:+.2f} ({open_pnl_pct:+.2f}%)</span>"
                 self.open_pnl_label.setText(pnl_text)
 
-            # 🔹 5. Принудительная перерисовка
+            # 🔹 5. Принудительная перерисовка + ОБРАБОТКА СОБЫТИЙ Qt
             self.balance_label.update()
             self.equity_label.update()
             self.balance_label.repaint()
             self.equity_label.repaint()
+
+            # 🔥 КРИТИЧНО: Обрабатываем события Qt сразу после обновления
+            # Это предотвращает "залипание" GUI во время тяжёлых операций
+            from PySide6.QtWidgets import QApplication
+
+            QApplication.processEvents()
 
         except Exception as e:
             # 🔹 6. НИКОГДА не даём ошибке остановить обновление
