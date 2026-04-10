@@ -442,30 +442,35 @@ class MainWindow(QMainWindow):
 
             nuke_logger = logging.getLogger(__name__)
 
+            # 🔹 НЕ обновляем эквити/PnL пока система НЕ запущена
+            if not hasattr(self, "trading_system") or not self.trading_system:
+                return
+
+            # Проверяем флаг running — торговля ещё не запущена
+            if not getattr(self.trading_system, "running", False):
+                return
+
             try:
                 current_equity = 0.0
                 current_balance = 0.0
                 current_pnl = 0.0  # <-- Добавляем переменную для прибыли
 
                 # 1. Пытаемся получить данные напрямую из системы
-                if hasattr(self, "trading_system") and self.trading_system:
-                    if hasattr(self.trading_system, "account_manager"):
-                        acc = self.trading_system.account_manager
-                        current_balance = getattr(acc, "balance", 0.0)
-                        current_equity = getattr(acc, "equity", 0.0)
+                if hasattr(self.trading_system, "account_manager"):
+                    acc = self.trading_system.account_manager
+                    current_balance = getattr(acc, "balance", 0.0)
+                    current_equity = getattr(acc, "equity", 0.0)
 
-                        # Пытаемся получить прибыль (разные варианты имён атрибутов)
-                        current_pnl = (
-                            getattr(acc, "_last_profit", 0.0)
-                            or getattr(acc, "_last_pnl", 0.0)
-                            or getattr(acc, "_floating_pl", 0.0)
-                        )
+                    # Пытаемся получить прибыль (разные варианты имён атрибутов)
+                    current_pnl = (
+                        getattr(acc, "_last_profit", 0.0)
+                        or getattr(acc, "_last_pnl", 0.0)
+                        or getattr(acc, "_floating_pl", 0.0)
+                    )
 
-                # Если данных нет — генерируем тестовые (чтобы увидеть движение)
+                # Если данных нет — НЕ генерируем фейковые (пока система не запущена)
                 if current_equity == 0.0:
-                    current_equity = 81480.00 + random.uniform(-5, 5)
-                    current_balance = 81404.41
-                    nuke_logger.debug("🧪 [NUCLEAR] Using test data (no live data available)")
+                    return  # Просто выходим, не показываем тестовые данные
 
                 # Если PnL не найден — вычисляем из эквити и баланса
                 if current_pnl == 0.0 and current_equity != 0.0:
