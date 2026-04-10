@@ -427,6 +427,13 @@ class MainWindow(QMainWindow):
         self.equity_watchdog_timer.timeout.connect(self._force_equity_refresh)
         self.equity_watchdog_timer.start()
 
+        # 🔥 ТАЙМЕР ПРИНУДИТЕЛЬНОГО ОБНОВЛЕНИЯ БАЛАНСА (каждые 3 сек)
+        # Проверяет что виджеты баланса реально обновляются
+        self.balance_display_timer = QTimer(self)
+        self.balance_display_timer.setInterval(3000)
+        self.balance_display_timer.timeout.connect(self._force_balance_display_check)
+        self.balance_display_timer.start()
+
         # --- КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Запуск тяжелой инициализации в QThreadPool ---
         # Запускаем сразу, не ждем 100мс, но в фоновом потоке
         self.start_heavy_initialization()
@@ -2810,6 +2817,29 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.debug(f"⚠️ [WATCHDOG] Refresh failed: {e}")
 
+    def _force_balance_display_check(self):
+        """
+        Проверяет что виджеты баланса/эквити действительно обновляются.
+        Если данные в TradingSystem отличаются от отображаемых — принудительно обновляет.
+        """
+        try:
+            if hasattr(self, "trading_system") and self.trading_system:
+                acc_manager = getattr(self.trading_system, "account_manager", None)
+                if acc_manager and hasattr(acc_manager, "balance"):
+                    # Сравниваем то что в GUI с тем что в TradingSystem
+                    current_balance_text = self.balance_label.text()
+                    current_equity_text = self.equity_label.text()
+
+                    expected_balance = f"Баланс: {acc_manager.balance:.2f}"
+                    expected_equity = f"Эквити: {acc_manager.equity:.2f}"
+
+                    # Если текст не совпадает — принудительно обновляем
+                    if current_balance_text != expected_balance or current_equity_text != expected_equity:
+                        logger.debug(f"🔄 [BALANCE-CHECK] GUI out of sync, forcing update")
+                        self.update_balance(acc_manager.balance, acc_manager.equity)
+        except Exception as e:
+            logger.debug(f"⚠️ [BALANCE-CHECK] Check failed: {e}")
+
     def _force_gui_sync(self, equity: float):
         """
         Финальный фикс: сохраняет формат + гарантирует перерисовку.
@@ -3426,7 +3456,7 @@ class MainWindow(QMainWindow):
             # Заголовок
             self.price_plot.setTitle(f"График {symbol}")
 
-            # Авто-масштаб только при смене символа
+            # Авто-масштаб ТОЛЬКО при смене символа (оптимизация производительности)
             if self._last_chart_symbol != symbol:
                 if len(x_data) > 1:
                     time_span = x_data[-1] - x_data[0]
@@ -3443,6 +3473,12 @@ class MainWindow(QMainWindow):
                     self.price_plot.setYRange(y_min, y_max, padding=0.05)
 
                 self._last_chart_symbol = symbol
+
+            # 🔥 КРИТИЧНО: Принудительная перерисовка + обработка событий Qt
+            # Это предотвращает "чёрный экран" когда данные есть но не отрисовались
+            self.price_plot.repaint()
+            self.volume_plot.repaint()
+            QApplication.processEvents()
 
             # 🔹 Диагностика времени выполнения
             elapsed_ms = (_time.time() - start) * 1000
