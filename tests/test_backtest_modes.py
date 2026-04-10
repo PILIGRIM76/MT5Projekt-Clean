@@ -49,7 +49,7 @@ def sample_config():
 @pytest.fixture(scope="module")
 def sample_historical_data():
     """Создаёт тестовые исторические данные."""
-    dates = pd.date_range(start="2026-03-01", periods=1000, freq="H")
+    dates = pd.date_range(start="2026-03-01", periods=1000, freq="h")
     np.random.seed(42)
 
     # Генерируем реалистичные OHLCV данные

@@ -435,6 +435,8 @@ class SettingsWindow(QDialog):
     settings_saved = Signal()
     scheduler_status_updated = Signal(dict)
     database_path_changed = Signal(str)  # Сигнал об изменении пути к базе данных
+    theme_preview_requested = Signal(str)  # Сигнал для предпросмотра темы
+    gui_settings_changed = Signal(dict)  # Сигнал для мгновенного применения настроек GUI
 
     def __init__(self, scheduler_manager: SchedulerManager, config: Settings, trading_system=None, parent=None):
 
@@ -501,6 +503,8 @@ class SettingsWindow(QDialog):
         updates_tab = self._create_updates_tab()
 
         self.tab_widget.addTab(mt5_tab, self.create_icon("🔌"), "Подключение MT5")
+        gui_tab = self._create_gui_interface_tab()  # НОВОЕ: Вкладка интерфейса
+        self.tab_widget.addTab(gui_tab, self.create_icon("🎨"), "Интерфейс (GUI)")
         self.tab_widget.addTab(crypto_tab, self.create_icon("₿"), "Криптовалюты")  # НОВОЕ
         self.tab_widget.addTab(api_tab, self.create_icon("🔑"), "API Ключи")
         self.tab_widget.addTab(trading_tab, self.create_icon("💹"), "Торговля")
@@ -1725,6 +1729,9 @@ class SettingsWindow(QDialog):
 
         self._update_scheduler_status()
 
+        # Загрузка настроек GUI
+        self._load_gui_settings()
+
         # Загрузка настроек автообучения
         if hasattr(self.full_config, "auto_retraining"):
             self.auto_retrain_checkbox.setChecked(self.full_config.auto_retraining.enabled)
@@ -2134,6 +2141,10 @@ class SettingsWindow(QDialog):
                     },
                 },
             }
+
+            # Настройки GUI
+            self._save_gui_settings(settings_to_update)
+
             settings_to_update.update(
                 {
                     "GP_POPULATION_SIZE": safe_val(self.gp_pop_spin, self.full_config.GP_POPULATION_SIZE),
@@ -2276,6 +2287,15 @@ class SettingsWindow(QDialog):
     def accept(self):
         # Сначала сохраняем настройки, пока виджеты живы
         self.save_settings()
+
+        # Отправляем новые настройки GUI для мгновенного применения
+        new_gui_settings = {
+            "GUI_THEME": self.gui_theme_combo.currentText(),
+            "ALWAYS_ON_TOP": self.gui_always_on_top_checkbox.isChecked(),
+            "USE_CUSTOM_TITLE_BAR": self.gui_custom_titlebar_checkbox.isChecked(),
+            "ANIMATIONS_ENABLED": self.gui_animations_checkbox.isChecked(),
+        }
+        self.gui_settings_changed.emit(new_gui_settings)
 
         # Останавливаем все активные тестеры перед закрытием
         self._stop_all_testers()
@@ -3386,6 +3406,109 @@ class SettingsWindow(QDialog):
         test_layout.addStretch()
         layout.addLayout(test_layout, 4, 1)
         return self._create_scrollable_widget(content_widget)
+
+    def _create_gui_interface_tab(self):
+        """Создание вкладки настроек интерфейса (GUI)."""
+        content_widget = QWidget()
+        layout = QGridLayout(content_widget)
+        layout.setSpacing(12)
+
+        row = 0
+
+        # --- Тема интерфейса ---
+        layout.addWidget(QLabel("Тема оформления:"), row, 0)
+        self.gui_theme_combo = QComboBox()
+        self.gui_theme_combo.addItems(["Темная", "Светлая"])
+        # Значение будет установлено при загрузке настроек
+        layout.addWidget(self.gui_theme_combo, row, 1)
+        row += 1
+
+        # --- Always on Top ---
+        layout.addWidget(QLabel("Всегда поверх окон:"), row, 0)
+        self.gui_always_on_top_checkbox = QCheckBox()
+        layout.addWidget(self.gui_always_on_top_checkbox, row, 1)
+        row += 1
+
+        # --- Кастомная рамка окна ---
+        layout.addWidget(QLabel("Кастомная рамка окна:"), row, 0)
+        self.gui_custom_titlebar_checkbox = QCheckBox()
+        layout.addWidget(self.gui_custom_titlebar_checkbox, row, 1)
+        row += 1
+
+        # --- Анимации ---
+        layout.addWidget(QLabel("Анимации интерфейса:"), row, 0)
+        self.gui_animations_checkbox = QCheckBox()
+        layout.addWidget(self.gui_animations_checkbox, row, 1)
+        row += 1
+
+        # --- Разделитель ---
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line, row, 0, 1, 2)
+        row += 1
+
+        # --- Описание ---
+        description_label = QLabel(
+            "💡 <b>Тема оформления:</b> Переключайте между светлой и тёмной темой.\n"
+            "📌 <b>Всегда поверх окон:</b> Окно Genesis будет поверх всех остальных окон.\n"
+            "🖼️ <b>Кастомная рамка:</b> Убирает системные рамки, добавляет кастомную с перетаскиванием.\n"
+            "✨ <b>Анимации:</b> Плавные переходы при переключении вкладок и уведомлениях.\n"
+            "   Отключаются автоматически при высокой нагрузке CPU (>85%)."
+        )
+        description_label.setWordWrap(True)
+        description_label.setStyleSheet(
+            "color: #5F6980; font-size: 9pt; padding: 8px; background: #F7F9FC; border-radius: 6px;"
+        )
+        layout.addWidget(description_label, row, 0, 1, 2)
+
+        # --- Кнопка предпросмотра ---
+        row += 1
+        preview_button = QPushButton("🔄 Применить тему сейчас")
+        preview_button.clicked.connect(self._apply_gui_theme_preview)
+        layout.addWidget(preview_button, row, 0, 1, 2)
+
+        return self._create_scrollable_widget(content_widget)
+
+    def _apply_gui_theme_preview(self):
+        """Применяет выбранную тему в режиме предпросмотра."""
+        theme = self.gui_theme_combo.currentText()
+        # Сигнал для MainWindow (подключается извне)
+        self.theme_preview_requested.emit(theme)
+
+    def _load_gui_settings(self):
+        """Загружает настройки GUI из конфига."""
+        try:
+            cfg = self.full_config
+            # Тема
+            theme = getattr(cfg, "GUI_THEME", "Темная")
+            idx = self.gui_theme_combo.findText(theme)
+            if idx >= 0:
+                self.gui_theme_combo.setCurrentIndex(idx)
+
+            # Always on Top
+            self.gui_always_on_top_checkbox.setChecked(getattr(cfg, "ALWAYS_ON_TOP", False))
+
+            # Custom Title Bar
+            self.gui_custom_titlebar_checkbox.setChecked(getattr(cfg, "USE_CUSTOM_TITLE_BAR", False))
+
+            # Animations
+            self.gui_animations_checkbox.setChecked(getattr(cfg, "ANIMATIONS_ENABLED", True))
+
+            logger.info(
+                f"[GUI Settings] Загружены: тема={theme}, on_top={self.gui_always_on_top_checkbox.isChecked()}, "
+                f"custom_tb={self.gui_custom_titlebar_checkbox.isChecked()}, anim={self.gui_animations_checkbox.isChecked()}"
+            )
+        except Exception as e:
+            logger.warning(f"[GUI Settings] Ошибка загрузки настроек: {e}")
+
+    def _save_gui_settings(self, settings_to_update: dict) -> None:
+        """Сохраняет настройки GUI в словарь для последующей записи."""
+        settings_to_update["GUI_THEME"] = self.gui_theme_combo.currentText()
+        settings_to_update["ALWAYS_ON_TOP"] = self.gui_always_on_top_checkbox.isChecked()
+        settings_to_update["USE_CUSTOM_TITLE_BAR"] = self.gui_custom_titlebar_checkbox.isChecked()
+        settings_to_update["ANIMATIONS_ENABLED"] = self.gui_animations_checkbox.isChecked()
+        logger.info(f"[GUI Settings] Подготовлены к сохранению: тема={settings_to_update['GUI_THEME']}")
 
     def _create_api_tab(self):
         content_widget = QWidget()

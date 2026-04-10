@@ -43,10 +43,13 @@ class ColorFormatter(logging.Formatter):
 
 
 class QtLogHandler(logging.Handler):
-    def __init__(self, log_signal_emitter):
+    def __init__(self, log_signal_emitter, light_mode: bool = False):
         super().__init__()
         self.log_signal_emitter = log_signal_emitter
-        self.level_colors = {
+        self.light_mode = light_mode
+
+        # Цвета для тёмной темы (Dracula)
+        self.dark_colors = {
             logging.DEBUG: QColor("#6272a4"),
             logging.INFO: QColor("#f8f8f2"),
             logging.WARNING: QColor("#f1fa8c"),
@@ -54,10 +57,26 @@ class QtLogHandler(logging.Handler):
             logging.CRITICAL: QColor("#ffb86c"),
         }
 
+        # Цвета для светлой темы (читаемые на белом фоне)
+        self.light_colors = {
+            logging.DEBUG: QColor("#4B5563"),  # Тёмно-серый
+            logging.INFO: QColor("#1E293B"),  # Почти чёрный
+            logging.WARNING: QColor("#B45309"),  # Тёмно-оранжевый
+            logging.ERROR: QColor("#DC2626"),  # Красный
+            logging.CRITICAL: QColor("#991B1B"),  # Тёмно-красный
+        }
+
+        self.level_colors = self.light_colors if light_mode else self.dark_colors
+
+    def set_light_mode(self, enabled: bool) -> None:
+        """Переключает режим цветов для светлой/тёмной темы."""
+        self.light_mode = enabled
+        self.level_colors = self.light_colors if enabled else self.dark_colors
+
     def emit(self, record):
         try:
             msg = self.format(record)
-            color = self.level_colors.get(record.levelno, QColor("#f8f8f2"))
+            color = self.level_colors.get(record.levelno, QColor("#1E293B"))
             # --- ИСПРАВЛЕНИЕ: Проверка существования эмиттера ---
             if self.log_signal_emitter:
                 self.log_signal_emitter.emit(msg, color)
@@ -68,10 +87,15 @@ class QtLogHandler(logging.Handler):
             pass
 
 
-def setup_qt_logging(bridge_log_signal, config: Settings):
+def setup_qt_logging(bridge_log_signal, config: Settings, light_mode: bool = False):
     """
     Централизованно настраивает корневой логгер для вывода в консоль, в GUI и в файл.
     Гарантирует, что настройка произойдет только один раз.
+
+    Args:
+        bridge_log_signal: Сигнал для отправки логов в GUI
+        config: Конфигурация приложения
+        light_mode: Если True, использует читаемые цвета для светлой темы
     """
 
     global _logger_configured
@@ -105,7 +129,7 @@ def setup_qt_logging(bridge_log_signal, config: Settings):
     root_logger.addHandler(console_handler)
 
     # 2. Настраиваем обработчик для GUI
-    qt_log_handler = QtLogHandler(bridge_log_signal)
+    qt_log_handler = QtLogHandler(bridge_log_signal, light_mode=light_mode)
     qt_log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"))
     root_logger.addHandler(qt_log_handler)
 

@@ -162,9 +162,21 @@ class DatabaseManager:
         def set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
             try:
+                # --- Базовые PRAGMA ---
                 cursor.execute("PRAGMA journal_mode=WAL;")
                 cursor.execute("PRAGMA synchronous=NORMAL;")
                 logger.info("Режим WAL для SQLite успешно активирован.")
+
+                # --- Оптимизация производительности ---
+                cursor.execute("PRAGMA cache_size=-64000;")  # 64MB кэш страниц (было 2MB)
+                cursor.execute("PRAGMA temp_store=MEMORY;")  # Временные таблицы в RAM
+                cursor.execute("PRAGMA mmap_size=268435456;")  # 256MB memory-mapped I/O
+                cursor.execute("PRAGMA journal_size_limit=67108864;")  # 64MB лимит WAL файла
+                cursor.execute("PRAGMA foreign_keys=ON;")  # Целостность связей
+                cursor.execute("PRAGMA wal_autocheckpoint=1000;")  # Checkpoint каждые 1000 страниц
+                cursor.execute("PRAGMA busy_timeout=5000;")  # 5 сек ожидание при блокировке
+
+                logger.info("SQLite оптимизирован: cache=64MB, mmap=256MB, WAL_limit=64MB, foreign_keys=ON")
             finally:
                 cursor.close()
 
@@ -504,6 +516,173 @@ class DatabaseManager:
             session.rollback()
             logger.error(f"Ошибка при сохранении свечных данных для {symbol} {timeframe}: {e}")
             return 0
+        finally:
+            session.close()
+
+    def bulk_save_ticks(
+        self,
+        symbol: str,
+        ticks: List[Dict],
+        batch_size: int = 5000,
+    ) -> int:
+        """
+        Массовая запись тиковых данных через candle_data таблицу.
+
+        Оптимизировано для высокой скорости записи:
+        - Использует bulk_insert_mappings (без создания ORM объектов)
+        - Игнорирует дубликаты по (symbol, timeframe, timestamp)
+        - Batch размер настраиваемый
+
+        Args:
+            symbol: Торговый инструмент
+            ticks: Список тиков [{time, bid, ask, last, volume}, ...]
+            batch_size: Размер батча
+
+        Returns:
+            Количество сохранённых тиков
+        """
+        if not ticks:
+            return 0
+
+        session = self.Session()
+        total_saved = 0
+        try:
+            for i in range(0, len(ticks), batch_size):
+                batch = ticks[i : i + batch_size]
+
+                # Преобразуем тики в формат свечей (M1)
+                mappings = []
+                for tick in batch:
+                    ts = tick.get("time") or tick.get("timestamp")
+                    if ts is None:
+                        continue
+                    mappings.append(
+                        {
+                            "symbol": symbol,
+                            "timeframe": "M1",
+                            "timestamp": ts,
+                            "open": tick.get("bid", 0.0),
+                            "high": tick.get("ask", tick.get("bid", 0.0)),
+                            "low": tick.get("bid", 0.0),
+                            "close": tick.get("last", tick.get("bid", 0.0)),
+                            "tick_volume": tick.get("volume", 0),
+                        }
+                    )
+
+                if not mappings:
+                    continue
+
+                # Bulk insert с игнором дубликатов
+                try:
+                    session.bulk_insert_mappings(CandleData, mappings)
+                    session.commit()
+                    total_saved += len(mappings)
+                except Exception as bulk_err:
+                    session.rollback()
+                    logger.debug(f"[DB] Bulk insert error: {bulk_err}, пробую поштучно")
+                    # Fallback: поштучный upsert
+                    for m in mappings:
+                        try:
+                            existing = (
+                                session.query(CandleData)
+                                .filter_by(
+                                    symbol=m["symbol"],
+                                    timeframe=m["timeframe"],
+                                    timestamp=m["timestamp"],
+                                )
+                                .first()
+                            )
+                            if existing:
+                                existing.open = m["open"]
+                                existing.high = m["high"]
+                                existing.low = m["low"]
+                                existing.close = m["close"]
+                                existing.tick_volume = m["tick_volume"]
+                            else:
+                                session.add(CandleData(**m))
+                            total_saved += 1
+                        except Exception:
+                            pass
+                    session.commit()
+
+            logger.info(f"[DB] Bulk ticks saved: {total_saved}/{len(ticks)}")
+            return total_saved
+
+        except Exception as e:
+            session.rollback()
+            logger.error(f"[DB] Ошибка bulk записи тиков: {e}")
+            return total_saved
+        finally:
+            session.close()
+
+    def bulk_upsert_candles(
+        self,
+        candles: List[Dict],
+        batch_size: int = 2000,
+    ) -> int:
+        """
+        Массовый upsert свечей для РАЗНЫХ символов/таймфреймов.
+
+        Args:
+            candles: [{symbol, timeframe, timestamp, open, high, low, close, tick_volume}, ...]
+            batch_size: Размер батча
+
+        Returns:
+            Количество обработанных записей
+        """
+        if not candles:
+            return 0
+
+        session = self.Session()
+        total = 0
+        try:
+            for i in range(0, len(candles), batch_size):
+                batch = candles[i : i + batch_size]
+                mappings = []
+                for c in batch:
+                    mappings.append(
+                        {
+                            "symbol": c["symbol"],
+                            "timeframe": c["timeframe"],
+                            "timestamp": c["timestamp"],
+                            "open": c["open"],
+                            "high": c["high"],
+                            "low": c["low"],
+                            "close": c["close"],
+                            "tick_volume": c.get("tick_volume", 0),
+                        }
+                    )
+
+                # Группируем по (symbol, timeframe) для эффективной проверки дублей
+                groups = {}
+                for m in mappings:
+                    key = (m["symbol"], m["timeframe"])
+                    groups.setdefault(key, []).append(m)
+
+                for (sym, tf), group_candles in groups.items():
+                    timestamps = [c["timestamp"] for c in group_candles]
+                    existing = (
+                        session.query(CandleData.timestamp)
+                        .filter_by(symbol=sym, timeframe=tf)
+                        .filter(CandleData.timestamp.in_(timestamps))
+                        .all()
+                    )
+                    existing_ts = {r[0] for r in existing}
+
+                    new = [c for c in group_candles if c["timestamp"] not in existing_ts]
+                    if new:
+                        session.bulk_insert_mappings(CandleData, new)
+                        total += len(new)
+
+                    session.commit()
+
+            logger.info(f"[DB] Bulk upsert candles: {total}/{len(candles)}")
+            return total
+
+        except Exception as e:
+            session.rollback()
+            logger.error(f"[DB] Ошибка bulk upsert candles: {e}")
+            return total
         finally:
             session.close()
 

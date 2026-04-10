@@ -557,6 +557,24 @@ class Settings(BaseModel):
         default=False, description="Включает/отключает отрисовку Графа Знаний в GUI."
     )
 
+    # --- GUI Settings ---
+    GUI_THEME: str = Field(
+        default="Темная",
+        description="Тема интерфейса: 'Светлая' или 'Темная'",
+    )
+    ALWAYS_ON_TOP: bool = Field(
+        default=False,
+        description="Режим Always on Top — окно всегда поверх остальных",
+    )
+    USE_CUSTOM_TITLE_BAR: bool = Field(
+        default=False,
+        description="Использовать кастомную рамку окна без системных декораций",
+    )
+    ANIMATIONS_ENABLED: bool = Field(
+        default=True,
+        description="Включить анимации интерфейса (переключения, уведомления, пульсации)",
+    )
+
     EVENT_BLOCK_WINDOW_HOURS: int
     ALLOW_WEEKEND_TRADING: bool
     WEEKEND_CLASSIC_STRATEGIES_ENABLED: bool = Field(default=True, description="Разрешить классические стратегии в выходные")
@@ -587,7 +605,9 @@ class Settings(BaseModel):
     model_config = {"case_sensitive": False, "coerce_numbers_to_str": True}
 
     auto_retraining: AutoRetrainingSettings = Field(default_factory=AutoRetrainingSettings)
-    championship: ChampionshipSettings = Field(default_factory=ChampionshipSettings, description="Настройки чемпионата моделей")
+    championship: ChampionshipSettings = Field(
+        default_factory=ChampionshipSettings, description="Настройки чемпионата моделей"
+    )
     alerting: AlertingSettings = Field(default_factory=AlertingSettings, description="Настройки системы уведомлений")
     crypto_exchanges: CryptoExchangesSettings = Field(
         default_factory=CryptoExchangesSettings, description="Настройки крипто-бирж (ccxt)"
@@ -595,6 +615,4 @@ class Settings(BaseModel):
     social_trading: Dict[str, Any] = Field(
         default_factory=dict, description="Настройки социальной торговли (копирование сделок)"
     )
-    news_scheduler: Dict[str, Any] = Field(
-        default_factory=dict, description="Настройки планировщика загрузки новостей"
-    )
+    news_scheduler: Dict[str, Any] = Field(default_factory=dict, description="Настройки планировщика загрузки новостей")

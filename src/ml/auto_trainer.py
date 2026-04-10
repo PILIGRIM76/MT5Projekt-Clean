@@ -14,10 +14,10 @@ import json
 import logging
 import multiprocessing
 import pickle
-from datetime import datetime, timedelta
-from pathlib import Path
 import threading
 import time
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import joblib
@@ -100,7 +100,7 @@ class AutoTrainer:
 
         # Статистика
         self.stats = {"last_training_time": None, "models_trained": 0, "training_errors": 0}
-        
+
         # Время последнего переобучения (для адаптивного триггера)
         self._last_retrain_time: Dict[str, datetime] = {}
         self._peak_sharpe: Dict[str, float] = {}  # Пиковый Sharpe для отслеживания деградации
@@ -124,57 +124,57 @@ class AutoTrainer:
     ) -> bool:
         """
         Адаптивный триггер переобучения вместо жёсткого таймера.
-        
+
         Ретренинг если:
         1. Sharpe упал на >15% от пика за окно
         2. Рынок перешёл в high_vol regime
         3. Прошло минимум 12ч с последнего ретрена
-        
+
         Args:
             symbol: Торговый инструмент
             current_sharpe: Текущий Sharpe ratio модели
             volatility_regime: Текущий режим волатильности
             performance_decay: Степень деградации производительности (0..1)
-            
+
         Returns:
             True если нужно переобучить
         """
         from datetime import datetime, timedelta
-        
+
         # Минимальное время между переобучениями (12 часов)
         min_hours_between = 12
-        
+
         last_retrain = self._last_retrain_time.get(symbol)
         if last_retrain:
             hours_since = (datetime.now() - last_retrain).total_seconds() / 3600
             if hours_since < min_hours_between:
                 return False  # Слишком рано
-        
+
         # Обновляем пиковый Sharpe
         peak_sharpe = self._peak_sharpe.get(symbol, current_sharpe)
         if current_sharpe > peak_sharpe:
             self._peak_sharpe[symbol] = current_sharpe
             peak_sharpe = current_sharpe
-        
+
         # Проверяем условия для переобучения
         needs_retrain = False
         reasons = []
-        
+
         # 1. Деградация Sharpe > 15% от пика
         if peak_sharpe > 0 and current_sharpe < peak_sharpe * 0.85:
             needs_retrain = True
             reasons.append(f"Sharpe деградация: {current_sharpe:.2f} vs пик {peak_sharpe:.2f}")
-        
+
         # 2. Высокая волатильность — модель может устареть
         if volatility_regime in ("high", "High Volatility Range"):
             needs_retrain = True
             reasons.append(f"High vol regime: {volatility_regime}")
-        
+
         # 3. Performance decay > 15%
         if performance_decay > 0.15:
             needs_retrain = True
             reasons.append(f"Performance decay: {performance_decay:.1%}")
-        
+
         # 4. Fallback: если прошло больше interval_hours с последнего обучения
         if last_retrain:
             hours_since = (datetime.now() - last_retrain).total_seconds() / 3600
@@ -184,15 +184,16 @@ class AutoTrainer:
         else:
             needs_retrain = True  # Первое обучение
             reasons.append("Нет истории обучения")
-        
+
         if needs_retrain:
             logger.info(f"🔄 [{symbol}] Адаптивный ретренинг: {', '.join(reasons)}")
-        
+
         return needs_retrain
-    
+
     def mark_retrained(self, symbol: str):
         """Отмечает что модель была переобучена (для адаптивного триггера)."""
         from datetime import datetime
+
         self._last_retrain_time[symbol] = datetime.now()
         logger.info(f"✅ [{symbol}] Отмечено время переобучения")
 
@@ -219,7 +220,9 @@ class AutoTrainer:
                 LIMIT ?
             """
             # Оптимизация: используем LIKE для поиска символа с суффиксами (EURUSD -> EURUSD=X)
-            df = pd.read_sql_query(query, self.db_manager.engine, params=(f"{symbol}%", timeframe, self.min_samples_for_retrain * 2))
+            df = pd.read_sql_query(
+                query, self.db_manager.engine, params=(f"{symbol}%", timeframe, self.min_samples_for_retrain * 2)
+            )
 
             if len(df) >= self.min_samples_for_retrain:
                 df.rename(columns={"timestamp": "time"}, inplace=True)
@@ -236,6 +239,7 @@ class AutoTrainer:
         try:
             # Убедимся что MT5 инициализирован в этом потоке
             from src.core.mt5_connection_manager import MT5ConnectionManager
+
             manager = MT5ConnectionManager.get_instance()
             if not manager.is_connected():
                 logger.warning(f"MT5 не подключен для {symbol}")
@@ -442,19 +446,23 @@ class AutoTrainer:
                 logger.info(f"Модель обучена: Val Acc={val_acc:.3f}")
 
             # Сохраняем модель
+            save_metadata = {
+                "train_accuracy": train_acc,
+                "val_accuracy": val_acc,
+                "training_samples": len(X_train),
+                "validation_samples": len(X_val),
+                "features": feature_columns,
+            }
             self._save_model(
                 symbol,
                 model,
                 scaler,
-                {
-                    "train_accuracy": train_acc,
-                    "val_accuracy": val_acc,
-                    "training_samples": len(X_train),
-                    "validation_samples": len(X_val),
-                    "features": feature_columns,
-                },
+                save_metadata,
                 timeframe=timeframe,
             )
+
+            # === ИНТЕГРАЦИЯ CHAMPIONSHIP: валидация и повышение ===
+            self._championship_validation_if_enabled(symbol, model, scaler, save_metadata, timeframe)
 
             elapsed = time.time() - start_time
             logger.info(f"Обучение завершено за {elapsed:.1f} сек")
@@ -499,6 +507,7 @@ class AutoTrainer:
             # Сохраняем в базу данных синхронно с получением ID
             try:
                 import uuid
+
                 # Преобразуем timeframe строки в MT5 константу
                 mt5_timeframe = 16385  # H1 default
                 try:
@@ -572,6 +581,42 @@ class AutoTrainer:
 
         except Exception as e:
             logger.error(f"Ошибка сохранения модели: {e}")
+
+    def _championship_validation_if_enabled(
+        self,
+        symbol: str,
+        model: Any,
+        scaler: Any,
+        metadata: Dict[str, Any],
+        timeframe: str = "H1",
+    ) -> None:
+        """
+        Запускает валидацию через Championship если модуль доступен.
+        Вызывается автоматически после train_model().
+        """
+        try:
+            from src.ml.championship_retraining import ChampionshipRetrainer
+
+            retrainer = ChampionshipRetrainer(
+                config=self.config,
+                auto_trainer=self,
+                championship=None,  # championship модуль опционален
+                db_manager=self.db_manager,
+            )
+
+            result = retrainer.validate_and_promote(symbol, model, scaler, metadata, timeframe)
+
+            if result.get("promoted"):
+                logger.info(
+                    f"🏆 [AutoTrainer->Championship] {symbol} повышен до чемпиона! " f"Score={result.get('score', 0):.3f}"
+                )
+            else:
+                logger.debug(f"[AutoTrainer->Championship] {symbol} не повышен: {result.get('reason', 'unknown')}")
+
+        except ImportError:
+            logger.debug("[AutoTrainer] championship_retraining модуль недоступен, пропускаю")
+        except Exception as e:
+            logger.warning(f"[AutoTrainer->Championship] Ошибка: {e}")
 
     def load_model(self, symbol: str) -> Optional[tuple]:
         """

@@ -47,6 +47,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.config_models import Settings
+from src.gui.animation_manager import AnimationManager
+from src.gui.custom_title_bar import CustomTitleBar
 from src.gui.log_utils import setup_qt_logging
 from src.gui.settings_window import SettingsWindow
 from src.gui.sound_manager import SoundManager
@@ -112,8 +114,19 @@ class MainWindow(QMainWindow):
         self.scheduler_manager = SchedulerManager()
         self.settings_window = SettingsWindow(self.scheduler_manager, self.config, self)
         self.settings_window.scheduler_status_updated.connect(self.update_thread_status_widget)
+        self.settings_window.theme_preview_requested.connect(self._on_theme_preview_requested)
 
         self.setGeometry(100, 100, 1600, 900)
+
+        # --- Менеджер анимаций ---
+        self.animation_manager = AnimationManager(cpu_monitor=self._get_cpu_percent)
+        logger.info("[MainWindow] AnimationManager инициализирован")
+
+        # --- Always on Top (из конфига) ---
+        self._always_on_top = getattr(config, "ALWAYS_ON_TOP", False)
+        if self._always_on_top:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+            logger.info("[MainWindow] Always on Top включён")
 
         # --- Временный виджет загрузки ---
         self.loading_label = QLabel("Загрузка ядра Genesis v24.0... Пожалуйста, подождите (AI, DB, NLP).")
@@ -143,14 +156,49 @@ class MainWindow(QMainWindow):
     # Уведомления
     # ========================================================================
 
-    def show_notification(self, message: str, duration_ms: int = 3000):
-        """Отображает уведомление в нижней панели."""
+    def show_notification(
+        self,
+        message: str,
+        duration_ms: int = 3000,
+        level: str = "info",  # info, success, warning, error
+    ):
+        """
+        Отображает уведомление в нижней панели с анимацией.
+
+        Args:
+            message: Текст уведомления
+            duration_ms: Время показа (мс)
+            level: Уровень (info/success/warning/error)
+        """
         self.notification_label.setText(message)
-        self.notification_bar.setVisible(True)
-        if duration_ms > 0:
-            self.notification_timer.start(duration_ms)
+
+        # Стилизация по уровню
+        self.notification_bar.setObjectName("NotificationBar")
+        level_styles = {
+            "success": ("#ECFDF5", "#065F46", "#A7F3D0"),
+            "warning": ("#FFFBEB", "#92400E", "#FDE68A"),
+            "error": ("#FEF2F2", "#991B1B", "#FECACA"),
+            "info": ("#EFF6FF", "#1E40AF", "#BFDBFE"),
+        }
+        bg_color, text_color, border_color = level_styles.get(level, level_styles["info"])
+        self.notification_bar.setStyleSheet(
+            f"background-color: {bg_color}; border: 1px solid {border_color}; " f"border-radius: 6px; padding: 4px;"
+        )
+        self.notification_label.setStyleSheet(f"color: {text_color}; font-weight: 500; padding: 4px 12px;")
+
+        # Показываем с анимацией
+        if self.animation_manager.enabled:
+            self.animation_manager.animate_notification(
+                self.notification_bar,
+                show_duration=AnimationManager.DURATION_NOTIFICATION,
+                auto_hide_ms=duration_ms,
+            )
         else:
-            self.notification_timer.stop()
+            self.notification_bar.setVisible(True)
+            if duration_ms > 0:
+                self.notification_timer.start(duration_ms)
+            else:
+                self.notification_timer.stop()
 
     # ========================================================================
     # Инициализация
@@ -221,3 +269,111 @@ class MainWindow(QMainWindow):
         self.show_notification(f"КРИТИЧЕСКАЯ ОШИБКА: {value}", 0)
         self.loading_label.setText(f"КРИТИЧЕСКАЯ ОШИБКА: {value}. См. логи.")
         self.loading_label.setStyleSheet("color: red;")
+
+    # ========================================================================
+    # CPU мониторинг для AnimationManager
+    # ========================================================================
+
+    def _get_cpu_percent(self) -> float:
+        """Возвращает текущую загрузку CPU в процентах."""
+        try:
+            import psutil
+
+            return psutil.cpu_percent(interval=0.1)
+        except Exception:
+            # Fallback: читаем из /proc/stat на Linux или используем 0
+            try:
+                import os
+
+                if hasattr(os, "getloadavg"):
+                    load1, _, _ = os.getloadavg()
+                    import multiprocessing
+
+                    cpu_count = multiprocessing.cpu_count()
+                    return min(100.0, (load1 / cpu_count) * 100.0)
+            except Exception:
+                pass
+            return 0.0
+
+    # ========================================================================
+    # Кастомная рамка окна (Title Bar)
+    # ========================================================================
+
+    def setup_custom_title_bar(self) -> None:
+        """
+        Устанавливает кастомную рамку окна.
+        Вызывать ПОСЛЕ show() или в конце инициализации.
+        """
+        # Проверяем, есть ли уже title bar
+        if hasattr(self, "_custom_title_bar"):
+            return
+
+        # Убираем системную рамку
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+
+        # Создаём кастомный title bar
+        self._custom_title_bar = CustomTitleBar(
+            title="Genesis v24.0: Reflexive Core",
+            parent=self,
+        )
+
+        # Подключаем сигналы
+        self._custom_title_bar.minimize_requested.connect(self.showMinimized)
+        self._custom_title_bar.maximize_requested.connect(self._toggle_maximize)
+        self._custom_title_bar.close_requested.connect(self.close)
+
+        # Обновляем заголовок при изменении состояния окна
+        self._custom_title_bar.attach_to_window(self)
+
+        logger.info("[MainWindow] Кастомная рамка окна установлена")
+
+    def _toggle_maximize(self) -> None:
+        """Переключает режим развернуть/восстановить."""
+        if self.isMaximized():
+            self.showNormal()
+            if hasattr(self, "_custom_title_bar"):
+                self._custom_title_bar.max_btn.setText("□")
+                self._custom_title_bar.max_btn.setToolTip("Развернуть")
+        else:
+            self.showMaximized()
+            if hasattr(self, "_custom_title_bar"):
+                self._custom_title_bar.max_btn.setText("❐")
+                self._custom_title_bar.max_btn.setToolTip("Восстановить")
+
+    # ========================================================================
+    # Always on Top — переключение
+    # ========================================================================
+
+    def toggle_always_on_top(self) -> None:
+        """Переключает режим Always on Top."""
+        self._always_on_top = not self._always_on_top
+        if self._always_on_top:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+            logger.info("[MainWindow] Always on Top ВКЛЮЧЁН")
+        else:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
+            logger.info("[MainWindow] Always on Top ОТКЛЮЧЁН")
+        # Перерисовка окна
+        self.show()
+
+    def set_always_on_top(self, enabled: bool) -> None:
+        """Устанавливает режим Always on Top."""
+        if self._always_on_top == enabled:
+            return
+        self.toggle_always_on_top()
+
+    # ========================================================================
+    # Предпросмотр темы из настроек
+    # ========================================================================
+
+    @Slot(str)
+    def _on_theme_preview_requested(self, theme_name: str) -> None:
+        """Применяет выбранную тему в режиме предпросмотра."""
+        logger.info(f"[MainWindow] Предпросмотр темы: {theme_name}")
+        self.apply_style(theme_name)

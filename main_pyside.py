@@ -307,7 +307,9 @@ app_config_for_path = load_config()
 logger = logging.getLogger(__name__)
 
 
+from src.gui.animation_manager import AnimationManager
 from src.gui.backtest_process import run_backtest_process
+from src.gui.custom_title_bar import CustomTitleBar
 
 # Компоненты вынесены в отдельные модули
 from src.gui.trading_system_adapter import PySideTradingSystem
@@ -368,8 +370,21 @@ class MainWindow(QMainWindow):
         self.scheduler_manager = SchedulerManager()
         self.settings_window = SettingsWindow(self.scheduler_manager, self.config, self)
         self.settings_window.scheduler_status_updated.connect(self.update_thread_status_widget)
+        self.settings_window.theme_preview_requested.connect(self._on_theme_preview_requested)
+        self.settings_window.gui_settings_changed.connect(self._on_gui_settings_changed)
 
         self.setGeometry(100, 100, 1600, 900)
+
+        # --- Менеджер анимаций ---
+        self.animation_manager = AnimationManager(cpu_monitor=self._get_cpu_percent)
+
+        # --- Always on Top (из конфига) ---
+        self._always_on_top = getattr(config, "ALWAYS_ON_TOP", False)
+        if self._always_on_top:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+
+        # --- Текущая тема ---
+        self._current_theme = getattr(config, "GUI_THEME", "Темная")
 
         # --- ВРЕМЕННЫЙ ВИДЖЕТ ЗАГРУЗКИ ---
         self.loading_label = QLabel("Загрузка ядра Genesis v24.0... Пожалуйста, подождите (AI, DB, NLP).")
@@ -381,7 +396,7 @@ class MainWindow(QMainWindow):
         # --- Инициализация GUI (легкая часть) ---
         self._init_widgets()  # Создание всех виджетов, но без данных
         self.connect_signals()
-        self.apply_style("Темная")
+        self.apply_style(self._current_theme)
 
         # Настройка таймера статуса
         self.status_update_timer = QTimer(self)
@@ -441,44 +456,52 @@ class MainWindow(QMainWindow):
 
             nuke_logger = logging.getLogger(__name__)
 
-            # 🔹 ЯВНАЯ диагностика КАЖДОГО вызова (print всегда виден)
-            print("🔄 [NUCLEAR-TIMER] nuclear_force_update вызван")
-
             try:
                 current_equity = 0.0
                 current_balance = 0.0
                 current_pnl = 0.0
 
-                # Получаем данные из системы (если доступны)
+                # --- Источник 1: AccountManager (если доступен) ---
                 if hasattr(self, "trading_system") and self.trading_system:
-                    if hasattr(self.trading_system, "account_manager"):
-                        acc = self.trading_system.account_manager
-                        current_balance = getattr(acc, "balance", 0.0)
-                        current_equity = getattr(acc, "equity", 0.0)
+                    core = getattr(self.trading_system, "core_system", None)
+                    if core and hasattr(core, "account_manager"):
+                        acc = core.account_manager
+                        current_balance = float(getattr(acc, "balance", 0.0) or 0.0)
+                        current_equity = float(getattr(acc, "equity", 0.0) or 0.0)
+                        current_pnl = float(getattr(acc, "_last_profit", 0.0) or 0.0)
 
-                        # Пытаемся получить прибыль
-                        current_pnl = (
-                            getattr(acc, "_last_profit", 0.0)
-                            or getattr(acc, "_last_pnl", 0.0)
-                            or getattr(acc, "_floating_pl", 0.0)
-                        )
-
-                        print(f"📊 [NUCLEAR-DATA] balance={current_balance}, equity={current_equity}, pnl={current_pnl}")
-
-                # Если данных НЕТ — просто выходим (НЕ обновляем виджеты)
+                # --- Источник 2: Fallback — MT5 напрямую ---
                 if current_equity == 0.0:
-                    print("⏸️ [NUCLEAR] Нет данных equity — пропускаю обновление")
-                    return  # Нет данных — не трогаем виджеты
+                    try:
+                        import MetaTrader5 as mt5
 
-                # Если PnL не найден — вычисляем
-                if current_pnl == 0.0 and current_equity != 0.0:
-                    if current_balance > 0:
-                        current_pnl = current_equity - current_balance
+                        acc_info = mt5.account_info()
+                        if acc_info:
+                            current_balance = float(acc_info.balance)
+                            current_equity = float(acc_info.equity)
+                    except Exception:
+                        pass
 
-                # 2. Прямое обновление виджетов (без посредников!)
+                # --- Источник 3: Кэш MainWindow (если есть) ---
+                if current_equity == 0.0:
+                    current_equity = float(getattr(self, "_cached_equity", 0.0) or 0.0)
+                    current_balance = float(getattr(self, "_cached_balance", 0.0) or 0.0)
+
+                # Если данных всё ещё нет — выходим тихо
+                if current_equity == 0.0:
+                    return  # Нет данных — не спамим
+
+                # Вычисляем PnL
+                if current_pnl == 0.0 and current_balance > 0:
+                    current_pnl = current_equity - current_balance
+
+                # Кэшируем для будущих вызовов
+                self._cached_equity = current_equity
+                self._cached_balance = current_balance
+
+                # --- Обновляем виджеты ---
                 if hasattr(self, "equity_label") and self.equity_label:
                     self.equity_label.setText(f"Эквити: {current_equity:.2f}")
-                    # Цвет эквити: зелёный если плюс, красный если минус
                     color_eq = "#00FF00" if current_equity >= current_balance else "#FF4444"
                     self.equity_label.setStyleSheet(f"color: {color_eq}; font-weight: bold; font-size: 14px;")
                     self.equity_label.repaint()
@@ -489,10 +512,8 @@ class MainWindow(QMainWindow):
                     self.balance_label.repaint()
                     self.balance_label.setVisible(True)
 
-                # 🔥 НОВАЯ ЧАСТЬ: Обновление Прибыли (PnL) с ЖЁСТКОЙ ПЕРЕРИСОВКОЙ 🔥
+                # Обновляем PnL
                 pnl_value = current_equity - current_balance
-
-                # Расширенный список возможных имён виджета
                 pnl_labels = [
                     "open_pnl_label",
                     "pnl_label",
@@ -501,55 +522,20 @@ class MainWindow(QMainWindow):
                     "ui_open_pnl_label",
                     "ui_lbl_profit",
                 ]
-                pnl_found = False
-
                 for name in pnl_labels:
                     if hasattr(self, name):
                         pnl_widget = getattr(self, name)
                         if pnl_widget:
-                            # 1. Устанавливаем текст
-                            text_val = f"{pnl_value:+.2f}"  # Формат: +12.34 или -5.67
-                            pnl_widget.setText(text_val)
-
-                            # 2. Устанавливаем цвет (Зелёный/Красный)
+                            pnl_widget.setText(f"{pnl_value:+.2f}")
                             color = "#00FF00" if pnl_value >= 0 else "#FF4444"
-                            style = f"color: {color}; font-weight: bold; font-size: 14px;"
-                            pnl_widget.setStyleSheet(style)
-
-                            # 3. ЖЁСТКАЯ ПЕРЕРИСОВКА (Критично!)
-                            pnl_widget.repaint()  # Принудительная отрисовка
-                            pnl_widget.update()  # Обновление состояния
-
-                            # 4. Проталкивание событий GUI
-                            from PySide6.QtWidgets import QApplication
-
-                            QApplication.processEvents()
-
-                            pnl_widget.setVisible(True)  # Гарантируем видимость
-
-                            pnl_found = True
-                            nuke_logger.info(f"✅ [NUCLEAR] PnL VISUALLY updated via '{name}': {text_val}")
+                            pnl_widget.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 14px;")
+                            pnl_widget.repaint()
+                            pnl_widget.update()
+                            pnl_widget.setVisible(True)
                             break
 
-                if not pnl_found:
-                    # Если ни один виджет не найден — пишем ошибку в лог ЯВНО
-                    nuke_logger.error(f"❌ [NUCLEAR] PnL Widget NOT FOUND! Tried: {', '.join(pnl_labels)}")
-                    # Для отладки: выводим все атрибуты, содержащие 'pnl' или 'profit'
-                    possible_attrs = [attr for attr in dir(self) if "pnl" in attr.lower() or "profit" in attr.lower()]
-                    if possible_attrs:
-                        nuke_logger.warning(f"💡 Возможно, виджет называется иначе: {possible_attrs}")
-
-                # 3. Обработка событий Qt
-                from PySide6.QtWidgets import QApplication
-
-                QApplication.processEvents()
-
-                nuke_logger.info(
-                    f"🚀 [NUCLEAR TEST] Full Update: Bal={current_balance:.2f}, Eq={current_equity:.2f}, PnL={current_pnl:+.2f}"
-                )
-
             except Exception as e:
-                nuke_logger.error(f"❌ [NUCLEAR TEST] Error: {e}", exc_info=True)
+                nuke_logger.debug(f"[NUCLEAR] Ошибка обновления: {e}")
 
         # Запускаем таймер прямо сейчас
         self.nuclear_timer = QTimer(self)
@@ -1103,21 +1089,229 @@ class MainWindow(QMainWindow):
         return group_box
 
     def apply_style(self, style_name: str):
-        if style_name == "Светлая":
-            self.setStyleSheet(LIGHT_STYLE)
+        """Мгновенное переключение темы без анимаций."""
+        from PySide6.QtWidgets import QApplication
+
+        from src.gui.styles import get_light_theme_qss
+
+        self._current_theme = style_name
+        is_light = style_name == "Светлая"
+
+        if is_light:
+            qss_content = get_light_theme_qss()
+            if qss_content:
+                self.setStyleSheet(qss_content)
+            else:
+                self.setStyleSheet(LIGHT_STYLE)
             pg.setConfigOption("background", "w")
             pg.setConfigOption("foreground", "k")
-        elif style_name == "Темная":
+            logger.info("[Theme] Применён Light Theme (профессиональный)")
+        else:
             self.setStyleSheet(DARK_STYLE)
             pg.setConfigOption("background", "#282a36")
             pg.setConfigOption("foreground", "#f8f8f2")
-        logger.info(f"Применен стиль: {style_name}")
+            logger.info("[Theme] Применён Dark Theme (Dracula)")
+
+        # Перекрашиваем виджеты с инлайновыми стилями
+        self._repaint_widgets_for_theme(is_light)
+
+        # Обновляем цвета логов
+        self._update_log_colors(is_light)
+
+        # Принудительная перерисовка — тема применяется мгновенно
+        self.repaint()
+        QApplication.processEvents()
+
+    def _repaint_widgets_for_theme(self, is_light: bool) -> None:
+        """Перекрашивает виджеты с инлайновыми стилями при смене темы."""
+        try:
+            if is_light:
+                self._apply_light_inline_styles()
+            else:
+                self._apply_dark_inline_styles()
+        except Exception as e:
+            logger.debug(f"[Theme] Ошибка перекраски виджетов: {e}")
+
+    def _apply_light_inline_styles(self) -> None:
+        """Применяет инлайновые стили для светлой темы."""
+        # --- Статусные метки планировщика ---
+        for label in self.scheduler_status_labels.values():
+            if label:
+                label.setStyleSheet("color: #059669; font-weight: 600;")
+
+        # --- Кнопка перезапуска ---
+        if hasattr(self, "restart_system_button"):
+            self.restart_system_button.setStyleSheet("background-color: #F59E0B; color: #FFFFFF; font-weight: 600;")
+
+        # --- Панель обновлений ---
+        if hasattr(self, "update_version_label"):
+            self.update_version_label.setStyleSheet("color: #059669; font-weight: 600;")
+        if hasattr(self, "update_status_label"):
+            self.update_status_label.setStyleSheet("color: #1E293B;")
+        if hasattr(self, "update_monitoring_label"):
+            self.update_monitoring_label.setStyleSheet("color: #64748B;")
+        if hasattr(self, "update_last_check_label"):
+            self.update_last_check_label.setStyleSheet("color: #64748B; font-size: 11px;")
+
+        # --- Uptime ---
+        if hasattr(self, "uptime_label"):
+            self.uptime_label.setStyleSheet("font-weight: 600; color: #059669;")
+
+        # --- PnL ---
+        if hasattr(self, "open_pnl_label"):
+            self.open_pnl_label.setStyleSheet("font-weight: 600; color: #3B82F6;")
+        if hasattr(self, "pnl_day_label"):
+            self.pnl_day_label.setStyleSheet("font-weight: 600; color: #059669;")
+        if hasattr(self, "dd_day_label"):
+            self.dd_day_label.setStyleSheet("font-weight: 600; color: #DC2626;")
+
+        # --- Кнопка закрытия всех позиций ---
+        if hasattr(self, "close_all_pos_button"):
+            self.close_all_pos_button.setStyleSheet("background-color: #DC2626; color: #FFFFFF;")
+
+        # --- VectorDB ---
+        if hasattr(self, "vdb_count_label"):
+            self.vdb_count_label.setStyleSheet("font-size: 12pt; font-weight: 600; color: #059669;")
+        if hasattr(self, "vdb_search_button"):
+            self.vdb_search_button.setStyleSheet("background-color: #3B82F6; color: #FFFFFF; font-weight: 600;")
+        if hasattr(self, "vdb_status_label"):
+            cur_text = self.vdb_status_label.text()
+            color = "#059669" if "готов" in cur_text.lower() or "ready" in cur_text.lower() else "#B45309"
+            self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: 600;")
+
+        # --- Knowledge Graph ---
+        if hasattr(self, "kg_disabled_label"):
+            self.kg_disabled_label.setStyleSheet("font-size: 14px; color: #64748B; padding: 20px; border: 2px dashed #CBD5E1;")
+
+        # --- Feedback buttons ---
+        if hasattr(self, "good_trade_button"):
+            self.good_trade_button.setStyleSheet("background-color: #10B981; color: #FFFFFF;")
+        if hasattr(self, "bad_trade_button"):
+            self.bad_trade_button.setStyleSheet("background-color: #EF4444; color: #FFFFFF;")
+
+        # --- Directive/Model buttons ---
+        if hasattr(self, "delete_directive_button"):
+            self.delete_directive_button.setStyleSheet("background-color: #EF4444; color: #FFFFFF;")
+        if hasattr(self, "demote_model_button"):
+            self.demote_model_button.setStyleSheet("background-color: #991B1B; color: #FFFFFF;")
+
+        # --- Chart toolbar ---
+        if hasattr(self, "chart_symbol_combo"):
+            self.chart_symbol_combo.setStyleSheet(
+                "QComboBox { border: 2px solid #CBD5E1; border-radius: 6px; padding: 6px 10px; "
+                "background-color: #FFFFFF; color: #1A1D23; }"
+            )
+        if hasattr(self, "chart_timeframe_combo"):
+            self.chart_timeframe_combo.setStyleSheet(
+                "QComboBox { border: 2px solid #CBD5E1; border-radius: 6px; padding: 6px 10px; "
+                "background-color: #FFFFFF; color: #1A1D23; }"
+            )
+        if hasattr(self, "chart_refresh_btn"):
+            self.chart_refresh_btn.setStyleSheet(
+                "QPushButton { border: 2px solid #CBD5E1; border-radius: 6px; padding: 6px 12px; "
+                "background-color: #FFFFFF; color: #1A1D23; font-weight: 600; }"
+            )
+
+        logger.info("[Theme] Применены инлайновые стили светлой темы")
+
+    def _apply_dark_inline_styles(self) -> None:
+        """Применяет инлайновые стили для тёмной темы."""
+        # --- Статусные метки планировщика ---
+        for label in self.scheduler_status_labels.values():
+            if label:
+                label.setStyleSheet("color: #50fa7b; font-weight: bold;")
+
+        # --- Кнопка перезапуска ---
+        if hasattr(self, "restart_system_button"):
+            self.restart_system_button.setStyleSheet("background-color: #ffb86c; color: #000;")
+
+        # --- Панель обновлений ---
+        if hasattr(self, "update_version_label"):
+            self.update_version_label.setStyleSheet("color: #50fa7b; font-weight: bold;")
+        if hasattr(self, "update_status_label"):
+            self.update_status_label.setStyleSheet("color: #f8f8f2;")
+        if hasattr(self, "update_monitoring_label"):
+            self.update_monitoring_label.setStyleSheet("color: #888;")
+        if hasattr(self, "update_last_check_label"):
+            self.update_last_check_label.setStyleSheet("color: #888; font-size: 11px;")
+
+        # --- Uptime ---
+        if hasattr(self, "uptime_label"):
+            self.uptime_label.setStyleSheet("font-weight: bold; color: #50fa7b;")
+
+        # --- PnL ---
+        if hasattr(self, "open_pnl_label"):
+            self.open_pnl_label.setStyleSheet("font-weight: bold; color: #8be9fd;")
+        if hasattr(self, "pnl_day_label"):
+            self.pnl_day_label.setStyleSheet("font-weight: bold; color: #50fa7b;")
+        if hasattr(self, "dd_day_label"):
+            self.dd_day_label.setStyleSheet("font-weight: bold; color: #ff5555;")
+
+        # --- Кнопка закрытия всех позиций ---
+        if hasattr(self, "close_all_pos_button"):
+            self.close_all_pos_button.setStyleSheet("background-color: #8B0000;")
+
+        # --- VectorDB ---
+        if hasattr(self, "vdb_count_label"):
+            self.vdb_count_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: #50fa7b;")
+        if hasattr(self, "vdb_search_button"):
+            self.vdb_search_button.setStyleSheet("background-color: #bd93f9; color: #282a36; font-weight: bold;")
+        if hasattr(self, "vdb_status_label"):
+            cur_text = self.vdb_status_label.text()
+            color = "#50fa7b" if "готов" in cur_text.lower() or "ready" in cur_text.lower() else "#f1fa8c"
+            self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+        # --- Knowledge Graph ---
+        if hasattr(self, "kg_disabled_label"):
+            self.kg_disabled_label.setStyleSheet("font-size: 14px; color: gray; padding: 20px; border: 2px dashed #444;")
+
+        # --- Feedback buttons ---
+        if hasattr(self, "good_trade_button"):
+            self.good_trade_button.setStyleSheet("background-color: #50fa7b; color: #000;")
+        if hasattr(self, "bad_trade_button"):
+            self.bad_trade_button.setStyleSheet("background-color: #ff5555;")
+
+        # --- Directive/Model buttons ---
+        if hasattr(self, "delete_directive_button"):
+            self.delete_directive_button.setStyleSheet("background-color: #ff5555;")
+        if hasattr(self, "demote_model_button"):
+            self.demote_model_button.setStyleSheet("background-color: #8B0000;")
+
+        # --- Chart toolbar ---
+        if hasattr(self, "chart_symbol_combo"):
+            self.chart_symbol_combo.setStyleSheet("""
+                QComboBox { border: 1px solid #44475a; border-radius: 4px; padding: 4px 8px;
+                    background-color: #3a3c4a; color: #f8f8f2; }
+            """)
+        if hasattr(self, "chart_timeframe_combo"):
+            self.chart_timeframe_combo.setStyleSheet("""
+                QComboBox { border: 1px solid #44475a; border-radius: 4px; padding: 4px 8px;
+                    background-color: #3a3c4a; color: #f8f8f2; }
+            """)
+        if hasattr(self, "chart_refresh_btn"):
+            self.chart_refresh_btn.setStyleSheet("""
+                QPushButton { border: 1px solid #44475a; border-radius: 4px; padding: 4px 8px;
+                    background-color: #44475a; color: #f8f8f2; font-weight: bold; }
+            """)
+
+        logger.info("[Theme] Применены инлайновые стили тёмной темы")
 
     def _init_widgets(self):
         central_widget = QWidget()
         self.main_central_widget = central_widget
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # --- Custom Title Bar (добавляется в самый верх) ---
+        self._custom_title_bar_container = QFrame()
+        self._custom_title_bar_container.setObjectName("TitleBarContainer")
+        self._custom_title_bar_container.setStyleSheet("QFrame#TitleBarContainer { border: none; background-color: #FFFFFF; }")
+        self._custom_title_bar_layout = QHBoxLayout(self._custom_title_bar_container)
+        self._custom_title_bar_layout.setContentsMargins(0, 0, 0, 0)
+        self._custom_title_bar_layout.setSpacing(0)
+        main_layout.addWidget(self._custom_title_bar_container)
 
         # 1. Создаем текстовую метку (QLabel)
         title_label = QLabel()
@@ -1155,6 +1349,10 @@ class MainWindow(QMainWindow):
         kpi_bar = self._create_kpi_bar()
 
         control_box = QFrame()
+        control_box.setObjectName("ControlBox")
+        control_box.setStyleSheet(
+            "QFrame#ControlBox { border: 2px solid #94A3B8; border-radius: 8px; " "background-color: #FFFFFF; padding: 4px; }"
+        )
         control_layout = QHBoxLayout(control_box)
         control_layout.setAlignment(Qt.AlignTop)
 
@@ -1186,6 +1384,10 @@ class MainWindow(QMainWindow):
         control_layout.addLayout(buttons_layout)
 
         update_box = QFrame()
+        update_box.setObjectName("UpdateBox")
+        update_box.setStyleSheet(
+            "QFrame#UpdateBox { border: 2px solid #94A3B8; border-radius: 8px; " "background-color: #FFFFFF; padding: 4px; }"
+        )
         update_layout = QVBoxLayout(update_box)
 
         # Текущая версия
@@ -1240,6 +1442,11 @@ class MainWindow(QMainWindow):
         account_box = QFrame()
         account_box.setObjectName("AccountInfoBox")
         account_box.setVisible(True)  # ✅ Гарантируем видимость
+        # Принудительные видимые границы для светлой темы
+        account_box.setStyleSheet(
+            "QFrame#AccountInfoBox { border: 2px solid #94A3B8; border-radius: 8px; "
+            "background-color: #FFFFFF; padding: 6px; }"
+        )
 
         account_layout = QVBoxLayout(account_box)
         self.balance_label = QLabel("Баланс: N/A")
@@ -1431,6 +1638,9 @@ class MainWindow(QMainWindow):
         # --- ОБЩИЙ ЛЕЙАУТ ---
         left_layout.addWidget(tab_widget)
         log_box = QFrame()
+        log_box.setObjectName("LogBox")
+        # Принудительные видимые границы для светлой темы
+        log_box.setStyleSheet("QFrame#LogBox { border: 2px solid #94A3B8; border-radius: 8px; " "background-color: #FFFFFF; }")
         log_layout = QVBoxLayout(log_box)
 
         # Заголовок и переключатель отладки
@@ -1447,6 +1657,12 @@ class MainWindow(QMainWindow):
 
         self.log_text_edit = QTextEdit()
         self.log_text_edit.setReadOnly(True)
+        self.log_text_edit.setObjectName("LogTextEdit")
+        # Принудительные границы для светлой темы
+        self.log_text_edit.setStyleSheet(
+            "QTextEdit { border: 2px solid #CBD5E1; border-radius: 6px; "
+            "padding: 8px; background-color: #FFFFFF; color: #1A1D23; }"
+        )
         log_layout.addWidget(self.log_text_edit)
         left_layout.addWidget(log_box)
 
@@ -2146,6 +2362,178 @@ class MainWindow(QMainWindow):
                 # убрали информирование row_count, слишком шумно при частых переключениях
         except Exception as e:
             logger.error(f"[GUI-Tab-Left] Ошибка при переключении на вкладку '{tab_name}': {e}", exc_info=True)
+
+    # ========================================================================
+    # CPU мониторинг для AnimationManager
+    # ========================================================================
+
+    def _get_cpu_percent(self) -> float:
+        """Возвращает текущую загрузку CPU в процентах."""
+        try:
+            import psutil
+
+            return psutil.cpu_percent(interval=0.1)
+        except Exception:
+            try:
+                import os
+
+                if hasattr(os, "getloadavg"):
+                    load1, _, _ = os.getloadavg()
+                    import multiprocessing
+
+                    cpu_count = multiprocessing.cpu_count()
+                    return min(100.0, (load1 / cpu_count) * 100.0)
+            except Exception:
+                pass
+            return 0.0
+
+    # ========================================================================
+    # Кастомная рамка окна (Title Bar)
+    # ========================================================================
+
+    def setup_custom_title_bar(self) -> None:
+        """Устанавливает кастомную рамку окна."""
+        if hasattr(self, "_custom_title_bar") and self._custom_title_bar is not None:
+            return
+
+        # КРИТИЧНО: setWindowFlags() на видимом окне уничтожает нативный хендл.
+        # Скрываем -> меняем флаги -> показываем обратно.
+        was_visible = self.isVisible()
+        if was_visible:
+            self.hide()
+            QApplication.processEvents()
+
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+
+        self._custom_title_bar = CustomTitleBar(
+            title="Genesis v24.0: Reflexive Core",
+            parent=self,
+        )
+
+        self._custom_title_bar.minimize_requested.connect(self.showMinimized)
+        self._custom_title_bar.maximize_requested.connect(self._toggle_maximize)
+        self._custom_title_bar.close_requested.connect(self.close)
+        self._custom_title_bar.attach_to_window(self)
+
+        # ДОБАВЛЯЕМ title bar в layout контейнера
+        if hasattr(self, "_custom_title_bar_layout"):
+            # Очищаем контейнер и добавляем title bar
+            while self._custom_title_bar_layout.count():
+                item = self._custom_title_bar_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            self._custom_title_bar_layout.addWidget(self._custom_title_bar)
+
+        if was_visible:
+            self.show()
+            QApplication.processEvents()
+
+        logger.info("[MainWindow] Кастомная рамка окна установлена")
+
+    def _toggle_maximize(self) -> None:
+        """Переключает режим развернуть/восстановить."""
+        if self.isMaximized():
+            self.showNormal()
+            if hasattr(self, "_custom_title_bar"):
+                self._custom_title_bar.max_btn.setText("□")
+                self._custom_title_bar.max_btn.setToolTip("Развернуть")
+        else:
+            self.showMaximized()
+            if hasattr(self, "_custom_title_bar"):
+                self._custom_title_bar.max_btn.setText("❐")
+                self._custom_title_bar.max_btn.setToolTip("Восстановить")
+
+    # ========================================================================
+    # Always on Top
+    # ========================================================================
+
+    def toggle_always_on_top(self) -> None:
+        """Переключает режим Always on Top."""
+        self._always_on_top = not self._always_on_top
+        if self._always_on_top:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+            logger.info("[MainWindow] Always on Top ВКЛЮЧЁН")
+        else:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
+            logger.info("[MainWindow] Always on Top ОТКЛЮЧЁН")
+        self.show()
+
+    def set_always_on_top(self, enabled: bool) -> None:
+        """Устанавливает режим Always on Top."""
+        if self._always_on_top == enabled:
+            return
+        self.toggle_always_on_top()
+
+    # ========================================================================
+    # Предпросмотр темы
+    # ========================================================================
+
+    @Slot(str)
+    def _on_theme_preview_requested(self, theme_name: str) -> None:
+        """Применяет выбранную тему в режиме предпросмотра."""
+        logger.info(f"[MainWindow] Предпросмотр темы: {theme_name}")
+        self.apply_style(theme_name)
+
+        # Переключаем цвета логов
+        is_light = theme_name == "Светлая"
+        self._update_log_colors(is_light)
+
+    def _update_log_colors(self, light_mode: bool) -> None:
+        """Обновляет цвета логов для текущей темы."""
+        try:
+            # Находим QtLogHandler в корневом логгере
+            import logging
+
+            root = logging.getLogger()
+            for handler in root.handlers:
+                if hasattr(handler, "set_light_mode"):
+                    handler.set_light_mode(light_mode)
+                    logger.info(f"[MainWindow] Цвета логов обновлены: {'светлая' if light_mode else 'тёмная'}")
+                    break
+        except Exception as e:
+            logger.debug(f"[MainWindow] Не удалось обновить цвета логов: {e}")
+
+    @Slot(object)
+    def _on_gui_settings_changed(self, settings: dict) -> None:
+        """Мгновенно применяет сохранённые настройки GUI."""
+        if not settings:
+            return
+
+        logger.info(f"[MainWindow] Получены новые настройки GUI: {settings}")
+
+        # 1. Тема оформления
+        new_theme = settings.get("GUI_THEME")
+        if new_theme:
+            logger.info(f"[MainWindow] Применяю тему: {new_theme}")
+            self.apply_style(new_theme)
+            # Обновляем цвета логов
+            self._update_log_colors(new_theme == "Светлая")
+
+        # 2. Анимации
+        anim_enabled = settings.get("ANIMATIONS_ENABLED")
+        if anim_enabled is not None and hasattr(self, "animation_manager"):
+            self.animation_manager.enabled = anim_enabled
+            logger.info(f"[MainWindow] Анимации: {'включены' if anim_enabled else 'отключены'}")
+
+        # 3. Always on Top
+        aot = settings.get("ALWAYS_ON_TOP")
+        if aot is not None:
+            current = self._always_on_top
+            if aot != current:
+                logger.info(f"[MainWindow] Переключаю Always on Top: {aot}")
+                self.set_always_on_top(aot)
+
+        # 4. Кастомная рамка окна
+        custom_tb = settings.get("USE_CUSTOM_TITLE_BAR")
+        if custom_tb is True and not hasattr(self, "_custom_title_bar"):
+            logger.info("[MainWindow] Активирую кастомную рамку")
+            self.setup_custom_title_bar()
 
     def connect_signals(self):
         self.start_button.clicked.connect(self.start_trading)
@@ -4040,8 +4428,8 @@ def run_core_process(config_dict):
     app_config = Settings(**config_dict)
 
     # Настраиваем логирование для этого процесса
-    # Логируем только в файл/консоль
-    setup_qt_logging(lambda *a, **k: None, app_config)
+    # Логируем только в файл/консоль (без GUI, light_mode=False для консоли)
+    setup_qt_logging(lambda *a, **k: None, app_config, light_mode=False)
 
     logger.critical("--- CORE PROCESS STARTED ---")
 
@@ -4097,8 +4485,12 @@ def main():
         PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
         sound_manager = SoundManager(project_root=PROJECT_ROOT)
 
-        # 2. Вызываем нашу новую функцию ОДИН РАЗ, передав ей нужный сигнал и конфиг
-        setup_qt_logging(bridge.log_message_added, app_config)
+        # 2. Определяем тему ДО настройки логирования
+        theme = getattr(app_config, "GUI_THEME", "Темная")
+        is_light = theme == "Светлая"
+
+        # 3. Вызываем setup_qt_logging с правильным режимом цветов
+        setup_qt_logging(bridge.log_message_added, app_config, light_mode=is_light)
         trading_system_adapter = PySideTradingSystem(config=app_config, bridge=bridge, sound_manager=sound_manager)
 
         window = MainWindow(trading_system_adapter, app_config)
@@ -4106,8 +4498,31 @@ def main():
         # Добавляем обработчик aboutToQuit
         app.aboutToQuit.connect(lambda: logger.info("=== QApplication.aboutToQuit СИГНАЛ ПОЛУЧЕН ==="))
 
+        # --- Применяем глобальную тему стиля из QSS файла ---
+        from src.gui.styles import get_light_theme_qss
+
+        if is_light:
+            qss = get_light_theme_qss()
+            if qss:
+                app.setStyleSheet(qss)
+                logger.info("[Main] Глобальная тема 'Светлая' применена из light_theme.qss")
+        # Для тёмной темы используется встроенная DARK_STYLE (применяется в apply_style)
+
         window.show()
         logger.info("=== ОКНО ПОКАЗАНО, РАЗМЕР: {}x{} ===".format(window.width(), window.height()))
+
+        # --- Применяем тему из конфига ---
+        window.apply_style(theme)
+
+        # --- Кастомная рамка окна (опционально, из конфига) ---
+        if getattr(app_config, "USE_CUSTOM_TITLE_BAR", False):
+            window.setup_custom_title_bar()
+            logger.info("[Main] Кастомная рамка окна активирована")
+
+        # --- Состояние анимаций из конфига ---
+        if hasattr(window, "animation_manager"):
+            window.animation_manager.enabled = getattr(app_config, "ANIMATIONS_ENABLED", True)
+            logger.info(f"[Main] Анимации: {'включены' if window.animation_manager.enabled else 'отключены'}")
 
         logger.info("=== GUI ЗАПУЩЕН УСПЕШНО, ВХОД В EVENT LOOP ===")
         exit_code = app.exec()
