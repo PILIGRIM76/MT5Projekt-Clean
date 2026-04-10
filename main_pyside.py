@@ -2158,7 +2158,10 @@ class MainWindow(QMainWindow):
         self.bridge.positions_updated.connect(self.update_positions_table)
         self.bridge.history_updated.connect(self.update_history_table)
         self.bridge.training_history_updated.connect(self.update_training_chart, Qt.ConnectionType.QueuedConnection)
-        self.bridge.candle_chart_updated.connect(self.update_candle_chart)
+        # 🔥 ОТКЛЮЧЕНО: Отрисовка графика блокировала обновление эквити/PnL
+        # Если нужен график — раскомментируйте строку ниже
+        # self.bridge.candle_chart_updated.connect(self.update_candle_chart)
+        logger.info("[GUI] Отрисовка графика ОТКЛЮЧЕНА для стабильности эквити/PnL")
         self.bridge.pnl_updated.connect(self.update_pnl_chart)
         self.bridge.market_scan_updated.connect(self.update_market_scanner_view)
         logger.info("[GUI] Сигнал market_scan_updated подключен к update_market_scanner_view")
