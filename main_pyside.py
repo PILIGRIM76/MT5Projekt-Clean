@@ -3481,22 +3481,11 @@ class MainWindow(QMainWindow):
     def update_candle_chart(self, df: pd.DataFrame, symbol: str):
         """
         Обновляет график свечей в стиле MT5.
-        🔹 БЕЗ блокировки GUI — защищённая версия.
+        🔹 НЕ блокирует GUI — отложенная отрисовка через QTimer.singleShot
         🔹 Если вызван из фонового потока — перенаправляет в главный.
-        🔹 Ограничивает до 200 баров для быстрой отрисовки.
-        🔹 Добавляет QApplication.processEvents() после тяжёлых операций.
+        🔹 Ограничивает до 100 баров для быстрой отрисовки.
         """
         import time as _time
-
-        start = _time.time()
-
-        # 🔍 ТОЧЕЧНАЯ ДИАГНОСТИКА ГРАФИКА
-        print(
-            f"📊 [CHART-DEBUG] {_time.strftime('%H:%M:%S')} | "
-            f"thread={threading.current_thread().name} | "
-            f"df.empty={df.empty if df is not None else 'None'} | "
-            f"len={len(df) if df is not None else 0}"
-        )
 
         # 🔹 1. Защита: выполняем только в главном потоке
         if threading.current_thread() is not threading.main_thread():
@@ -3505,7 +3494,30 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, lambda: self.update_candle_chart(df, symbol))
             return
 
+        # 🔥 ОТЛОЖЕННАЯ ОТРИСОВКА: даём GUI обработать накопившиеся события (PnL, эквити)
+        # Это предотвращает "заморозку" эквити во время отрисовки графика
+        QTimer.singleShot(
+            50,  # Задержка 50мс — GUI успеет обновить эквити/PnL
+            lambda: self._do_draw_candle_chart(df, symbol),
+        )
+
+    def _do_draw_candle_chart(self, df: pd.DataFrame, symbol: str):
+        """
+        Реальная отрисовка свечей (вызывается отложенно через QTimer.singleShot).
+        """
+        import time as _time
+
+        start = _time.time()
+
         try:
+            # 🔍 ТОЧЕЧНАЯ ДИАГНОСТИКА ГРАФИКА
+            print(
+                f"📊 [CHART-DEBUG] {_time.strftime('%H:%M:%S')} | "
+                f"thread={threading.current_thread().name} | "
+                f"df.empty={df.empty if df is not None else 'None'} | "
+                f"len={len(df) if df is not None else 0}"
+            )
+
             # 🔹 2. Быстрый выход если нет данных
             if df is None or df.empty or len(df) < 2:
                 logger.debug(f"[GUI-Chart] {symbol}: нет данных, пропускаем")
@@ -3513,8 +3525,13 @@ class MainWindow(QMainWindow):
                 self.volume_item.setOpts(x=[], height=[])
                 return
 
-            # 🔹 3. Берём ТОЛЬКО последние 200 баров (лёгкая отрисовка)
-            df_clean = df.tail(200).copy()
+            # 🔹 3. Берём ТОЛЬКО последние 100 баров (быстрая отрисовка!)
+            df_clean = df.tail(100).copy()
+
+            # 🔥 КРИТИЧНО: Отдаём управление GUI перед тяжёлой подготовкой данных
+            from PySide6.QtWidgets import QApplication
+
+            QApplication.processEvents()
 
             # Подготовка X (время)
             if "time" in df_clean.columns:
@@ -3544,6 +3561,9 @@ class MainWindow(QMainWindow):
                 logger.debug(f"[GUI-Chart] {symbol}: после очистки осталось {len(x_data)} баров")
                 return
 
+            # 🔥 КРИТИЧНО: Ещё раз отдаём управление GUI перед извлечением OHLCV
+            QApplication.processEvents()
+
             # Извлекаем OHLCV
             open_vals = df_clean["open"].values.astype(np.float64)
             high_vals = df_clean["high"].values.astype(np.float64)
@@ -3562,8 +3582,6 @@ class MainWindow(QMainWindow):
             self.candlestick_item.setData(candlestick_data)
 
             # 🔥 КРИТИЧНО: Отдаём управление GUI после setData
-            from PySide6.QtWidgets import QApplication
-
             QApplication.processEvents()
 
             # Обновление объёма
