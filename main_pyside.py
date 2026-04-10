@@ -435,27 +435,12 @@ class MainWindow(QMainWindow):
         self.balance_display_timer.start()
 
         # 🔥🔥 ЯДЕРНЫЙ ТЕСТ: Баланс + Эквити + Прибыль 🔥🔥
-        # Запускается ТОЛЬКО когда система запущена
+        # Гарантирует что GUI обновляется независимо от сигналов
         def nuclear_force_update():
             import logging
             import random
 
             nuke_logger = logging.getLogger(__name__)
-
-            # 🔹 КРИТИЧНО: НЕ обновляем GUI если система ещё НЕ запущена
-            if not hasattr(self, "trading_system") or not self.trading_system:
-                return
-
-            # Проверяем что торговая система активна (running == True)
-            if not getattr(self.trading_system, "running", False):
-                # Система ещё не запущена — показываем "N/A"
-                if hasattr(self, "equity_label") and self.equity_label:
-                    self.equity_label.setText("Эквити: N/A")
-                if hasattr(self, "balance_label") and self.balance_label:
-                    self.balance_label.setText("Баланс: N/A")
-                if hasattr(self, "open_pnl_label") and self.open_pnl_label:
-                    self.open_pnl_label.setText("")
-                return
 
             try:
                 current_equity = 0.0
@@ -463,17 +448,18 @@ class MainWindow(QMainWindow):
                 current_pnl = 0.0  # <-- Добавляем переменную для прибыли
 
                 # 1. Пытаемся получить данные напрямую из системы
-                if hasattr(self.trading_system, "account_manager"):
-                    acc = self.trading_system.account_manager
-                    current_balance = getattr(acc, "balance", 0.0)
-                    current_equity = getattr(acc, "equity", 0.0)
+                if hasattr(self, "trading_system") and self.trading_system:
+                    if hasattr(self.trading_system, "account_manager"):
+                        acc = self.trading_system.account_manager
+                        current_balance = getattr(acc, "balance", 0.0)
+                        current_equity = getattr(acc, "equity", 0.0)
 
-                    # Пытаемся получить прибыль (разные варианты имён атрибутов)
-                    current_pnl = (
-                        getattr(acc, "_last_profit", 0.0)
-                        or getattr(acc, "_last_pnl", 0.0)
-                        or getattr(acc, "_floating_pl", 0.0)
-                    )
+                        # Пытаемся получить прибыль (разные варианты имён атрибутов)
+                        current_pnl = (
+                            getattr(acc, "_last_profit", 0.0)
+                            or getattr(acc, "_last_pnl", 0.0)
+                            or getattr(acc, "_floating_pl", 0.0)
+                        )
 
                 # Если данных нет — генерируем тестовые (чтобы увидеть движение)
                 if current_equity == 0.0:
