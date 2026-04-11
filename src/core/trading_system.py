@@ -970,49 +970,55 @@ class TradingSystem(QObject):
             account_info = None
             current_positions = []
 
+            logger.info("[run_cycle] Запрос данных аккаунта через asyncio.to_thread")
+
             def get_account_and_positions_sync():
-                logger.info("[run_cycle] Попытка захвата mt5_lock...")
-                # ИСПРАВЛЕНИЕ: Сделаем таймаут коротким (0.5 сек) чтобы не блокировать торговлю на долго
-                if not self.mt5_lock.acquire(timeout=0.5):
-                    logger.warning("[run_cycle] MT5 Lock недоступен (таймаут 0.5с), пропуск цикла")
+                """Синхронное получение данных аккаунта и позиций."""
+                import MetaTrader5 as mt5_local
+
+                try:
+                    logger.info("[run_cycle] Попытка захвата mt5_lock...")
+                    lock_acquired = self.mt5_lock.acquire(timeout=1)
+                    if not lock_acquired:
+                        logger.debug("[run_cycle] MT5 Lock занят. Пропуск этого цикла (таймаут 1с)...")
+                        return None, []
+
+                    try:
+                        try:
+                            mt5_login = int(self.config.MT5_LOGIN) if self.config.MT5_LOGIN else None
+                        except ValueError as e:
+                            logger.error(f"[MT5] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
+                            mt5_login = None
+
+                        # Сначала пробуем мягкое подключение через ConnectionManager
+                        if not mt5_ensure_connected(path=self.config.MT5_PATH):
+                            logger.warning("[run_cycle] Не удалось подключиться к MT5 (мягкое)")
+                            # Если не вышло, пробуем полную авторизацию
+                            if not mt5_initialize(
+                                path=self.config.MT5_PATH,
+                                login=mt5_login,
+                                password=self.config.MT5_PASSWORD,
+                                server=self.config.MT5_SERVER,
+                            ):
+                                logger.error("[run_cycle] Не удалось подключиться к MT5 (полная авторизация)")
+                                return None, []
+
+                        try:
+                            acc_info = mt5_local.account_info()
+                            pos = mt5_local.positions_get()
+                            logger.info(
+                                f"[run_cycle] Данные аккаунта получены: balance={acc_info.balance if acc_info else 'None'}"
+                            )
+                            return acc_info, list(pos) if pos else []
+                        finally:
+                            mt5_shutdown()
+                    finally:
+                        logger.info("[run_cycle] MT5 Lock освобождается")
+                        self.mt5_lock.release()
+                except Exception as e:
+                    logger.error(f"[run_cycle] Ошибка получения данных аккаунта: {e}")
                     return None, []
 
-                logger.info("[run_cycle] MT5 Lock захвачен")
-                try:
-                    # Безопасная обработка MT5_LOGIN
-                    try:
-                        mt5_login = int(self.config.MT5_LOGIN) if self.config.MT5_LOGIN else None
-                    except (ValueError, TypeError) as e:
-                        logger.error(f"[MT5] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
-                        mt5_login = None
-
-                    # Сначала пробуем мягкое подключение через ConnectionManager
-                    if not mt5_ensure_connected(path=self.config.MT5_PATH):
-                        logger.warning("[run_cycle] Не удалось подключиться к MT5 (мягкое)")
-                        # Если не вышло, пробуем полную авторизацию
-                        if not mt5_initialize(
-                            path=self.config.MT5_PATH,
-                            login=mt5_login,
-                            password=self.config.MT5_PASSWORD,
-                            server=self.config.MT5_SERVER,
-                        ):
-                            logger.error("[run_cycle] Не удалось подключиться к MT5 (полная авторизация)")
-                            return None, []
-
-                    try:
-                        acc_info = mt5.account_info()
-                        pos = mt5.positions_get()
-                        logger.info(
-                            f"[run_cycle] Данные аккаунта получены: balance={acc_info.balance if acc_info else 'None'}"
-                        )
-                        return acc_info, list(pos) if pos else []
-                    finally:
-                        mt5_shutdown()
-                finally:
-                    logger.info("[run_cycle] MT5 Lock освобождается")
-                    self.mt5_lock.release()
-
-            logger.info("[run_cycle] Запрос данных аккаунта через asyncio.to_thread")
             account_info, current_positions = await asyncio.to_thread(get_account_and_positions_sync)
             logger.info(f"[run_cycle] Данные аккаунта получены: {account_info is not None}")
 
