@@ -211,6 +211,64 @@ def train_and_save_model(symbol: str, X: pd.DataFrame, y: pd.Series, model_dir: 
         return False
 
 
+def scan_models_for_issues(model_dir: Path, config) -> dict:
+    """
+    Сканирует все модели и находит проблемные.
+
+    Returns:
+        dict: {'mismatch': [symbols], 'missing': [symbols], 'ok': [symbols]}
+    """
+    import joblib
+
+    features_to_use = config.FEATURES_TO_USE
+    expected_n = len(features_to_use)
+
+    results = {"mismatch": [], "missing_scaler": [], "ok": [], "not_found": []}
+
+    if not model_dir.exists():
+        logger.warning(f"Директория моделей не найдена: {model_dir}")
+        return results
+
+    # Проверяем все символы из конфига
+    for symbol in config.SYMBOLS_WHITELIST:
+        scaler_path = model_dir / f"{symbol}_scaler.joblib"
+        model_path = model_dir / f"{symbol}_model.joblib"
+
+        # Проверяем наличие модели
+        if not model_path.exists():
+            results["not_found"].append(symbol)
+            logger.info(f"⚠ {symbol}: Модель не найдена")
+            continue
+
+        if not scaler_path.exists():
+            results["missing_scaler"].append(symbol)
+            logger.warning(f"⚠ {symbol}: Скалер отсутствует")
+            continue
+
+        try:
+            scaler = joblib.load(scaler_path)
+            n_features = getattr(scaler, "n_features_in_", None)
+            has_names = hasattr(scaler, "feature_names_in_")
+
+            if n_features != expected_n or not has_names:
+                reason = []
+                if n_features != expected_n:
+                    reason.append(f"признаков: {n_features} (ожидается {expected_n})")
+                if not has_names:
+                    reason.append("нет feature_names_in_")
+                results["mismatch"].append(symbol)
+                logger.warning(f"⚠ {symbol}: {'; '.join(reason)}")
+            else:
+                results["ok"].append(symbol)
+                logger.debug(f"✓ {symbol}: OK ({n_features} признаков, feature_names_in_ есть)")
+
+        except Exception as e:
+            results["missing_scaler"].append(symbol)
+            logger.error(f"⚠ {symbol}: Ошибка загрузки скалера: {e}")
+
+    return results
+
+
 def verify_model(symbol: str, model_dir: Path, expected_features: int) -> bool:
     """Проверяет сохраненную модель."""
     try:
@@ -244,30 +302,55 @@ def verify_model(symbol: str, model_dir: Path, expected_features: int) -> bool:
 def main():
     """Главная функция."""
     print("=" * 70)
-    print(" FIX_SCALERS.PY - Переобучение моделей с 20 признаками")
+    print(" FIX_SCALERS.PY - Автоматическое переобучение проблемных моделей")
     print("=" * 70)
 
-    # Определяем символы
+    # Определяем конфигурацию
     config = load_config()
-    symbols = config.SYMBOLS_WHITELIST
-
-    if "--all" not in sys.argv and len(sys.argv) > 1:
-        symbols = [s for s in sys.argv[1:] if not s.startswith("--")]
-
     model_dir = Path(config.MODEL_DIR) if config.MODEL_DIR else Path(config.DATABASE_FOLDER) / "ai_models"
     model_dir.mkdir(parents=True, exist_ok=True)
-
     expected_features = len(config.FEATURES_TO_USE)
 
     logger.info(f"📁 Директория моделей: {model_dir}")
-    logger.info(f"📊 Признаков в конфиге: {expected_features}")
-    logger.info(f"🎯 Символы для переобучения: {len(symbols)}")
+    logger.info(f"📊 Ожидаемых признаков: {expected_features}")
+    logger.info(f"🎯 Символов в конфиге: {len(config.SYMBOLS_WHITELIST)}")
+
+    # АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ ПРОБЛЕМ
+    logger.info("\n🔍 Сканирование моделей на наличие проблем...")
+    scan_results = scan_models_for_issues(model_dir, config)
+
+    logger.info(f"\n📊 Результаты сканирования:")
+    logger.info(f"   ✅ OK: {len(scan_results['ok'])}")
+    logger.info(f"   ⚠ Mismatch: {len(scan_results['mismatch'])}")
+    logger.info(f"   ⚠ Missing scaler: {len(scan_results['missing_scaler'])}")
+    logger.info(f"   ⚠ Not found: {len(scan_results['not_found'])}")
+
+    # Определяем символы для переобучения
+    symbols_to_fix = scan_results["mismatch"] + scan_results["missing_scaler"] + scan_results["not_found"]
+
+    # Если переданы конкретные символы в аргументах — используем их
+    if "--all" not in sys.argv and len(sys.argv) > 1:
+        symbols = [s for s in sys.argv[1:] if not s.startswith("--")]
+        logger.info(f"🎯 Ручной выбор: {symbols}")
+    elif "--fix" in sys.argv:
+        # Переобучить только проблемные
+        symbols = symbols_to_fix
+        logger.info(f"🎯 Автоматический выбор проблемных: {symbols}")
+    else:
+        # По умолчанию: переобучить все
+        symbols = config.SYMBOLS_WHITELIST
+        logger.info(f"🎯 Переобучение всех символов: {len(symbols)}")
+
+    if not symbols:
+        logger.info("✅ Все модели в порядке, переобучение не требуется!")
+        return 0
 
     # Инициализация MT5
     if not initialize_mt5():
         return 1
 
     success_count = 0
+    failed_symbols = []
 
     try:
         for i, symbol in enumerate(symbols, 1):
@@ -278,12 +361,14 @@ def main():
             # Загрузка данных
             df = download_data(symbol, n_bars=3000)
             if df is None:
+                failed_symbols.append(symbol)
                 continue
 
             # Генерация признаков
             df_featured = generate_features(df, symbol)
             if df_featured.empty:
                 logger.error(f"✗ Пустой датасет после генерации признаков")
+                failed_symbols.append(symbol)
                 continue
 
             # Target: изменение цены на 1 бар вперед
@@ -296,6 +381,7 @@ def main():
 
             if len(X) < 100:
                 logger.error(f"✗ Недостаточно данных: {len(X)}")
+                failed_symbols.append(symbol)
                 continue
 
             logger.info(f"   X: {X.shape}, y: {len(y)}")
@@ -308,8 +394,10 @@ def main():
                     logger.info(f"✅ {symbol}: УСПЕШНО")
                 else:
                     logger.error(f"❌ {symbol}: ОШИБКА ВЕРИФИКАЦИИ")
+                    failed_symbols.append(symbol)
             else:
                 logger.error(f"❌ {symbol}: ОШИБКА ОБУЧЕНИЯ")
+                failed_symbols.append(symbol)
 
     finally:
         import MetaTrader5 as mt5
@@ -322,7 +410,10 @@ def main():
     print("=" * 70)
     logger.info(f"Всего символов: {len(symbols)}")
     logger.info(f"✅ Успешно: {success_count}")
-    logger.info(f"❌ Не удалось: {len(symbols) - success_count}")
+    logger.info(f"❌ Не удалось: {len(failed_symbols)}")
+
+    if failed_symbols:
+        logger.warning(f"Проблемные символы: {failed_symbols}")
 
     if success_count == len(symbols):
         logger.info("\n✅ Все модели успешно переобучены!")
