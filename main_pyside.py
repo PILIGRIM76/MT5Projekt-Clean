@@ -1097,30 +1097,44 @@ class MainWindow(QMainWindow):
         self._current_theme = style_name
         is_light = style_name == "Светлая"
 
+        # --- КРИТИЧЕСКИ ВАЖНО: Применяем стиль ПРАВИЛЬНО ---
+        # 1. Сначала применяем QSS ко всему приложению (глобально)
         if is_light:
             qss_content = get_light_theme_qss()
             if qss_content:
-                self.setStyleSheet(qss_content)
+                QApplication.instance().setStyleSheet(qss_content)
+                logger.info(f"[Theme] Применён Light Theme из QSS файла ({len(qss_content)} байт)")
             else:
-                self.setStyleSheet(LIGHT_STYLE)
+                QApplication.instance().setStyleSheet(LIGHT_STYLE)
+                logger.warning("[Theme] QSS файл не найден, используем встроенный LIGHT_STYLE")
+            # Настройки pyqtgraph для светлой темы
             pg.setConfigOption("background", "w")
             pg.setConfigOption("foreground", "k")
-            logger.info("[Theme] Применён Light Theme (профессиональный)")
         else:
-            self.setStyleSheet(DARK_STYLE)
+            QApplication.instance().setStyleSheet(DARK_STYLE)
+            logger.info(f"[Theme] Применён Dark Theme (Dracula, {len(DARK_STYLE)} байт)")
+            # Настройки pyqtgraph для темной темы
             pg.setConfigOption("background", "#282a36")
             pg.setConfigOption("foreground", "#f8f8f2")
-            logger.info("[Theme] Применён Dark Theme (Dracula)")
 
-        # Перекрашиваем виджеты с инлайновыми стилями
+        # 2. Затем применяем инлайновые стили к виджетам MainWindow
         self._repaint_widgets_for_theme(is_light)
 
-        # Обновляем цвета логов
+        # 3. Обновляем цвета логов
         self._update_log_colors(is_light)
 
-        # Принудительная перерисовка — тема применяется мгновенно
+        # 4. Принудительная перерисовка ВСЕХ виджетов
+        self.update()
         self.repaint()
         QApplication.processEvents()
+
+        # 5. Обновляем все дочерние виджеты
+        for widget in QApplication.instance().allWidgets():
+            if widget.isVisible():
+                widget.update()
+                widget.repaint()
+
+        logger.info(f"[Theme] Тема '{style_name}' применена полностью")
 
     def _repaint_widgets_for_theme(self, is_light: bool) -> None:
         """Перекрашивает виджеты с инлайновыми стилями при смене темы."""
@@ -4651,21 +4665,14 @@ def main():
         # Добавляем обработчик aboutToQuit
         app.aboutToQuit.connect(lambda: logger.info("=== QApplication.aboutToQuit СИГНАЛ ПОЛУЧЕН ==="))
 
-        # --- Применяем глобальную тему стиля из QSS файла ---
-        from src.gui.styles import get_light_theme_qss
-
-        if is_light:
-            qss = get_light_theme_qss()
-            if qss:
-                app.setStyleSheet(qss)
-                logger.info("[Main] Глобальная тема 'Светлая' применена из light_theme.qss")
-        # Для тёмной темы используется встроенная DARK_STYLE (применяется в apply_style)
+        # --- ВАЖНО: Применяем тему ОДИН раз через apply_style() ---
+        # apply_style() уже загружает QSS файл И применяет инлайновые стили
+        # НЕ нужно вызывать app.setStyleSheet() отдельно!
+        window.apply_style(theme)
+        logger.info(f"[Main] Тема '{theme}' применена через apply_style()")
 
         window.show()
         logger.info("=== ОКНО ПОКАЗАНО, РАЗМЕР: {}x{} ===".format(window.width(), window.height()))
-
-        # --- Применяем тему из конфига ---
-        window.apply_style(theme)
 
         # --- Кастомная рамка окна (опционально, из конфига) ---
         if getattr(app_config, "USE_CUSTOM_TITLE_BAR", False):
@@ -4676,6 +4683,12 @@ def main():
         if hasattr(window, "animation_manager"):
             window.animation_manager.enabled = getattr(app_config, "ANIMATIONS_ENABLED", True)
             logger.info(f"[Main] Анимации: {'включены' if window.animation_manager.enabled else 'отключены'}")
+
+        # --- Принудительное обновление всех виджетов ---
+        window.update()
+        window.repaint()
+        QApplication.processEvents()
+        logger.info("[Main] Виджеты обновлены после применения темы")
 
         logger.info("=== GUI ЗАПУЩЕН УСПЕШНО, ВХОД В EVENT LOOP ===")
         exit_code = app.exec()
