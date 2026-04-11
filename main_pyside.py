@@ -1249,7 +1249,7 @@ class MainWindow(QMainWindow):
 
         # --- Кнопка закрытия всех позиций ---
         if hasattr(self, "close_all_pos_button"):
-            self.close_all_pos_button.setStyleSheet("background-color: #8B0000;")
+            self.close_all_pos_button.setStyleSheet("background-color: #8B0000; color: #f8f8f2;")
 
         # --- VectorDB ---
         if hasattr(self, "vdb_count_label"):
@@ -1263,19 +1263,19 @@ class MainWindow(QMainWindow):
 
         # --- Knowledge Graph ---
         if hasattr(self, "kg_disabled_label"):
-            self.kg_disabled_label.setStyleSheet("font-size: 14px; color: gray; padding: 20px; border: 2px dashed #444;")
+            self.kg_disabled_label.setStyleSheet("font-size: 14px; color: #6272a4; padding: 20px; border: 2px dashed #44475a;")
 
         # --- Feedback buttons ---
         if hasattr(self, "good_trade_button"):
-            self.good_trade_button.setStyleSheet("background-color: #50fa7b; color: #000;")
+            self.good_trade_button.setStyleSheet("background-color: #50fa7b; color: #282a36; font-weight: bold;")
         if hasattr(self, "bad_trade_button"):
-            self.bad_trade_button.setStyleSheet("background-color: #ff5555;")
+            self.bad_trade_button.setStyleSheet("background-color: #ff5555; color: #f8f8f2; font-weight: bold;")
 
         # --- Directive/Model buttons ---
         if hasattr(self, "delete_directive_button"):
-            self.delete_directive_button.setStyleSheet("background-color: #ff5555;")
+            self.delete_directive_button.setStyleSheet("background-color: #ff5555; color: #f8f8f2; font-weight: bold;")
         if hasattr(self, "demote_model_button"):
-            self.demote_model_button.setStyleSheet("background-color: #8B0000;")
+            self.demote_model_button.setStyleSheet("background-color: #8B0000; color: #f8f8f2; font-weight: bold;")
 
         # --- Chart toolbar ---
         if hasattr(self, "chart_symbol_combo"):
@@ -1294,7 +1294,159 @@ class MainWindow(QMainWindow):
                     background-color: #44475a; color: #f8f8f2; font-weight: bold; }
             """)
 
+        # === НОВОЕ: Принудительная перекраска виджетов без инлайновых стилей ===
+        self._apply_dark_theme_to_all_widgets()
+
         logger.info("[Theme] Применены инлайновые стили тёмной темы")
+
+    def _apply_dark_theme_to_all_widgets(self):
+        """
+        Принудительно применяет темную тему ко всем виджетам.
+        Исправляет проблему когда QSS не применяется к некоторым виджетам.
+        """
+        try:
+            from PySide6.QtWidgets import QApplication
+
+            # Рекурсивно проходим по всем виджетам
+            for widget in QApplication.allWidgets():
+                widget_name = widget.objectName()
+
+                # Пропускаем виджеты с уже заданными инлайновыми стилями
+                if widget.styleSheet():
+                    continue
+
+                # Определяем тип виджета и применяем стиль
+                if isinstance(widget, QLabel):
+                    if not widget.styleSheet():
+                        widget.setStyleSheet("color: #f8f8f2; background-color: transparent;")
+
+                elif isinstance(widget, QPushButton):
+                    if not widget.styleSheet():
+                        widget.setStyleSheet("""
+                            QPushButton {
+                                background-color: #44475a;
+                                border: 1px solid #6272a4;
+                                color: #f8f8f2;
+                                padding: 5px 10px;
+                                border-radius: 4px;
+                            }
+                            QPushButton:hover {
+                                background-color: #51556a;
+                                border-color: #bd93f9;
+                            }
+                        """)
+
+                elif isinstance(widget, QComboBox):
+                    if not widget.styleSheet():
+                        widget.setStyleSheet("""
+                            QComboBox {
+                                background-color: #3a3c4a;
+                                border: 1px solid #44475a;
+                                color: #f8f8f2;
+                                padding: 4px;
+                                border-radius: 4px;
+                            }
+                            QComboBox::drop-down {
+                                border: none;
+                            }
+                            QComboBox QAbstractItemView {
+                                background-color: #282a36;
+                                color: #f8f8f2;
+                                selection-background-color: #44475a;
+                            }
+                        """)
+
+                elif isinstance(widget, QLineEdit):
+                    if not widget.styleSheet():
+                        widget.setStyleSheet("""
+                            QLineEdit {
+                                background-color: #3a3c4a;
+                                border: 1px solid #44475a;
+                                color: #f8f8f2;
+                                padding: 4px;
+                                border-radius: 4px;
+                            }
+                        """)
+
+                elif isinstance(widget, QTextEdit):
+                    if not widget.styleSheet():
+                        widget.setStyleSheet("""
+                            QTextEdit {
+                                background-color: #3a3c4a;
+                                border: 1px solid #44475a;
+                                color: #f8f8f2;
+                                padding: 4px;
+                                border-radius: 4px;
+                            }
+                        """)
+
+                elif isinstance(widget, QTableWidget):
+                    if not widget.styleSheet():
+                        widget.setStyleSheet("""
+                            QTableWidget {
+                                background-color: #282a36;
+                                alternate-background-color: #2d2f3d;
+                                gridline-color: #44475a;
+                                border: 1px solid #44475a;
+                                color: #f8f8f2;
+                            }
+                            QTableWidget::item {
+                                padding: 4px;
+                            }
+                            QHeaderView::section {
+                                background-color: #44475a;
+                                color: #f8f8f2;
+                                padding: 6px;
+                                border: none;
+                                font-weight: bold;
+                            }
+                        """)
+
+                elif isinstance(widget, QTabWidget):
+                    if not widget.styleSheet():
+                        widget.setStyleSheet("""
+                            QTabWidget::pane {
+                                border: 1px solid #44475a;
+                                background-color: #282a36;
+                            }
+                            QTabBar::tab {
+                                background-color: #282a36;
+                                color: #f8f8f2;
+                                border: 1px solid #44475a;
+                                padding: 8px 12px;
+                                border-top-left-radius: 4px;
+                                border-top-right-radius: 4px;
+                            }
+                            QTabBar::tab:selected {
+                                background-color: #44475a;
+                                color: #50fa7b;
+                            }
+                            QTabBar::tab:!selected:hover {
+                                background-color: #3a3c4a;
+                            }
+                        """)
+
+                elif isinstance(widget, QGroupBox):
+                    if not widget.styleSheet():
+                        widget.setStyleSheet("""
+                            QGroupBox {
+                                background-color: #2d2f3d;
+                                border: 1px solid #44475a;
+                                border-radius: 6px;
+                                margin-top: 8px;
+                                padding-top: 12px;
+                                color: #f8f8f2;
+                                font-weight: bold;
+                            }
+                            QGroupBox::title {
+                                subcontrol-origin: margin;
+                                left: 10px;
+                                padding: 0 5px;
+                            }
+                        """)
+
+        except Exception as e:
+            logger.debug(f"[Theme] Ошибка применения темной темы ко всем виджетам: {e}")
 
     def _init_widgets(self):
         central_widget = QWidget()
