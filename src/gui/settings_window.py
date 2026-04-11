@@ -437,6 +437,7 @@ class SettingsWindow(QDialog):
     database_path_changed = Signal(str)  # Сигнал об изменении пути к базе данных
     theme_preview_requested = Signal(str)  # Сигнал для предпросмотра темы
     gui_settings_changed = Signal(dict)  # Сигнал для мгновенного применения настроек GUI
+    optimization_applied = Signal(dict)  # Сигнал для применения оптимизаций без перезапуска
 
     def __init__(self, scheduler_manager: SchedulerManager, config: Settings, trading_system=None, parent=None):
 
@@ -513,6 +514,8 @@ class SettingsWindow(QDialog):
         self.tab_widget.addTab(news_scheduler_tab, self.create_icon("📰"), "Планировщик Новостей")
         self.tab_widget.addTab(notifications_tab, self.create_icon("🔔"), "Уведомления")
         self.tab_widget.addTab(updates_tab, self.create_icon("🔄"), "Обновления")
+        optimization_tab = self._create_optimization_tab()  # НОВОЕ: Вкладка оптимизации
+        self.tab_widget.addTab(optimization_tab, self.create_icon("⚡"), "Оптимизация")
 
         # НОВОЕ: Вкладка Копирование Сделок (в самом конце для заметности)
         try:
@@ -3764,6 +3767,221 @@ class SettingsWindow(QDialog):
 
         # Возвращаем кнопку в активное состояние
         self.manual_retrain_button.setEnabled(True)
+
+    def _create_optimization_tab(self) -> QWidget:
+        """Создание вкладки оптимизации системы."""
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setAlignment(Qt.AlignTop)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Заголовок
+        title = QLabel("<b>⚡ Оптимизация Системы</b>")
+        title.setStyleSheet("color: #f8f8f2; font-size: 16px; padding: 10px;")
+        layout.addWidget(title)
+
+        desc = QLabel("Применяйте оптимизации без перезапуска системы")
+        desc.setStyleSheet("color: #aaaaaa; padding: 5px;")
+        layout.addWidget(desc)
+
+        # === GPU УСКОРЕНИЕ ===
+        gpu_group = QGroupBox("🚀 GPU Ускорение (LightGBM)")
+        gpu_layout = QFormLayout(gpu_group)
+
+        self.gpu_enabled_check = QCheckBox("Включить GPU для обучения моделей")
+        self.gpu_enabled_check.setToolTip("Использовать видеокарту NVIDIA для ускорения LightGBM")
+        gpu_layout.addRow(self.gpu_enabled_check)
+
+        # Информация о GPU
+        self.gpu_info_label = QLabel("Проверка GPU...")
+        self.gpu_info_label.setStyleSheet("color: #8be9fd; padding: 5px;")
+        self._check_gpu_availability()
+        gpu_layout.addRow("Статус GPU:", self.gpu_info_label)
+
+        # Кнопка применения
+        self.apply_gpu_button = QPushButton("⚡ Применить GPU настройки")
+        self.apply_gpu_button.clicked.connect(self._apply_gpu_settings)
+        self.apply_gpu_button.setStyleSheet("""
+            QPushButton {
+                background-color: #50fa7b;
+                color: #282a36;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #43d667;
+            }
+        """)
+        gpu_layout.addRow(self.apply_gpu_button)
+
+        layout.addWidget(gpu_group)
+
+        # === ПАМЯТЬ ===
+        memory_group = QGroupBox("🧹 Оптимизация Памяти")
+        memory_layout = QFormLayout(memory_group)
+
+        self.gc_enabled_check = QCheckBox("Включить агрессивный сборщик мусора")
+        self.gc_enabled_check.setChecked(True)
+        self.gc_enabled_check.setToolTip("Более частая очистка циклических ссылок")
+        memory_layout.addRow(self.gc_enabled_check)
+
+        self.memory_threshold_spin = QSpinBox()
+        self.memory_threshold_spin.setRange(2, 8)
+        self.memory_threshold_spin.setValue(4)
+        self.memory_threshold_spin.setSuffix(" ГБ")
+        self.memory_threshold_spin.setToolTip("Порог предупреждения о нехватке памяти")
+        memory_layout.addRow("Порог предупреждения:", self.memory_threshold_spin)
+
+        self.apply_memory_button = QPushButton("🧹 Применить настройки памяти")
+        self.apply_memory_button.clicked.connect(self._apply_memory_settings)
+        self.apply_memory_button.setStyleSheet("""
+            QPushButton {
+                background-color: #bd93f9;
+                color: #282a36;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #a371f7;
+            }
+        """)
+        memory_layout.addRow(self.apply_memory_button)
+
+        layout.addWidget(memory_group)
+
+        # === ЛОГИ ===
+        log_group = QGroupBox("📝 Управление Логами")
+        log_layout = QFormLayout(log_group)
+
+        self.account_log_check = QCheckBox("Включить логи AccountManager (DEBUG)")
+        self.account_log_check.setChecked(False)
+        self.account_log_check.setToolTip("Показывать обновления баланса в логах")
+        log_layout.addRow(self.account_log_check)
+
+        self.apply_log_button = QPushButton("📝 Применить настройки логов")
+        self.apply_log_button.clicked.connect(self._apply_log_settings)
+        self.apply_log_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ffb86c;
+                color: #282a36;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f0a040;
+            }
+        """)
+        log_layout.addRow(self.apply_log_button)
+
+        layout.addWidget(log_group)
+
+        # === КНОПКА ПРИМЕНИТЬ ВСЁ ===
+        apply_all_btn = QPushButton("🚀 Применить Все Оптимизации")
+        apply_all_btn.clicked.connect(self._apply_all_optimizations)
+        apply_all_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff79c6;
+                color: #282a36;
+                padding: 15px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #e060a0;
+            }
+        """)
+        layout.addWidget(apply_all_btn)
+
+        # Статус
+        self.optimization_status_label = QLabel("Готово к оптимизации")
+        self.optimization_status_label.setStyleSheet("color: #50fa7b; padding: 10px; font-weight: bold;")
+        layout.addWidget(self.optimization_status_label)
+
+        layout.addStretch()
+        return content_widget
+
+    def _check_gpu_availability(self) -> None:
+        """Проверяет доступность GPU."""
+        import subprocess
+
+        try:
+            result = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+                text=True,
+            )
+            gpu_info = result.strip()
+            self.gpu_info_label.setText(f"✅ {gpu_info}")
+            self.gpu_info_label.setStyleSheet("color: #50fa7b; padding: 5px;")
+            self.gpu_enabled_check.setEnabled(True)
+        except Exception:
+            self.gpu_info_label.setText("❌ GPU не обнаружен")
+            self.gpu_info_label.setStyleSheet("color: #ff5555; padding: 5px;")
+            self.gpu_enabled_check.setEnabled(False)
+
+    def _apply_gpu_settings(self) -> None:
+        """Применяет настройки GPU без перезапуска."""
+        if not self.gpu_enabled_check.isEnabled():
+            self.optimization_status_label.setText("❌ GPU недоступен")
+            self.optimization_status_label.setStyleSheet("color: #ff5555;")
+            return
+
+        self.optimization_applied.emit(
+            {
+                "type": "gpu",
+                "enabled": self.gpu_enabled_check.isChecked(),
+            }
+        )
+
+        self.optimization_status_label.setText("✅ GPU настройки применены (вступят в силу при следующем обучении)")
+        self.optimization_status_label.setStyleSheet("color: #50fa7b;")
+
+    def _apply_memory_settings(self) -> None:
+        """Применяет настройки памяти без перезапуска."""
+        import gc
+
+        # Применяем GC настройки
+        if self.gc_enabled_check.isChecked():
+            gc.set_threshold(500, 5, 5)
+            gc.collect()
+
+        self.optimization_applied.emit(
+            {
+                "type": "memory",
+                "gc_enabled": self.gc_enabled_check.isChecked(),
+                "threshold_gb": self.memory_threshold_spin.value(),
+            }
+        )
+
+        self.optimization_status_label.setText(
+            f"✅ Настройки памяти применены: порог {self.memory_threshold_spin.value()}ГБ, GC оптимизирован"
+        )
+        self.optimization_status_label.setStyleSheet("color: #50fa7b;")
+
+    def _apply_log_settings(self) -> None:
+        """Применяет настройки логов без перезапуска."""
+        self.optimization_applied.emit(
+            {
+                "type": "logging",
+                "account_manager_debug": self.account_log_check.isChecked(),
+            }
+        )
+
+        self.optimization_status_label.setText("✅ Настройки логов применены")
+        self.optimization_status_label.setStyleSheet("color: #50fa7b;")
+
+    def _apply_all_optimizations(self) -> None:
+        """Применяет все оптимизации сразу."""
+        self._apply_gpu_settings()
+        self._apply_memory_settings()
+        self._apply_log_settings()
+
+        self.optimization_status_label.setText("🚀 Все оптимизации применены успешно!")
+        self.optimization_status_label.setStyleSheet("color: #ff79c6; font-size: 14px;")
 
     def _scroll_to_risk_settings(self):
         """Информирование пользователя о настройках риск-менеджмента."""

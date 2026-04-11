@@ -424,6 +424,7 @@ class MainWindow(QMainWindow):
         self.settings_window.scheduler_status_updated.connect(self.update_thread_status_widget)
         self.settings_window.theme_preview_requested.connect(self._on_theme_preview_requested)
         self.settings_window.gui_settings_changed.connect(self._on_gui_settings_changed)
+        self.settings_window.optimization_applied.connect(self._on_optimization_applied)
 
         self.setGeometry(100, 100, 1600, 900)
 
@@ -2918,6 +2919,59 @@ class MainWindow(QMainWindow):
         if custom_tb is True and not hasattr(self, "_custom_title_bar"):
             logger.info("[MainWindow] Активирую кастомную рамку")
             self.setup_custom_title_bar()
+
+    def _on_optimization_applied(self, optimization: dict) -> None:
+        """
+        Применяет оптимизации системы без перезапуска.
+
+        Args:
+            optimization: dict с ключом 'type' и параметрами оптимизации
+        """
+        opt_type = optimization.get("type")
+
+        if opt_type == "gpu":
+            enabled = optimization.get("enabled", False)
+            logger.info(f"⚡ GPU оптимизация: {'включена' if enabled else 'отключена'}")
+
+            # Обновляем auto_trainer параметры
+            if hasattr(self, "trading_system") and self.trading_system:
+                core = getattr(self.trading_system, "core_system", None)
+                if core and hasattr(core, "config"):
+                    core.config.USE_GPU_TRAINING = enabled
+                    logger.info(f"✅ USE_GPU_TRAINING = {enabled}")
+
+        elif opt_type == "memory":
+            import gc
+
+            gc_enabled = optimization.get("gc_enabled", True)
+            threshold_gb = optimization.get("threshold_gb", 4)
+
+            if gc_enabled:
+                gc.set_threshold(500, 5, 5)
+                gc.collect()
+                logger.info(f"✅ GC оптимизирован: (500, 5, 5), порог памяти: {threshold_gb}ГБ")
+
+            # Обновляем пороги в trading_system
+            if hasattr(self, "trading_system") and self.trading_system:
+                if hasattr(self.trading_system, "memory_threshold_gb"):
+                    self.trading_system.memory_threshold_gb = threshold_gb
+
+        elif opt_type == "logging":
+            account_debug = optimization.get("account_manager_debug", False)
+
+            # Меняем уровень логирования AccountManager
+            import logging
+
+            account_logger = logging.getLogger("src.core.account_manager")
+            if account_debug:
+                account_logger.setLevel(logging.DEBUG)
+                logger.info("✅ AccountManager логи: DEBUG")
+            else:
+                account_logger.setLevel(logging.INFO)
+                logger.info("✅ AccountManager логи: INFO")
+
+        else:
+            logger.warning(f"⚠️ Неизвестный тип оптимизации: {opt_type}")
 
     def connect_signals(self):
         self.start_button.clicked.connect(self.start_trading)
