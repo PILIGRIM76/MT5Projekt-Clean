@@ -202,8 +202,18 @@ def get_light_theme_qss() -> str:
     """
     Возвращает содержимое light_theme.qss.
     Автоматически ищет файл в директории src/gui/.
+    Приоритет: light_theme_safe.qss -> light_theme.qss
     """
     # Определяем путь к директории styles.py
     styles_dir = Path(__file__).parent
+
+    # Сначала пробуем безопасную версию
+    safe_path = styles_dir / "light_theme_safe.qss"
+    if safe_path.exists():
+        content = safe_path.read_text(encoding="utf-8")
+        logger.info(f"[QSS] Загружен безопасный файл стилей: {safe_path} ({len(content)} байт)")
+        return content
+
+    # Fallback на полный файл
     qss_path = styles_dir / "light_theme.qss"
     return load_qss_file(str(qss_path))

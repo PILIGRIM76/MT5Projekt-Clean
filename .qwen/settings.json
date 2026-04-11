@@ -61,7 +61,9 @@
       "Bash(d *)",
       "Bash(@if *)",
       "Bash(sed *)",
-      "Bash(@echo *)"
+      "Bash(@echo *)",
+      "Bash(tree *)",
+      "Bash(tee *)"
     ]
   },
   "env": {
