@@ -1925,10 +1925,15 @@ class DatabaseManager:
                 )
             return result_list
         except Exception as e:
-            logger.error(f"Ошибка при получении списка моделей для GUI: {e}")
+            import traceback
+
+            logger.error(f"Ошибка при получении списка моделей для GUI: {type(e).__name__}: {e}\n{traceback.format_exc()}")
             return []
         finally:
-            session.close()
+            try:
+                session.close()
+            except Exception:
+                pass
 
     def demote_champion(self, model_id: int) -> bool:
         session = self.Session()
