@@ -972,10 +972,8 @@ class TradingSystem(QObject):
 
             logger.info("[run_cycle] Запрос данных аккаунта через asyncio.to_thread")
 
-            def get_account_and_positions_sync():
+            def get_account_and_positions_sync(_mt5=mt5):
                 """Синхронное получение данных аккаунта и позиций."""
-                import MetaTrader5 as mt5_local
-
                 try:
                     logger.info("[run_cycle] Попытка захвата mt5_lock...")
                     lock_acquired = self.mt5_lock.acquire(timeout=1)
@@ -1004,8 +1002,8 @@ class TradingSystem(QObject):
                                 return None, []
 
                         try:
-                            acc_info = mt5_local.account_info()
-                            pos = mt5_local.positions_get()
+                            acc_info = _mt5.account_info()
+                            pos = _mt5.positions_get()
                             logger.info(
                                 f"[run_cycle] Данные аккаунта получены: balance={acc_info.balance if acc_info else 'None'}"
                             )
