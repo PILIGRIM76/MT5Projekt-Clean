@@ -2933,12 +2933,10 @@ class MainWindow(QMainWindow):
             enabled = optimization.get("enabled", False)
             logger.info(f"⚡ GPU оптимизация: {'включена' if enabled else 'отключена'}")
 
-            # Обновляем auto_trainer параметры
-            if hasattr(self, "trading_system") and self.trading_system:
-                core = getattr(self.trading_system, "core_system", None)
-                if core and hasattr(core, "config"):
-                    core.config.USE_GPU_TRAINING = enabled
-                    logger.info(f"✅ USE_GPU_TRAINING = {enabled}")
+            # GPU настройка применяется напрямую в auto_trainer при следующем обучении
+            # Не пытаемся изменить Settings — у него нет USE_GPU_TRAINING
+            self._gpu_training_enabled = enabled
+            logger.info(f"✅ GPU для обучения: {'включён' if enabled else 'отключён'} (вступит в силу при следующем обучении)")
 
         elif opt_type == "memory":
             import gc
@@ -2950,11 +2948,6 @@ class MainWindow(QMainWindow):
                 gc.set_threshold(500, 5, 5)
                 gc.collect()
                 logger.info(f"✅ GC оптимизирован: (500, 5, 5), порог памяти: {threshold_gb}ГБ")
-
-            # Обновляем пороги в trading_system
-            if hasattr(self, "trading_system") and self.trading_system:
-                if hasattr(self.trading_system, "memory_threshold_gb"):
-                    self.trading_system.memory_threshold_gb = threshold_gb
 
         elif opt_type == "logging":
             account_debug = optimization.get("account_manager_debug", False)

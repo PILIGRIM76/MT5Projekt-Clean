@@ -522,21 +522,25 @@ class AutoTrainer:
                 # Оптимизация: n_jobs=2 вместо -1 (все ядра) для снижения нагрузки на CPU
                 n_jobs_lightgbm = min(2, multiprocessing.cpu_count())
 
-                # GPU параметры (если CUDA доступна)
+                # GPU параметры (если CUDA доступна и GPU режим включён в настройках)
                 gpu_params = {}
-                try:
-                    import subprocess
+                use_gpu = getattr(self, "use_gpu_training", False)
+                if use_gpu:
+                    try:
+                        import subprocess
 
-                    subprocess.check_output(["nvidia-smi"], stderr=subprocess.DEVNULL)
-                    # CUDA доступна — включаем GPU
-                    gpu_params = {
-                        "device": "gpu",
-                        "gpu_platform_id": 0,
-                        "gpu_device_id": 0,
-                    }
-                    logger.info("🚀 LightGBM: GPU режим (CUDA)")
-                except Exception:
-                    logger.info("💡 LightGBM: CPU режим (GPU недоступен)")
+                        subprocess.check_output(["nvidia-smi"], stderr=subprocess.DEVNULL)
+                        # CUDA доступна — включаем GPU
+                        gpu_params = {
+                            "device": "gpu",
+                            "gpu_platform_id": 0,
+                            "gpu_device_id": 0,
+                        }
+                        logger.info("🚀 LightGBM: GPU режим (CUDA)")
+                    except Exception:
+                        logger.warning("⚠️ GPU включён в настройках, но CUDA недоступна")
+                else:
+                    logger.info("💡 LightGBM: CPU режим (GPU отключён в настройках)")
 
                 model = lgb.LGBMClassifier(
                     n_estimators=100,
