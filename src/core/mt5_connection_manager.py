@@ -127,6 +127,7 @@ class MT5ConnectionManager:
 
                 if has_all_params:
                     # Полная авторизация
+                    logger.info(f"[MT5] Полная авторизация: server={server}, login={login}, path={path}")
                     result = mt5.initialize(
                         path=path,
                         login=login,
@@ -136,9 +137,11 @@ class MT5ConnectionManager:
                     )
                 elif has_path_only:
                     # Только путь — подключаемся к уже запущенному терминалу
+                    logger.info(f"[MT5] Подключение к терминалу по пути: {path}")
                     result = mt5.initialize(path=path, timeout=timeout)
                 elif has_login_only:
                     # Только логин — используем сохранённые параметры
+                    logger.info(f"[MT5] Авторизация по логину: {login}")
                     result = mt5.initialize(
                         login=login,
                         password=self._password,
@@ -170,7 +173,25 @@ class MT5ConnectionManager:
                     return True
                 else:
                     error = mt5.last_error()
-                    logger.error(f"[MT5] ❌ Ошибка инициализации: {error}")
+                    error_code, error_msg = error
+
+                    # Детальная диагностика ошибок
+                    if error_code == -6:
+                        logger.error(
+                            f"[MT5] ❌ Ошибка авторизации (код {error_code}): {error_msg}\n"
+                            f"  → Терминал MT5 уже запущен с другим логином/паролем.\n"
+                            f"  → Решение:\n"
+                            f"     1) Закройте MT5 терминал вручную\n"
+                            f"     2) Или укажите MT5_PATH в configs/settings.json\n"
+                            f"     3) Или проверьте правильность MT5_LOGIN/MT5_PASSWORD/MT5_SERVER"
+                        )
+                    elif error_code == -1:
+                        logger.error(
+                            f"[MT5] ❌ Ошибка инициализации (код {error_code}): {error_msg}\n"
+                            f"  → Проверьте путь к terminal64.exe"
+                        )
+                    else:
+                        logger.error(f"[MT5] ❌ Ошибка инициализации: {error}")
                     return False
 
             except Exception as e:
