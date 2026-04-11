@@ -2226,16 +2226,45 @@ class TradingSystem(QObject):
             logger.error(f"[Chart] Ошибка запроса данных: {e}", exc_info=True)
 
     def _load_champion_models_into_memory(self, symbols_to_check: List[str]):
+        """
+        Управление памятью моделей — загружает ТОЛЬКО те, что реально нужны.
+
+        КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Раньше загружал TOP_N_SYMBOLS (17) моделей,
+        хотя реально торгует только 7. Это съедало ~8-12 ГБ RAM.
+        Теперь загружает только символы, которые будут обработаны в этом цикле.
+        """
+        # Логика: symbols_to_check — это уже отфильтрованный список доступных символов
+        # Но мы должны загрузить только те, что пройдут дальше по лимиту позиций
         limit = self.config.TOP_N_SYMBOLS
         active_symbols_list = symbols_to_check[:limit]
-        symbols_to_keep = set(active_symbols_list)
+
+        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Не загружаем все TOP_N — только те, что реально будут обработаны
+        # (учитывая текущие позиции и лимит MAX_OPEN_POSITIONS)
+        try:
+            import MetaTrader5 as mt5_local
+
+            pos = mt5_local.positions_get() if mt5_local else None
+            current_positions_count = len(pos) if pos else 0
+            slots_available = max(0, self.config.MAX_OPEN_POSITIONS - current_positions_count)
+
+            # Загружаем модели только для символов, которые реально могут быть открыты
+            symbols_to_load = active_symbols_list[: slots_available + 2]  # +2 буфер
+            symbols_to_keep = set(symbols_to_load)
+        except Exception:
+            symbols_to_keep = set(active_symbols_list)
+
         logger.info(
-            f"Управление памятью моделей. Из {len(symbols_to_check)} кандидатов выбрано топ-{len(symbols_to_keep)} для загрузки."
+            f"Управление памятью моделей. Из {len(symbols_to_check)} кандидатов: "
+            f"топ-{len(symbols_to_keep)} для загрузки, "
+            f"позиций открыто: {current_positions_count}, слотов: {slots_available}"
         )
+
         loaded_count = 0
         unloaded_count = 0
         timeframe = mt5.TIMEFRAME_H1
         current_models_in_memory = list(self.models.keys())
+
+        # Выгружаем модели, которые НЕ нужны
         for symbol in current_models_in_memory:
             if symbol not in symbols_to_keep:
                 if symbol in self.models:
@@ -2248,6 +2277,7 @@ class TradingSystem(QObject):
                 self.x_scalers.pop(symbol, None)
                 self.y_scalers.pop(symbol, None)
                 unloaded_count += 1
+
         if unloaded_count > 0:
             import gc
 
@@ -2255,7 +2285,9 @@ class TradingSystem(QObject):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             logger.info(f"Память очищена. Выгружено {unloaded_count} моделей.")
-        for symbol in active_symbols_list:
+
+        # Загружаем только нужные модели
+        for symbol in symbols_to_load:
             try:
                 if symbol not in self.models:
                     champion_models, x_scaler, y_scaler = self.db_manager.load_champion_models(symbol, timeframe)
@@ -2266,8 +2298,12 @@ class TradingSystem(QObject):
                         loaded_count += 1
             except Exception as e:
                 logger.error(f"Ошибка при управлении моделью для {symbol}: {e}", exc_info=True)
+
         if loaded_count > 0:
-            logger.info(f"Загрузка завершена. Новых моделей в памяти: {loaded_count}. Всего активных: {len(self.models)}")
+            logger.info(
+                f"Загрузка завершена. Новых моделей в памяти: {loaded_count}. "
+                f"Всего активных: {len(self.models)} (RAM экономия)"
+            )
 
     def _check_scheduled_tasks(self):
         project_root = SyncPath(__file__).parent.parent.parent
