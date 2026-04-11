@@ -1417,7 +1417,38 @@ class TradingSystem(QObject):
                     self.end_performance_timer("run_cycle_total")
                     return
             elif is_forex_weekend and self.config.ALLOW_WEEKEND_TRADING:
-                logger.info("[Weekend Mode] ALLOW_WEEKEND_TRADING=True. Торгуем по всем доступным символам.")
+                logger.info("[Weekend Mode] ALLOW_WEEKEND_TRADING=True. Проверяю доступность рынков...")
+
+                # ФИЛЬТР: Оставляем только символы с открытым рынком
+                available_symbols = []
+                for symbol in ranked_symbols:
+                    try:
+                        import MetaTrader5 as mt5
+
+                        symbol_info = mt5.symbol_info(symbol)
+                        tick = mt5.symbol_info_tick(symbol)
+
+                        if symbol_info and tick and tick.ask > 0 and tick.bid > 0 and tick.ask != tick.bid:
+                            # Рынок открыт — есть реальные цены
+                            available_symbols.append(symbol)
+                            logger.debug(f"[Market Check] ✅ {symbol}: рынок открыт (Ask={tick.ask:.5f}, Bid={tick.bid:.5f})")
+                        else:
+                            logger.debug(
+                                f"[Market Check] ❌ {symbol}: рынок закрыт "
+                                f"(Ask={tick.ask if tick else 'N/A'}, Bid={tick.bid if tick else 'N/A'})"
+                            )
+                    except Exception as e:
+                        logger.warning(f"[Market Check] ⚠️ {symbol}: ошибка проверки — {e}")
+
+                if not available_symbols:
+                    logger.warning("[Weekend Mode] Нет доступных рынков. Пропуск торгового цикла.")
+                    self.end_performance_timer("run_cycle_total")
+                    return
+
+                ranked_symbols = available_symbols
+                logger.info(
+                    f"[Weekend Mode] Отфильтровано: {len(available_symbols)} из {len(ranked_symbols)} символов доступны для торговли"
+                )
 
             # === ТОРГОВЛЯ ПО ВСЕМ СИМВОЛАМ ИЗ WHITELIST ===
             symbols_to_trade = ranked_symbols
