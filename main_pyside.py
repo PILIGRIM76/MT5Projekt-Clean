@@ -425,6 +425,7 @@ class MainWindow(QMainWindow):
         self.settings_window.theme_preview_requested.connect(self._on_theme_preview_requested)
         self.settings_window.gui_settings_changed.connect(self._on_gui_settings_changed)
         self.settings_window.optimization_applied.connect(self._on_optimization_applied)
+        self.settings_window.memory_cleanup_requested.connect(self._on_memory_cleanup_requested)
 
         self.setGeometry(100, 100, 1600, 900)
 
@@ -2965,6 +2966,48 @@ class MainWindow(QMainWindow):
 
         else:
             logger.warning(f"⚠️ Неизвестный тип оптимизации: {opt_type}")
+
+    def _on_memory_cleanup_requested(self) -> None:
+        """
+        Принудительная очистка памяти — выгрузка неиспользуемых моделей.
+
+        Вызывается из вкладки Оптимизация при нажатии "Применить настройки памяти".
+        """
+        import gc
+
+        logger.info("🧹 Запрос принудительной очистки памяти...")
+
+        if hasattr(self, "trading_system") and self.trading_system:
+            # Выгружаем все модели, которые НЕ нужны прямо сейчас
+            ts = self.trading_system
+
+            # Считаем сколько моделей сейчас в памяти
+            models_before = len(ts.models) if hasattr(ts, "models") else 0
+
+            # Принудительная выгрузка неиспользуемых моделей
+            if hasattr(ts, "_load_champion_models_into_memory"):
+                # Передаём пустой список — выгрузит ВСЕ модели
+                # Модели будут перезагружены лениво при следующем цикле торговли
+                ts.models.clear()
+                ts.x_scalers.clear()
+                ts.y_scalers.clear()
+                logger.info(f"🧹 Выгружено {models_before} моделей из памяти")
+
+            # Сборка мусора
+            gc.collect()
+
+            # Очистка CUDA кэша
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.info("🧹 CUDA кэш очищен")
+
+            models_after = len(ts.models) if hasattr(ts, "models") else 0
+            logger.info(f"🧹 Очистка памяти завершена: было {models_before} моделей, стало {models_after}")
+        else:
+            gc.collect()
+            logger.info("🧹 Сборка мусора выполнена (торговая система недоступна)")
 
     def connect_signals(self):
         self.start_button.clicked.connect(self.start_trading)

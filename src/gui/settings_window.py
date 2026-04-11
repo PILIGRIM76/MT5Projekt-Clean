@@ -438,6 +438,7 @@ class SettingsWindow(QDialog):
     theme_preview_requested = Signal(str)  # Сигнал для предпросмотра темы
     gui_settings_changed = Signal(dict)  # Сигнал для мгновенного применения настроек GUI
     optimization_applied = Signal(dict)  # Сигнал для применения оптимизаций без перезапуска
+    memory_cleanup_requested = Signal()  # Сигнал для принудительной очистки памяти
 
     def __init__(self, scheduler_manager: SchedulerManager, config: Settings, trading_system=None, parent=None):
 
@@ -3947,7 +3948,9 @@ class SettingsWindow(QDialog):
         # Применяем GC настройки
         if self.gc_enabled_check.isChecked():
             gc.set_threshold(500, 5, 5)
-            gc.collect()
+
+        # Принудительная очистка памяти — выгрузка неиспользуемых моделей
+        self.memory_cleanup_requested.emit()
 
         self.optimization_applied.emit(
             {
@@ -3958,7 +3961,7 @@ class SettingsWindow(QDialog):
         )
 
         self.optimization_status_label.setText(
-            f"✅ Настройки памяти применены: порог {self.memory_threshold_spin.value()}ГБ, GC оптимизирован"
+            f"✅ Настройки памяти применены: порог {self.memory_threshold_spin.value()}ГБ, память очищена"
         )
         self.optimization_status_label.setStyleSheet("color: #50fa7b;")
 
