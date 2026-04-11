@@ -649,9 +649,14 @@ class SignalService:
                 return None, None
         # ================================================================
 
-        # 5. Масштабирование
+        # 5. Масштабирование (пропускаем если scaler несовместим)
         try:
-            last_sequence_scaled = x_scaler.transform(last_sequence_raw)
+            if x_scaler is not None:
+                last_sequence_scaled = x_scaler.transform(last_sequence_raw)
+            else:
+                # Scaler пропущен из-за несовместимости feature count с моделью
+                last_sequence_scaled = last_sequence_raw
+                logger.debug(f"[{symbol}] {model_type}: Масштабирование пропущено (scaler несовместим)")
         except Exception as e:
             logger.error(f"[{symbol}] {model_type}: ошибка масштабирования: {e}")
             return None, None
@@ -670,13 +675,24 @@ class SignalService:
                     last_bar = last_sequence_scaled[-1].reshape(1, -1)
 
                     # FIX: оборачиваем в DataFrame с feature names для LightGBM
-                    if hasattr(x_scaler, "feature_names_in_"):
+                    # Приоритет: model.feature_names_in_ > x_scaler.feature_names_in_
+                    feature_names = None
+                    if hasattr(model, "feature_names_in_") and model.feature_names_in_ is not None:
+                        feature_names = list(model.feature_names_in_)
+                    elif x_scaler is not None and hasattr(x_scaler, "feature_names_in_"):
                         feature_names = list(x_scaler.feature_names_in_)
-                        import pandas as pd
 
+                    import pandas as pd
+
+                    if feature_names and len(feature_names) == last_bar.shape[1]:
                         last_bar_df = pd.DataFrame(last_bar, columns=feature_names)
+                        logger.debug(f"[{symbol}] {model_type}: {len(feature_names)} признаков с именами")
                     else:
                         last_bar_df = last_bar  # Fallback: numpy array
+                        if feature_names:
+                            logger.debug(
+                                f"[{symbol}] {model_type}: model={len(feature_names)} names != {last_bar.shape[1]} cols"
+                            )
 
                     # КРИТИЧНО: для классификаторов используем predict_proba, а не predict
                     if hasattr(model, "predict_proba"):
