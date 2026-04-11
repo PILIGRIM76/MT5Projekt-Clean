@@ -1427,8 +1427,6 @@ class TradingSystem(QObject):
                 available_symbols = []
                 for symbol in ranked_symbols:
                     try:
-                        import MetaTrader5 as mt5
-
                         symbol_info = mt5.symbol_info(symbol)
                         tick = mt5.symbol_info_tick(symbol)
 
