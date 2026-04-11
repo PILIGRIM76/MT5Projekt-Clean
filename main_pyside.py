@@ -658,6 +658,17 @@ class MainWindow(QMainWindow):
         if hasattr(self, "control_center_tab"):
             self.control_center_tab.load_initial_settings()
 
+        # Тестовая отправка данных на график обучения (чтобы проверить что он работает)
+        if hasattr(self, "bridge") and self.bridge:
+            try:
+                # Отправляем тестовые данные loss curve
+                test_loss = [2.5, 2.1, 1.8, 1.5, 1.2, 1.0, 0.85, 0.72, 0.65, 0.58]
+                history_obj = type("History", (), {"history": {"loss": test_loss}})()
+                self.bridge.training_history_updated.emit(history_obj)
+                logger.info("[GUI-Init] Отправлены тестовые данные на график обучения")
+            except Exception as e:
+                logger.warning(f"[GUI-Init] Не удалось отправить тестовые данные: {e}")
+
         self.show_notification("Система Genesis v24.0 полностью активна.", 5000)
 
     @Slot(tuple)
@@ -4253,6 +4264,8 @@ class MainWindow(QMainWindow):
                     logger.info(f"[GUI-Training] Обновление графика: {len(loss_values)} эпох, loss={loss_values[-1]:.4f}")
                     self.loss_curve.setData(x=x_values, y=y_values)
                     self.loss_plot.setTitle(f"Прогресс обучения (Loss: {loss_values[-1]:.4f})")
+                    self.loss_plot.enableAutoRange(x=True, y=True)
+                    self.loss_plot.setAutoVisible(x=True, y=True)
                     logger.info(f"[GUI-Training] График обновлен успешно")
                 else:
                     logger.warning("[GUI-Training] Список loss пуст")
