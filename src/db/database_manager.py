@@ -1895,14 +1895,20 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def get_all_models_for_gui(self) -> List[Dict]:
+    def get_all_models_for_gui(self, limit: int = 100) -> List[Dict]:
+        """
+        Получает список моделей для GUI с ограничением.
+
+        КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Без limit запрос ел всю RAM (2500+ моделей).
+        Теперь загружает только последние N моделей.
+
+        Args:
+            limit: Максимальное количество моделей (по умолчанию 100)
+        """
         session = self.Session()
         try:
-            models = (
-                session.query(TrainedModel)
-                .order_by(TrainedModel.symbol, TrainedModel.is_champion.desc(), TrainedModel.training_date.desc())
-                .all()
-            )
+            # Загружаем только последние N моделей (по дате обучения)
+            models = session.query(TrainedModel).order_by(TrainedModel.training_date.desc()).limit(limit).all()
             result_list = []
             for model in models:
                 report = {}
