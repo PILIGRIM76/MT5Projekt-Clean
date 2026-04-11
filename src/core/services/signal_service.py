@@ -565,15 +565,38 @@ class SignalService:
         expected_features = x_scaler.n_features_in_ if hasattr(x_scaler, "n_features_in_") else len(model_features)
         actual_features = last_sequence_raw.shape[-1]
 
-        if expected_features != actual_features:
+        # Проверяем ЧТО ожидает модель (не scaler!)
+        model_expected = None
+        if model_data.get("model") is not None and hasattr(model_data["model"], "n_features_in_"):
+            model_expected = model_data["model"].n_features_in_
+
+        if expected_features != actual_features or (model_expected and model_expected != actual_features):
             # Подробное логирование для диагностики
             logger.warning(
-                f"[{symbol}] {model_type}: mismatch scaler({expected_features}) vs actual({actual_features}). "
+                f"[{symbol}] {model_type}: mismatch scaler({expected_features}) vs model({model_expected}) vs actual({actual_features}). "
                 f"model_features count={len(model_features)}, first_5={model_features[:5]}"
             )
 
-            # Попытка восстановления №1: если у scaler есть feature_names_in_, используем их
-            if hasattr(x_scaler, "feature_names_in_"):
+            # Если модель ожидает ДРУГОГО количества признаков чем scaler — используем модель как авторитет
+            if model_expected and model_expected != expected_features:
+                logger.info(
+                    f"[{symbol}] {model_type}: Модель ожидает {model_expected} признаков, scaler — {expected_features}. "
+                    f"Используем модель как авторитет, scaler будет пропущен."
+                )
+                # Перестраиваем данные под модель
+                if model_expected > actual_features:
+                    # Дополняем нулями
+                    padding = np.zeros((last_sequence_raw.shape[0], model_expected - actual_features))
+                    last_sequence_raw = np.hstack([last_sequence_raw, padding])
+                    logger.info(f"[{symbol}] {model_type}: Дополнено до {model_expected} признаков для модели")
+                    # Пропускаем scaler — он несовместим
+                    x_scaler = None
+                elif model_expected < actual_features:
+                    # Обрезаем
+                    last_sequence_raw = last_sequence_raw[:, :model_expected]
+                    logger.info(f"[{symbol}] {model_type}: Обрезано до {model_expected} признаков для модели")
+                    x_scaler = None
+            elif hasattr(x_scaler, "feature_names_in_"):
                 scaler_features = list(x_scaler.feature_names_in_)
                 logger.info(f"[{symbol}] {model_type}: Восстановление признаков из scaler: {scaler_features[:5]}...")
 
