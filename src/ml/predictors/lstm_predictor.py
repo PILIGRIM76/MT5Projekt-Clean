@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from src.ml.predictors.base import BasePredictor, PredictionResult
+from src.utils.torch_utils import get_torch_device
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class LSTMPredictor(BasePredictor):
         sequence_length: int = 60,
     ):
         if device == "auto":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = get_torch_device()
 
         super().__init__(
             model_path=model_path,
@@ -130,12 +131,7 @@ class LSTMPredictor(BasePredictor):
             self.load()
 
         if self.model is None:
-            return PredictionResult(
-                signal=0,
-                confidence=0.0,
-                model_type=self.model_type,
-                metadata={"error": "Model not loaded"},
-            )
+            return self.model_not_loaded_result(self.model_type)
 
         # Подготовка данных
         data = self._preprocess(data)
@@ -163,45 +159,25 @@ class LSTMPredictor(BasePredictor):
 
     def _preprocess(self, data: np.ndarray) -> np.ndarray:
         """Предобработка: масштабирование и проверка формы."""
-        # Скалирование
         if self.scaler is not None and data.ndim == 2:
             data = self.scaler.transform(data)
-
-        # Добавляем batch dimension если нужно
         if data.ndim == 1:
             data = data.reshape(1, -1)
-        if data.ndim == 2 and data.shape[0] < self.sequence_length:
-            # Padding если последовательность короче
-            pad_len = self.sequence_length - data.shape[0]
-            data = np.pad(data, ((pad_len, 0), (0, 0)), mode="edge")
-
-        return data
+        return self._pad_sequence(data, self.sequence_length)
 
     def _postprocess(self, raw_value: float) -> tuple[int, float]:
         """Преобразует сырой вывод в сигнал и confidence."""
-        # raw_value уже в [0, 1] (sigmoid)
-        if raw_value > self.threshold + 0.1:
-            signal = 1  # BUY
-            confidence = min((raw_value - self.threshold) * 5, 1.0)
-        elif raw_value < self.threshold - 0.1:
-            signal = -1  # SELL
-            confidence = min((self.threshold - raw_value) * 5, 1.0)
-        else:
-            signal = 0  # HOLD
-            confidence = 1.0 - abs(raw_value - self.threshold) * 5
-
-        confidence = max(0.0, min(1.0, confidence))
-        return signal, confidence
+        return self._threshold_postprocess(raw_value, self.threshold)
 
     def _save_model(self, path: Path) -> None:
         """Сохраняет модель."""
         if self.model is None:
             raise ValueError("Модель не загружена")
-        torch.save(
-            {
-                "model_state_dict": self.model.state_dict(),
+        self._save_torch_checkpoint(
+            self.model,
+            path,
+            extra_meta={
                 "threshold": self.threshold,
                 "sequence_length": self.sequence_length,
             },
-            path,
         )

@@ -211,6 +211,100 @@ class BasePredictor(ABC):
             return tuple(self.metadata["input_shape"])
         return None
 
+    # =========================================================================
+    # Общие утилиты для подклассов (устранение дубликатов)
+    # =========================================================================
+
+    @staticmethod
+    def _threshold_postprocess(
+        raw_value: float,
+        threshold: float = 0.5,
+        margin: float = 0.1,
+    ) -> tuple[int, float]:
+        """
+        Преобразует сырое значение модели в сигнал и confidence.
+
+        Логика:
+        - raw_value > threshold + margin → BUY
+        - raw_value < threshold - margin → SELL
+        - иначе → HOLD
+        """
+        if raw_value > threshold + margin:
+            signal = 1  # BUY
+            confidence = min((raw_value - threshold) * 5, 1.0)
+        elif raw_value < threshold - margin:
+            signal = -1  # SELL
+            confidence = min((threshold - raw_value) * 5, 1.0)
+        else:
+            signal = 0  # HOLD
+            confidence = 1.0 - abs(raw_value - threshold) * 5
+
+        confidence = max(0.0, min(1.0, confidence))
+        return signal, confidence
+
+    @staticmethod
+    def _pad_sequence(
+        data: np.ndarray,
+        sequence_length: int,
+    ) -> np.ndarray:
+        """
+        Дополняет последовательность до нужной длины (edge padding).
+
+        Если data.shape[0] < sequence_length, добавляет строки сверху,
+        копируя граничные значения (mode='edge').
+        """
+        if data.ndim == 2 and data.shape[0] < sequence_length:
+            pad_len = sequence_length - data.shape[0]
+            data = np.pad(data, ((pad_len, 0), (0, 0)), mode="edge")
+        return data
+
+    @staticmethod
+    def _save_torch_checkpoint(
+        model,
+        path: "Path",
+        extra_meta: Optional[dict] = None,
+    ) -> None:
+        """
+        Сохраняет PyTorch модель в формате checkpoint.
+
+        Args:
+            model: torch.nn.Module
+            path: Путь для сохранения
+            extra_meta: Дополнительные ключи для checkpoint dict
+        """
+        import torch
+
+        checkpoint = {
+            "model_state_dict": model.state_dict(),
+        }
+        if extra_meta:
+            checkpoint.update(extra_meta)
+
+        torch.save(checkpoint, path)
+
+    @classmethod
+    def model_not_loaded_result(
+        cls,
+        model_type: str = "unknown",
+        error_msg: str = "Model not loaded",
+    ) -> PredictionResult:
+        """
+        Factory-метод: создаёт PredictionResult для случая «модель не загружена».
+
+        Args:
+            model_type: Тип модели
+            error_msg: Сообщение об ошибе
+
+        Returns:
+            PredictionResult(signal=0, confidence=0.0, ...)
+        """
+        return PredictionResult(
+            signal=0,
+            confidence=0.0,
+            model_type=model_type,
+            metadata={"error": error_msg},
+        )
+
     def __repr__(self) -> str:
         status = "loaded" if self._is_loaded else "not loaded"
         return f"{self.__class__.__name__}(path={self.model_path}, status={status})"

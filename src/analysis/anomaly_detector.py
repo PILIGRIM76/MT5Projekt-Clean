@@ -10,6 +10,7 @@ from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.core.config_models import Settings
+from src.utils.torch_utils import get_torch_device
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class AnomalyDetector:
         self.threshold = np.inf
         self.is_trained = False
         self.features = self.config.features
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(get_torch_device())
         logger.info(f"Детектор аномалий будет использовать устройство: {self.device}")
 
     def _build_model(self, input_dim: int):
