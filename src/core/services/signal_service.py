@@ -494,6 +494,8 @@ class SignalService:
         Returns:
             (prediction, confidence) или (None, None) при ошибке
         """
+        # Локальный флаг degraded (когда признаки не совпадают)
+        prediction_metadata: Dict[str, Any] = {}
         # 1. Получаем scaler — он авторитетный источник кол-ва признаков
         x_scaler = model_data.get("x_scaler") or self.x_scalers.get(symbol)
         y_scaler = model_data.get("y_scaler") or self.y_scalers.get(symbol)
@@ -585,12 +587,19 @@ class SignalService:
                 )
                 # Перестраиваем данные под модель
                 if model_expected > actual_features:
-                    # Дополняем нулями
-                    padding = np.zeros((last_sequence_raw.shape[0], model_expected - actual_features))
+                    # Дополняем нулями — НО помечаем что это degraded предсказание
+                    missing_count = model_expected - actual_features
+                    padding = np.zeros((last_sequence_raw.shape[0], missing_count))
                     last_sequence_raw = np.hstack([last_sequence_raw, padding])
-                    logger.info(f"[{symbol}] {model_type}: Дополнено до {model_expected} признаков для модели")
+                    logger.warning(
+                        f"[{symbol}] {model_type}: Дополнено {missing_count} нулевых признаков до {model_expected}. "
+                        f"Предсказание будет DEGRADED (ложная уверенность)."
+                    )
                     # Пропускаем scaler — он несовместим
                     x_scaler = None
+                    # Помечаем что предсказание degraded
+                    prediction_metadata["degraded"] = True
+                    prediction_metadata["reason"] = "feature_padding"
                 elif model_expected < actual_features:
                     # Обрезаем
                     last_sequence_raw = last_sequence_raw[:, :model_expected]
@@ -728,6 +737,16 @@ class SignalService:
         # 7. Confidence = отклонение от 0.5 (чем дальше, тем увереннее)
         confidence = abs(prediction - 0.5) * 2  # Нормализация 0..1
         confidence = min(max(confidence, 0.01), 1.0)  # Clamp
+
+        # CRITICAL: Ограничиваем уверенность если признаки были дополнены нулями
+        if prediction_metadata.get("degraded"):
+            max_confidence = 0.4  # Не больше 40% уверенности при degraded
+            if confidence > max_confidence:
+                logger.warning(
+                    f"[{symbol}] {model_type}: DEGRADED предсказание — confidence снижен с {confidence:.2f} до {max_confidence:.2f} "
+                    f"(признаки дополнены нулями, модель не обучалась на таких данных)"
+                )
+                confidence = max_confidence
 
         return prediction, confidence
 
