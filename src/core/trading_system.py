@@ -1851,11 +1851,11 @@ class TradingSystem(QObject):
             logger.info(f"[R&D] Прямая загрузка данных из MT5 для {symbol_to_train}...")
 
             df_full = None
-            max_retries = 3
+            max_retries = 5  # Увеличено с 3 до 5 для надёжности
             for attempt in range(max_retries):
-                lock_acquired = self.mt5_lock.acquire(timeout=5.0)
+                lock_acquired = self.mt5_lock.acquire(timeout=10.0)  # Увеличено с 5.0 до 10.0
                 if not lock_acquired:
-                    wait_time = 1.0 * (attempt + 1)  # Экспоненциальная задержка: 1с, 2с, 3с
+                    wait_time = 2.0 * (attempt + 1)  # Экспоненциальная задержка: 2с, 4с, 6с, 8с, 10с
                     logger.warning(f"[R&D] MT5 Lock занят (попытка {attempt+1}/{max_retries}), ждём {wait_time}с...")
                     self.stop_event.wait(wait_time)
                     continue

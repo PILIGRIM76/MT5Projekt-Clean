@@ -646,10 +646,19 @@ class SignalService:
                     # Это sklearn/LightGBM модель — нужен только последний бар
                     last_bar = last_sequence_scaled[-1].reshape(1, -1)
 
+                    # FIX: оборачиваем в DataFrame с feature names для LightGBM
+                    if hasattr(x_scaler, "feature_names_in_"):
+                        feature_names = list(x_scaler.feature_names_in_)
+                        import pandas as pd
+
+                        last_bar_df = pd.DataFrame(last_bar, columns=feature_names)
+                    else:
+                        last_bar_df = last_bar  # Fallback: numpy array
+
                     # КРИТИЧНО: для классификаторов используем predict_proba, а не predict
                     if hasattr(model, "predict_proba"):
                         # Классификатор → вероятности классов
-                        proba = model.predict_proba(last_bar)
+                        proba = model.predict_proba(last_bar_df)
                         # Берём вероятность класса "1" (рост/BUY)
                         if proba.ndim == 2 and proba.shape[1] >= 2:
                             prediction = float(proba[0, 1])
@@ -657,7 +666,7 @@ class SignalService:
                             prediction = float(proba[0])
                     else:
                         # Регрессор → прямое предсказание
-                        prediction_raw = model.predict(last_bar)
+                        prediction_raw = model.predict(last_bar_df)
                         if hasattr(prediction_raw, "flatten"):
                             prediction_raw = prediction_raw.flatten()
                         prediction = float(prediction_raw[0])

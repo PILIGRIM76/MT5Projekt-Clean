@@ -105,8 +105,15 @@ class AccountManager(QObject):
         # Обновляем курс валюты счета к USD
         self._update_fx_rate()
 
-        # Логируем только при успешном получении (уровень INFO)
-        logger.info(f"[AccountManager] Тип: {self.account_type} | " f"Баланс: {self.balance:.2f} | Эквити: {self.equity:.2f}")
+        # Логируем только при изменении данных (DEBUG уровень для снижения шума)
+        if (
+            self._last_emitted_balance is None
+            or abs(self.balance - self._last_emitted_balance) > 0.01
+            or abs(self.equity - self._last_emitted_equity) > 0.01
+        ):
+            logger.debug(f"[AccountManager] Тип: {self.account_type} | Баланс: {self.balance:.2f} | Эквити: {self.equity:.2f}")
+        else:
+            logger.debug(f"[AccountManager] Баланс/Эквити без изменений: {self.balance:.2f} / {self.equity:.2f}")
 
         # 🔹 ОТПРАВКА В GUI через Qt-сигнал (безопасно из любого потока!)
         # Отправляем только если данные изменились (дебаунсинг)
