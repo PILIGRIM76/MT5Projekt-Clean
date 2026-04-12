@@ -386,9 +386,9 @@
   "auto_retraining": {
     "enabled": true,
     "schedule_time": "18:19",
-    "interval_hours": 1,
+    "interval_hours": 0.5,
     "max_symbols": 30,
-    "max_workers": 3
+    "max_workers": 10
   },
   "PROFIT_MODE": "auto",
   "TRADE_INTENSITY": "medium",
@@ -550,20 +550,15 @@
   "ANIMATIONS_ENABLED": true,
   "championship": {
     "enabled": true,
+    "interval_days": 7,
     "evaluation_window": 2000,
+    "walk_forward_splits": 5,
     "min_sharpe_ratio": 0.3,
     "min_win_rate": 0.4,
-    "max_drawdown_percent": 20.0,
+    "max_drawdown_percent": 20,
     "min_profit_factor": 0.8,
-    "interval_days": 7,
     "quarantine_days": 3,
     "commission_per_trade": 0.0001,
-    "slippage_percent": 0.0002,
-    "walk_forward_splits": 5,
-    "candidate_models": [
-      "EURUSD_model",
-      "GBPUSD_model",
-      "XAUUSD_model"
-    ]
+    "slippage_percent": 0.0002
   }
 }

@@ -235,7 +235,7 @@ class AutoRetrainingSettings(BaseModel):
 
     enabled: bool = Field(default=True, description="Включить автоматическое переобучение моделей.")
     schedule_time: str = Field(default="02:00", description="Время запуска обучения в формате HH:MM.")
-    interval_hours: int = Field(default=24, description="Интервал между запусками в часах.")
+    interval_hours: float = Field(default=0.5, description="Интервал между запусками в часах (0.5 = 30 мин).")
     max_symbols: int = Field(default=30, description="Макс. кол-во символов для обучения.")
     max_workers: int = Field(default=3, description="Кол-во параллельных потоков обучения.")
 

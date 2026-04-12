@@ -1,7 +1,7 @@
 # src/gui/control_center_widget.py
 import logging
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
@@ -285,9 +285,26 @@ class ControlCenterWidget(QWidget):
         self.force_train_btn.clicked.connect(self._force_training_requested)
         training_layout.addWidget(self.force_train_btn)
 
+        # Горизонтальный layout для статуса и таймера
+        status_timer_layout = QHBoxLayout()
+
         self.training_status_label = QLabel("Статус: Ожидание...")
         self.training_status_label.setStyleSheet("color: #8be9fd; font-size: 12px;")
-        training_layout.addWidget(self.training_status_label)
+        status_timer_layout.addWidget(self.training_status_label)
+
+        # Таймер обратного отсчёта — в правом углу
+        self.next_training_label = QLabel("⏳ Следующее: --:--")
+        self.next_training_label.setStyleSheet("color: #f1fa8c; font-size: 12px; font-weight: bold;")
+        self.next_training_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        status_timer_layout.addStretch()  # Растягиваем пространство между статусом и таймером
+        status_timer_layout.addWidget(self.next_training_label)
+
+        training_layout.addLayout(status_timer_layout)
+
+        # Таймер обновления обратного отсчёта (каждую секунду)
+        self.countdown_timer = QTimer(self)
+        self.countdown_timer.timeout.connect(self._update_countdown)
+        self.countdown_timer.start(1000)  # Обновление каждую секунду
 
         layout.addWidget(training_box)
 
@@ -692,3 +709,65 @@ class ControlCenterWidget(QWidget):
             from PySide6.QtCore import QTimer
 
             QTimer.singleShot(5000, lambda: self.force_train_btn.setEnabled(True))
+
+    def _update_countdown(self):
+        """Обновляет таймер обратного отсчёта до следующего автообучения."""
+        try:
+            if not hasattr(self, "trading_system") or not self.trading_system:
+                return
+
+            # Получаем TrainingScheduler
+            scheduler = getattr(self.trading_system, "training_scheduler", None)
+            if not scheduler or not scheduler.is_running:
+                self.next_training_label.setText("⏸️ Автообучение не запущено")
+                self.next_training_label.setStyleSheet("color: #6272a4; font-size: 14px; font-weight: bold; padding: 5px;")
+                return
+
+            # Вычисляем время следующего запуска
+            from datetime import datetime
+
+            import schedule
+
+            next_job = schedule.next_run()
+            if next_job:
+                now = datetime.now()
+                time_diff = next_job - now
+                total_seconds = int(time_diff.total_seconds())
+
+                if total_seconds > 0:
+                    hours = total_seconds // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    seconds = total_seconds % 60
+
+                    if hours > 0:
+                        countdown_text = f"{hours}ч {minutes:02d}м"
+                    elif minutes > 0:
+                        countdown_text = f"{minutes}м {seconds:02d}с"
+                    else:
+                        countdown_text = f"{seconds}с"
+
+                    self.next_training_label.setText(f"⏳ Следующее: {countdown_text}")
+
+                    # Цвет меняется в зависимости от времени
+                    if total_seconds < 300:  # Меньше 5 минут
+                        self.next_training_label.setStyleSheet(
+                            "color: #ff5555; font-size: 14px; font-weight: bold; padding: 5px;"
+                        )
+                    elif total_seconds < 1800:  # Меньше 30 минут
+                        self.next_training_label.setStyleSheet(
+                            "color: #ffb86c; font-size: 14px; font-weight: bold; padding: 5px;"
+                        )
+                    else:
+                        self.next_training_label.setStyleSheet(
+                            "color: #50fa7b; font-size: 14px; font-weight: bold; padding: 5px;"
+                        )
+                else:
+                    self.next_training_label.setText("🔄 Обучение запускается...")
+                    self.next_training_label.setStyleSheet("color: #ff5555; font-size: 14px; font-weight: bold; padding: 5px;")
+            else:
+                self.next_training_label.setText("📅 Расписание не определено")
+                self.next_training_label.setStyleSheet("color: #6272a4; font-size: 14px; font-weight: bold; padding: 5px;")
+
+        except Exception as e:
+            self.next_training_label.setText(f"⚠️ Ошибка: {str(e)[:20]}")
+            self.next_training_label.setStyleSheet("color: #ff5555; font-size: 12px; padding: 5px;")

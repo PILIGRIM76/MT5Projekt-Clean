@@ -4910,7 +4910,7 @@ class TradingSystem(QObject):
             from smart_retrain import smart_retrain_models
 
             logger.info(f"📢 Запуск smart_retrain_models для {len(symbols_to_retrain)} символов...")
-            result = smart_retrain_models(symbols=symbols_to_retrain, max_workers=max_workers)
+            result = smart_retrain_models(max_symbols=len(symbols_to_retrain), max_workers=max_workers)
             logger.info(f"✅ Результат переобучения: {result}")
 
             logger.info("✅ Автоматическое переобучение завершено")
@@ -5146,11 +5146,34 @@ class TradingSystem(QObject):
 
             if progress_data and self.bridge:
                 self.bridge.retrain_progress_updated.emit(progress_data)
-                # Считаем сколько символов требуют переобучения (> 24 часа)
-                symbols_to_retrain = sum(1 for h in progress_data.values() if h >= 24.0)
-                logger.info(
-                    f"⏰ Отправлены данные прогресса для {len(progress_data)} символов, требуют переобучения (>24ч): {symbols_to_retrain}"
-                )
+
+                # АДАПТИВНЫЙ ПОРОГ: зависит от процента моделей требующих переобучения
+                total_models = len(progress_data)
+
+                # Считаем сколько моделей старше 30 минут (новый интервал)
+                symbols_older_30min = sum(1 for h in progress_data.values() if h >= 0.5)
+                symbols_older_1h = sum(1 for h in progress_data.values() if h >= 1.0)
+                symbols_older_24h = sum(1 for h in progress_data.values() if h >= 24.0)
+
+                # Проценты
+                percent_30min = (symbols_older_30min / total_models * 100) if total_models > 0 else 0
+                percent_1h = (symbols_older_1h / total_models * 100) if total_models > 0 else 0
+                percent_24h = (symbols_older_24h / total_models * 100) if total_models > 0 else 0
+
+                # Определяем статус
+                if percent_30min >= 30:
+                    status = "⚠️ ТРЕБУЕТСЯ ПЕРЕОБУЧЕНИЕ"
+                    logger.warning(
+                        f"⏰ Прогресс переобучения: {symbols_older_30min}/{total_models} ({percent_30min:.0f}%) старше 30 мин → {status}"
+                    )
+                elif percent_1h >= 50:
+                    status = "🟡 Многие модели устаревают"
+                    logger.info(f"⏰ Прогресс переобучения: {symbols_older_1h}/{total_models} ({percent_1h:.0f}%) старше 1 ч")
+                else:
+                    status = "✅ Актуально"
+                    logger.info(
+                        f"⏰ Прогресс переобучения: {symbols_older_30min}/{total_models} ({percent_30min:.0f}%) старше 30 мин, {status}"
+                    )
 
         except Exception as e:
             logger.error(f"Ошибка при отправке прогресса переобучения в GUI: {e}", exc_info=True)

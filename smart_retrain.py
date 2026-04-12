@@ -106,6 +106,36 @@ def train_symbol_model(symbol: str) -> dict:
             db = DatabaseManager(config, write_queue)
             trainer = AutoTrainer(config, db)
 
+            # УСТАНОВКА CALLBACK ДЛЯ ПРОГРЕССА ОБУЧЕНИЯ
+            try:
+                from src.core.container import get_trading_system
+
+                ts = get_trading_system()
+                logger.info(
+                    f"[{symbol}] 📡 Проверка TradingSystem: ts={ts is not None}, "
+                    f"has_bridge={hasattr(ts, 'bridge') if ts else False}"
+                )
+                if ts and hasattr(ts, "bridge") and ts.bridge:
+                    logger.info(f"[{symbol}] ✅ TradingSystem найден, устанавливаю callback")
+
+                    def send_to_gui(history_obj):
+                        """Отправляет прогресс обучения в GUI через bridge."""
+                        try:
+                            ts.bridge.training_history_updated.emit(history_obj)
+                            logger.info(f"[{symbol}] 📊 Прогресс обучения отправлен в GUI")
+                        except Exception as e:
+                            logger.warning(f"[{symbol}] ⚠️ Не удалось отправить прогресс: {e}")
+
+                    trainer.set_training_progress_callback(send_to_gui)
+                    logger.info(f"[{symbol}] 📡 Callback прогресса обучения установлен")
+                else:
+                    logger.warning(
+                        f"[{symbol}] ⚠️ TradingSystem не найден или bridge=None. "
+                        f"Прогресс обучения НЕ будет отправлен в GUI."
+                    )
+            except Exception as callback_error:
+                logger.warning(f"[{symbol}] ⚠️ Ошибка установки callback прогресса: {callback_error}", exc_info=True)
+
             # Загружаем данные для обучения (из БД или MT5)
             data = trainer.load_training_data(symbol)
 
@@ -168,6 +198,36 @@ def train_lightgbm_model(symbol: str) -> dict:
         write_queue = queue.Queue()  # Создаем очередь для записи
         db = DatabaseManager(config, write_queue)
         trainer = AutoTrainer(config, db)
+
+        # УСТАНОВКА CALLBACK ДЛЯ ПРОГРЕССА ОБУЧЕНИЯ
+        try:
+            from src.core.container import get_trading_system
+
+            ts = get_trading_system()
+            logger.info(
+                f"[{symbol}] 📡 [LightGBM] Проверка TradingSystem: ts={ts is not None}, "
+                f"has_bridge={hasattr(ts, 'bridge') if ts else False}"
+            )
+            if ts and hasattr(ts, "bridge") and ts.bridge:
+                logger.info(f"[{symbol}] ✅ [LightGBM] TradingSystem найден, устанавливаю callback")
+
+                def send_to_gui_lgb(history_obj):
+                    """Отправляет прогресс обучения LightGBM в GUI через bridge."""
+                    try:
+                        ts.bridge.training_history_updated.emit(history_obj)
+                        logger.info(f"[{symbol}] 📊 [LightGBM] Прогресс обучения отправлен в GUI")
+                    except Exception as e:
+                        logger.warning(f"[{symbol}] ⚠️ [LightGBM] Не удалось отправить прогресс: {e}")
+
+                trainer.set_training_progress_callback(send_to_gui_lgb)
+                logger.info(f"[{symbol}] 📡 [LightGBM] Callback прогресса обучения установлен")
+            else:
+                logger.warning(
+                    f"[{symbol}] ⚠️ [LightGBM] TradingSystem не найден или bridge=None. "
+                    f"Прогресс обучения НЕ будет отправлен в GUI."
+                )
+        except Exception as callback_error:
+            logger.warning(f"[{symbol}] ⚠️ [LightGBM] Ошибка установки callback прогресса: {callback_error}", exc_info=True)
 
         data = trainer.load_training_data(symbol)
 

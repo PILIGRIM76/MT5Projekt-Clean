@@ -362,7 +362,7 @@
   "auto_retraining": {
     "enabled": true,
     "schedule_time": "02:00",
-    "interval_hours": 1,
+    "interval_hours": 0.5,
     "max_symbols": 30,
     "max_workers": 3
   },

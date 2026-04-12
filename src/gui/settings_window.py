@@ -531,6 +531,286 @@ class SettingsWindow(QDialog):
         button_box.rejected.connect(self.reject)
         self.layout().addWidget(button_box)
 
+        # НОВАЯ ВКЛАДКА: Автообучение моделей (после Оптимизации)
+        auto_retraining_tab = self._create_auto_retraining_tab()
+        self.tab_widget.addTab(auto_retraining_tab, self.create_icon("🧠"), "Автообучение")
+
+        # НОВАЯ ВКЛАДКА: Championship (валидация моделей)
+        championship_tab = self._create_auto_retraining_championship_tab()
+        self.tab_widget.addTab(championship_tab, self.create_icon("🏆"), "Championship")
+
+    def _create_auto_retraining_tab(self):
+        """Создание отдельной вкладки автообучения моделей."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content_widget = QWidget()
+        scroll.setWidget(content_widget)
+        layout = QGridLayout(content_widget)
+        layout.setSpacing(10)
+
+        # Заголовок
+        title_label = QLabel("<h2>🧠 Автоматическое переобучение AI-моделей</h2>")
+        layout.addWidget(title_label, 0, 0, 1, 3)
+
+        # Описание
+        description = QLabel(
+            "Автоматическое переобучение AI-моделей (LSTM, LightGBM) по расписанию.\n"
+            "Система анализирует производительность моделей и автоматически обновляет их."
+        )
+        description.setWordWrap(True)
+        description.setStyleSheet("color: #8be9fd; padding: 10px; background: #282a36; border-radius: 5px;")
+        layout.addWidget(description, 1, 0, 1, 3)
+
+        # === ОСНОВНЫЕ НАСТРОЙКИ ===
+        layout.addWidget(QLabel("\n<b>Основные настройки</b>"), 2, 0, 1, 3)
+
+        self.auto_retrain_checkbox = QCheckBox("Включить автообучение")
+        self.auto_retrain_checkbox.setToolTip(
+            "Автоматически переобучает AI-модели по расписанию.\n"
+            "Система сама выбирает лучшие символы из всех доступных в MT5."
+        )
+        layout.addWidget(self.auto_retrain_checkbox, 3, 0)
+
+        layout.addWidget(QLabel("Время запуска:"), 4, 0)
+        self.auto_retrain_time_edit = QTimeEdit()
+        self.auto_retrain_time_edit.setTime(QTime(2, 0))  # По умолчанию 02:00
+        self.auto_retrain_time_edit.setDisplayFormat("HH:mm")  # 24-часовой формат
+        self.auto_retrain_time_edit.setButtonSymbols(QTimeEdit.ButtonSymbols.UpDownArrows)  # Кнопки вверх/вниз
+        self.auto_retrain_time_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.auto_retrain_time_edit.setToolTip(
+            "Ежедневное время запуска обучения.\n" "Рекомендуется: 02:00-04:00 (ночные часы)\n" "Для демо-счета работает 24/7"
+        )
+        layout.addWidget(self.auto_retrain_time_edit, 4, 1)
+
+        layout.addWidget(QLabel("Интервал (часов):"), 5, 0)
+        self.auto_retrain_interval_spin = QDoubleSpinBox()
+        self.auto_retrain_interval_spin.setRange(0.25, 168)  # От 15 минут до 7 дней
+        self.auto_retrain_interval_spin.setSingleStep(0.25)  # Шаг 15 минут
+        self.auto_retrain_interval_spin.setDecimals(2)
+        self.auto_retrain_interval_spin.setValue(0.5)  # По умолчанию 30 минут
+        self.auto_retrain_interval_spin.setToolTip(
+            "Интервал автоматического переобучения в часах.\n"
+            "0.25 = 15 мин, 0.5 = 30 мин, 1.0 = 1 час, 24.0 = 1 день\n"
+            "Рекомендуется: 0.5 (30 минут) для демо-счета"
+        )
+        self.auto_retrain_interval_spin.setEnabled(True)
+        layout.addWidget(self.auto_retrain_interval_spin, 5, 1)
+
+        layout.addWidget(QLabel("Макс. символов:"), 6, 0)
+        self.auto_retrain_max_symbols_spin = QSpinBox()
+        self.auto_retrain_max_symbols_spin.setRange(5, 200)
+        self.auto_retrain_max_symbols_spin.setValue(30)
+        self.auto_retrain_max_symbols_spin.setToolTip(
+            "Максимальное количество символов для обучения.\n" "Система автоматически отберёт лучшие из всех доступных."
+        )
+        layout.addWidget(self.auto_retrain_max_symbols_spin, 6, 1)
+
+        layout.addWidget(QLabel("Параллельных потоков:"), 7, 0)
+        self.auto_retrain_max_workers_spin = QSpinBox()
+        self.auto_retrain_max_workers_spin.setRange(1, 10)
+        self.auto_retrain_max_workers_spin.setValue(3)
+        self.auto_retrain_max_workers_spin.setToolTip(
+            "Количество параллельных потоков для обучения.\n" "Рекомендуется: CPU/2 (например, 3-4 для 8-ядерного процессора)"
+        )
+        layout.addWidget(self.auto_retrain_max_workers_spin, 7, 1)
+
+        # Пояснение
+        optimization_note = QLabel(
+            "⚡ <b>Рекомендация:</b> Автообучение каждые <b>0.5 ч (30 минут)</b> + ежедневно в 02:00.\n"
+            "Для демо-счета работает 24/7. Для реального счета — только в тихие часы (00:00-06:00, 22:00-23:59)."
+        )
+        optimization_note.setStyleSheet("color: #50fa7b; padding: 8px; background: #1e1f29; border-radius: 5px;")
+        optimization_note.setWordWrap(True)
+        layout.addWidget(optimization_note, 8, 0, 1, 3)
+
+        # === РУЧНОЙ ЗАПУСК ===
+        layout.addWidget(QLabel("\n<b>Ручное управление</b>"), 9, 0, 1, 3)
+
+        self.manual_retrain_button = QPushButton("▶ Запустить обучение сейчас")
+        self.manual_retrain_button.setToolTip(
+            "Запустить переобучение моделей вручную.\n" "Полезно для тестирования или внепланового обновления стратегий."
+        )
+        self.manual_retrain_button.clicked.connect(self._trigger_manual_retraining)
+        self.manual_retrain_button.setStyleSheet(
+            "QPushButton { background: #bd93f9; color: white; padding: 10px; border-radius: 5px; font-weight: bold; }"
+            "QPushButton:hover { background: #ffb86c; }"
+            "QPushButton:pressed { background: #ff5555; }"
+        )
+        layout.addWidget(self.manual_retrain_button, 10, 0, 1, 2)
+
+        self.auto_retrain_status_label = QLabel("Статус: не запланировано")
+        self.auto_retrain_status_label.setStyleSheet("color: #f1fa8c; font-size: 12px;")
+        layout.addWidget(self.auto_retrain_status_label, 10, 2)
+
+        # === ИНФОРМАЦИЯ ===
+        layout.addWidget(QLabel("\n<b>Как работает автообучение</b>"), 11, 0, 1, 3)
+
+        info_text = QLabel(
+            "1️⃣ <b>По расписанию:</b> каждые 30 минут (настраивается)\n"
+            "2️⃣ <b>Ежедневно:</b> в 02:00 (гарантированное обучение)\n"
+            "3️⃣ <b>Адаптивно:</b> если >30% моделей старше 30 мин → требуется переобучение\n\n"
+            "📊 <b>Процесс:</b>\n"
+            "• Загрузка данных из MT5/БД\n"
+            "• Генерация признаков (RSI, MACD, ATR, и др.)\n"
+            "• Обучение LSTM + LightGBM\n"
+            "• Валидация через Championship\n"
+            "• Сохранение лучшей модели как чемпиона\n\n"
+            "🎯 <b>Прогресс отображается:</b>\n"
+            "• 🔄 Прогресс обучения (Loss) — кривая loss по эпохам\n"
+            "• ⏰ До переобучения (ч) — сколько часов прошло с последнего обучения\n"
+            "• 📊 Точность — точность моделей по символам"
+        )
+        info_text.setWordWrap(True)
+        info_text.setStyleSheet(
+            "color: #f8f8f2; padding: 12px; background: #282a36; border-radius: 5px; border-left: 3px solid #bd93f9;"
+        )
+        layout.addWidget(info_text, 12, 0, 1, 3)
+
+        layout.setRowStretch(13, 1)
+
+        return scroll
+
+    def _create_auto_retraining_championship_tab(self):
+        """Создание вкладки настроек Championship (валидация моделей)."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content_widget = QWidget()
+        scroll.setWidget(content_widget)
+        layout = QGridLayout(content_widget)
+        layout.setSpacing(10)
+
+        # Заголовок
+        title_label = QLabel("<h2>🏆 Championship — Валидация и отбор моделей</h2>")
+        layout.addWidget(title_label, 0, 0, 1, 3)
+
+        # Описание
+        description = QLabel(
+            "Система Championship автоматически сравнивает новые модели с текущими чемпионами.\n"
+            "Только лучшие модели попадают в продакшен через walk-forward валидацию."
+        )
+        description.setWordWrap(True)
+        description.setStyleSheet("color: #8be9fd; padding: 10px; background: #282a36; border-radius: 5px;")
+        layout.addWidget(description, 1, 0, 1, 3)
+
+        # === ОСНОВНЫЕ НАСТРОЙКИ ===
+        layout.addWidget(QLabel("\n<b>Основные настройки</b>"), 2, 0, 1, 3)
+
+        self.championship_enabled_checkbox = QCheckBox("Включить Championship")
+        self.championship_enabled_checkbox.setToolTip(
+            "Автоматическая валидация новых моделей через чемпионат.\n"
+            "Новая модель должна победить текущего чемпиона чтобы стать активной."
+        )
+        layout.addWidget(self.championship_enabled_checkbox, 3, 0)
+
+        layout.addWidget(QLabel("Интервал чемпионата (дней):"), 4, 0)
+        self.championship_interval_spin = QSpinBox()
+        self.championship_interval_spin.setRange(1, 30)
+        self.championship_interval_spin.setValue(7)
+        self.championship_interval_spin.setToolTip("Как часто проводится чемпионат моделей.\n" "7 дней = раз в неделю")
+        layout.addWidget(self.championship_interval_spin, 4, 1)
+
+        layout.addWidget(QLabel("Окно оценки (баров):"), 5, 0)
+        self.championship_window_spin = QSpinBox()
+        self.championship_window_spin.setRange(500, 10000)
+        self.championship_window_spin.setValue(2000)
+        self.championship_window_spin.setToolTip("Размер данных для оценки модели.\n" "2000 баров H1 ≈ 3 месяца данных")
+        layout.addWidget(self.championship_window_spin, 5, 1)
+
+        layout.addWidget(QLabel("Walk-forward сплитов:"), 6, 0)
+        self.championship_splits_spin = QSpinBox()
+        self.championship_splits_spin.setRange(3, 10)
+        self.championship_splits_spin.setValue(5)
+        self.championship_splits_spin.setToolTip(
+            "Количество разбиений для walk-forward валидации.\n" "Больше = точнее оценка, но дольше"
+        )
+        layout.addWidget(self.championship_splits_spin, 6, 1)
+
+        # === ПОРОГИ ВАЛИДАЦИИ ===
+        layout.addWidget(QLabel("\n<b>Пороги валидации модели</b>"), 7, 0, 1, 3)
+
+        layout.addWidget(QLabel("Мин. Sharpe Ratio:"), 8, 0)
+        self.championship_sharpe_spin = QDoubleSpinBox()
+        self.championship_sharpe_spin.setRange(0.0, 5.0)
+        self.championship_sharpe_spin.setSingleStep(0.1)
+        self.championship_sharpe_spin.setDecimals(2)
+        self.championship_sharpe_spin.setValue(0.3)
+        self.championship_sharpe_spin.setToolTip(
+            "Минимальный Sharpe ratio для прохождения.\n" "0.3 = минимальный, 1.0 = хороший, 2.0+ = отличный"
+        )
+        layout.addWidget(self.championship_sharpe_spin, 8, 1)
+
+        layout.addWidget(QLabel("Мин. Win Rate (%):"), 9, 0)
+        self.championship_wr_spin = QSpinBox()
+        self.championship_wr_spin.setRange(30, 80)
+        self.championship_wr_spin.setValue(40)
+        self.championship_wr_spin.setToolTip("Минимальный процент прибыльных сделок.\n" "40% = минимум, 55%+ = хороший")
+        layout.addWidget(self.championship_wr_spin, 9, 1)
+
+        layout.addWidget(QLabel("Макс. просадка (%):"), 10, 0)
+        self.championship_dd_spin = QSpinBox()
+        self.championship_dd_spin.setRange(5, 50)
+        self.championship_dd_spin.setValue(20)
+        self.championship_dd_spin.setToolTip("Максимально допустимая просадка.\n" "20% = стандарт, меньше = лучше")
+        layout.addWidget(self.championship_dd_spin, 10, 1)
+
+        layout.addWidget(QLabel("Мин. Profit Factor:"), 11, 0)
+        self.championship_pf_spin = QDoubleSpinBox()
+        self.championship_pf_spin.setRange(0.5, 3.0)
+        self.championship_pf_spin.setSingleStep(0.1)
+        self.championship_pf_spin.setDecimals(2)
+        self.championship_pf_spin.setValue(0.8)
+        self.championship_pf_spin.setToolTip("Минимальное отношение прибыли к убыткам.\n" "1.0 = безубыток, 1.5+ = хороший")
+        layout.addWidget(self.championship_pf_spin, 11, 1)
+
+        layout.addWidget(QLabel("Карантин (дней):"), 12, 0)
+        self.championship_quarantine_spin = QSpinBox()
+        self.championship_quarantine_spin.setRange(1, 14)
+        self.championship_quarantine_spin.setValue(3)
+        self.championship_quarantine_spin.setToolTip(
+            "Дней карантина для новой модели перед промоушеном.\n" "3 дня = проверка стабильности"
+        )
+        layout.addWidget(self.championship_quarantine_spin, 12, 1)
+
+        # === СИМУЛЯЦИЯ ТОРГОВЛИ ===
+        layout.addWidget(QLabel("\n<b>Параметры симуляции торговли</b>"), 13, 0, 1, 3)
+
+        layout.addWidget(QLabel("Комиссия за сделку:"), 14, 0)
+        self.championship_commission_spin = QDoubleSpinBox()
+        self.championship_commission_spin.setRange(0.0, 0.001)
+        self.championship_commission_spin.setSingleStep(0.0001)
+        self.championship_commission_spin.setDecimals(4)
+        self.championship_commission_spin.setValue(0.0001)
+        self.championship_commission_spin.setToolTip("Комиссия за одну сделку.\n" "0.0001 = 0.01% (стандарт для Forex)")
+        layout.addWidget(self.championship_commission_spin, 14, 1)
+
+        layout.addWidget(QLabel("Проскальзывание:"), 15, 0)
+        self.championship_slippage_spin = QDoubleSpinBox()
+        self.championship_slippage_spin.setRange(0.0, 0.001)
+        self.championship_slippage_spin.setSingleStep(0.0001)
+        self.championship_slippage_spin.setDecimals(4)
+        self.championship_slippage_spin.setValue(0.0002)
+        self.championship_slippage_spin.setToolTip("Проскальзывание цены.\n" "0.0002 = 0.02% (стандарт)")
+        layout.addWidget(self.championship_slippage_spin, 15, 1)
+
+        # Пояснение
+        championship_note = QLabel(
+            "🏆 <b>Как работает Championship:</b><br><br>"
+            "1️⃣ Новая модель обучается на данных<br>"
+            "2️⃣ Проводится walk-forward валидация<br>"
+            "3️⃣ Считаются метрики: Sharpe, WinRate, Profit Factor, Drawdown<br>"
+            "4️⃣ Сравнивается с текущим чемпионом<br>"
+            "5️⃣ Если новая модель лучше → становится чемпионом<br>"
+            "6️⃣ Период карантина для проверки стабильности<br>"
+            "7️⃣ Hot-reload — новая модель сразу загружается"
+        )
+        championship_note.setStyleSheet("color: #f1fa8c; padding: 12px; background: #282a36; border-radius: 5px;")
+        championship_note.setWordWrap(True)
+        layout.addWidget(championship_note, 16, 0, 1, 3)
+
+        layout.setRowStretch(17, 1)
+
+        return scroll
+
     def _create_news_scheduler_tab(self):
         """Создание вкладки планировщика новостей."""
         content_widget = QWidget()
@@ -1748,9 +2028,37 @@ class SettingsWindow(QDialog):
             # Значения по умолчанию
             self.auto_retrain_checkbox.setChecked(True)
             self.auto_retrain_time_edit.setTime(QTime(2, 0))
-            self.auto_retrain_interval_spin.setValue(24)
+            self.auto_retrain_interval_spin.setValue(0.5)  # 30 минут
             self.auto_retrain_max_symbols_spin.setValue(30)
             self.auto_retrain_max_workers_spin.setValue(3)
+
+        # Загрузка настроек Championship
+        if hasattr(self.full_config, "championship"):
+            champ = self.full_config.championship
+            self.championship_enabled_checkbox.setChecked(champ.enabled)
+            self.championship_interval_spin.setValue(champ.interval_days)
+            self.championship_window_spin.setValue(champ.evaluation_window)
+            self.championship_splits_spin.setValue(champ.walk_forward_splits)
+            self.championship_sharpe_spin.setValue(champ.min_sharpe_ratio)
+            self.championship_wr_spin.setValue(int(champ.min_win_rate * 100))
+            self.championship_dd_spin.setValue(int(champ.max_drawdown_percent))
+            self.championship_pf_spin.setValue(champ.min_profit_factor)
+            self.championship_quarantine_spin.setValue(champ.quarantine_days)
+            self.championship_commission_spin.setValue(champ.commission_per_trade)
+            self.championship_slippage_spin.setValue(champ.slippage_percent)
+        else:
+            # Значения по умолчанию
+            self.championship_enabled_checkbox.setChecked(True)
+            self.championship_interval_spin.setValue(7)
+            self.championship_window_spin.setValue(2000)
+            self.championship_splits_spin.setValue(5)
+            self.championship_sharpe_spin.setValue(0.3)
+            self.championship_wr_spin.setValue(40)
+            self.championship_dd_spin.setValue(20)
+            self.championship_pf_spin.setValue(0.8)
+            self.championship_quarantine_spin.setValue(3)
+            self.championship_commission_spin.setValue(0.0001)
+            self.championship_slippage_spin.setValue(0.0002)
 
         # Загрузка настроек контроля прибыли
         self.profit_target_mode_combo.setCurrentText(getattr(self.full_config, "PROFIT_TARGET_MODE", "auto"))
@@ -2171,6 +2479,22 @@ class SettingsWindow(QDialog):
                 "max_symbols": self.auto_retrain_max_symbols_spin.value(),
                 "max_workers": self.auto_retrain_max_workers_spin.value(),
             }
+
+            # Настройки Championship
+            settings_to_update["championship"] = {
+                "enabled": self.championship_enabled_checkbox.isChecked(),
+                "interval_days": self.championship_interval_spin.value(),
+                "evaluation_window": self.championship_window_spin.value(),
+                "walk_forward_splits": self.championship_splits_spin.value(),
+                "min_sharpe_ratio": self.championship_sharpe_spin.value(),
+                "min_win_rate": self.championship_wr_spin.value() / 100.0,
+                "max_drawdown_percent": self.championship_dd_spin.value(),
+                "min_profit_factor": self.championship_pf_spin.value(),
+                "quarantine_days": self.championship_quarantine_spin.value(),
+                "commission_per_trade": self.championship_commission_spin.value(),
+                "slippage_percent": self.championship_slippage_spin.value(),
+            }
+
             settings_to_update["trading_mode"] = {
                 "current_mode": self.trading_mode_toggle.get_mode() if hasattr(self, "trading_mode_toggle") else "paper",
                 "enabled": True,
@@ -2282,6 +2606,14 @@ class SettingsWindow(QDialog):
                         if hasattr(self.trading_system, "alert_manager"):
                             self.trading_system.alert_manager.config = self.full_config
                             logger.info("Alert Manager обновлён")
+
+                        # ОБНОВЛЕНИЕ НАСТРОЕК АВТООБУЧЕНИЯ НА ЛЕТУ
+                        if hasattr(self.trading_system, "training_scheduler") and self.trading_system.training_scheduler:
+                            success = self.trading_system.training_scheduler.update_settings(self.full_config)
+                            if success:
+                                logger.info("✅ TrainingScheduler обновлён на лету")
+                            else:
+                                logger.debug("TrainingScheduler: настройки не изменились")
                     except Exception as e:
                         logger.warning(f"Не удалось обновить trading_system: {e}")
 
@@ -2404,67 +2736,7 @@ class SettingsWindow(QDialog):
         layout.addWidget(self.optimization_time_edit, 3, 1)
         layout.addWidget(self.optimization_status_label, 3, 2)
 
-        # --- НОВАЯ СЕКЦИЯ: Автоматическое переобучение моделей ---
-        layout.addWidget(QLabel("\n<b>Автоматическое переобучение моделей</b>"), 4, 0, 1, 3)
-
-        self.auto_retrain_checkbox = QCheckBox("Включить автообучение")
-        self.auto_retrain_checkbox.setToolTip(
-            "Автоматически переобучает AI-модели по расписанию.\n"
-            "Система сама выбирает лучшие символы из всех доступных в MT5."
-        )
-        layout.addWidget(self.auto_retrain_checkbox, 5, 0)
-
-        layout.addWidget(QLabel("Время запуска:"), 6, 0)
-        self.auto_retrain_time_edit = QTimeEdit()
-        self.auto_retrain_time_edit.setDisplayFormat("hh:mm")
-        self.auto_retrain_time_edit.setToolTip(
-            "Окно запуска обучения (Ночной режим). Система будет учиться +/- 2 часа от этого времени."
-        )
-        layout.addWidget(self.auto_retrain_time_edit, 6, 1)
-
-        layout.addWidget(QLabel("Интервал (часов):"), 7, 0)
-        self.auto_retrain_interval_spin = QSpinBox()
-        self.auto_retrain_interval_spin.setRange(1, 168)
-        self.auto_retrain_interval_spin.setToolTip(
-            "ИНТЕРВАЛ ЗАБЛОКИРОВАН: Обучение оптимизировано (Ночной режим). Интервал применяется только в окне обучения."
-        )
-        self.auto_retrain_interval_spin.setEnabled(False)  # Блокируем изменение, чтобы не нарушать оптимизацию
-        layout.addWidget(self.auto_retrain_interval_spin, 7, 1)
-
-        # Добавляем пояснение
-        optimization_note = QLabel(
-            "⚡ <b>Оптимизация:</b> R&D (обучение) работает только ночью (Тихие часы), чтобы не мешать торговле."
-        )
-        optimization_note.setStyleSheet("color: #ffb86c;")
-        layout.addWidget(optimization_note, 8, 0, 1, 3)
-
-        layout.addWidget(QLabel("Макс. символов:"), 9, 0)
-        self.auto_retrain_max_symbols_spin = QSpinBox()
-        self.auto_retrain_max_symbols_spin.setRange(5, 200)
-        self.auto_retrain_max_symbols_spin.setToolTip(
-            "Максимальное количество символов для обучения.\n" "Система автоматически отберёт лучшие из всех доступных."
-        )
-        layout.addWidget(self.auto_retrain_max_symbols_spin, 9, 1)
-
-        layout.addWidget(QLabel("Параллельных потоков:"), 10, 0)
-        self.auto_retrain_max_workers_spin = QSpinBox()
-        self.auto_retrain_max_workers_spin.setRange(1, 10)
-        self.auto_retrain_max_workers_spin.setToolTip(
-            "Количество параллельных потоков для обучения.\n" "Рекомендуется: CPU/2 (например, 3-4 для 8-ядерного процессора)"
-        )
-        layout.addWidget(self.auto_retrain_max_workers_spin, 10, 1)
-
-        # Кнопка для ручного запуска
-        self.manual_retrain_button = QPushButton("▶ Запустить обучение сейчас")
-        self.manual_retrain_button.setToolTip(
-            "Запустить переобучение моделей вручную.\n" "Полезно для тестирования или внепланового обновления стратегий."
-        )
-        self.manual_retrain_button.clicked.connect(self._trigger_manual_retraining)
-        layout.addWidget(self.manual_retrain_button, 11, 0, 1, 2)
-
-        self.auto_retrain_status_label = QLabel("Статус: не запланировано")
-        self.auto_retrain_status_label.setToolTip("Текущий статус задачи автоматического переобучения.")
-        layout.addWidget(self.auto_retrain_status_label, 11, 2)
+        # ПЕРЕНОСЕНО: Настройки автообучения теперь во вкладке "🧠 Автообучение"
 
         info_label = QLabel(
             "\n<b>Внимание:</b> Для управления задачами программу необходимо запустить <b>от имени Администратора</b>."
@@ -2474,10 +2746,10 @@ class SettingsWindow(QDialog):
             "Без прав администратора задачи не будут созданы."
         )
         info_label.setWordWrap(True)
-        layout.addWidget(info_label, 11, 0, 1, 3)
+        layout.addWidget(info_label, 5, 0, 1, 3)
 
         # --- НОВАЯ СЕКЦИЯ: Целевая прибыль ---
-        layout.addWidget(QLabel("\n<b>Контроль прибыли сделок</b>"), 12, 0, 1, 3)
+        layout.addWidget(QLabel("\n<b>Контроль прибыли сделок</b>"), 6, 0, 1, 3)
 
         self.profit_target_mode_combo = QComboBox()
         self.profit_target_mode_combo.addItems(["auto", "manual"])

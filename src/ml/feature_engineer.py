@@ -107,13 +107,27 @@ class FeatureEngineer:
             features_df["raw_inf"] = events_df.groupby("timestamp")["inf_score"].sum()
 
             # === FIX: Нормализуем datetime типы перед merge_asof ===
-            # Приводим оба индекса к одному типу (datetime64[ns])
+            # Приводим оба индекса к одному типу (datetime64[ns], без timezone)
             df_sorted = df.sort_index().copy()
             features_sorted = features_df.sort_index().copy()
-            
+
             # Конвертируем в datetime64[ns] (универсальный формат pandas)
-            df_sorted.index = pd.to_datetime(df_sorted.index)
-            features_sorted.index = pd.to_datetime(features_sorted.index)
+            # Явно указываем utc=False чтобы убрать timezone (если есть)
+            df_sorted.index = pd.to_datetime(df_sorted.index, utc=False)
+            features_sorted.index = pd.to_datetime(features_sorted.index, utc=False)
+
+            # ДОПОЛНИТЕЛЬНО: Убираем timezone если остался (pandas 2.x может сохранять tz)
+            if df_sorted.index.tz is not None:
+                df_sorted.index = df_sorted.index.tz_localize(None)
+            if features_sorted.index.tz is not None:
+                features_sorted.index = features_sorted.index.tz_localize(None)
+
+            # Проверяем что типы совпадают
+            assert (
+                df_sorted.index.dtype == features_sorted.index.dtype
+            ), f"Типы индексов не совпадают: {df_sorted.index.dtype} vs {features_sorted.index.dtype}"
+
+            logger.debug(f"[KG Features] Индексы нормализованы: {df_sorted.index.dtype}")
 
             # Используем merge_asof для привязки новостей к ближайшей ПРЕДЫДУЩЕЙ свече
             df_merged = pd.merge_asof(

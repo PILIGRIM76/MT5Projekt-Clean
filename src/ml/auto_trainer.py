@@ -108,6 +108,9 @@ class AutoTrainer:
         # Блокировка
         self._lock = threading.Lock()
 
+        # Callback для отправки прогресса обучения в GUI
+        self._training_progress_callback = None  # Функция(history_object)
+
         logger.info("Auto Trainer инициализирован")
         logger.info(f"  ⚡ Интервал переобучения: {self.retrain_interval_hours} ч (адаптивный)")
         logger.info(f"  📊 Мин. сэмплов: {self.min_samples_for_retrain}")
@@ -305,6 +308,16 @@ class AutoTrainer:
 
         self._last_retrain_time[symbol] = datetime.now()
         logger.info(f"✅ [{symbol}] Отмечено время переобучения")
+
+    def set_training_progress_callback(self, callback):
+        """
+        Устанавливает callback для отправки прогресса обучения в GUI.
+
+        Args:
+            callback: Функция(history_object) где history_object.history = {'loss': [...]}
+        """
+        self._training_progress_callback = callback
+        logger.info("📡 [AutoTrainer] Callback прогресса обучения установлен")
 
     def load_training_data(self, symbol: str, timeframe: str = "D1") -> Optional[pd.DataFrame]:
         """
@@ -516,6 +529,7 @@ class AutoTrainer:
             X_val_scaled = scaler.transform(X_val)
 
             # Обучаем простую модель (LightGBM для скорости)
+            evals_result = {}  # ДЛЯ ОТСЛЕЖИВАНИЯ ПРОГРЕССА
             try:
                 import lightgbm as lgb
 
@@ -553,7 +567,13 @@ class AutoTrainer:
                     **gpu_params,
                 )
 
-                model.fit(X_train_scaled, y_train)
+                # ДОБАВЛЕНО: callbacks для отслеживания прогресса
+                model.fit(
+                    X_train_scaled,
+                    y_train,
+                    eval_set=[(X_val_scaled, y_val)],
+                    callbacks=[lgb.record_evaluation(evals_result)],
+                )
 
                 # Валидация
                 train_pred = model.predict(X_train_scaled)
@@ -563,6 +583,19 @@ class AutoTrainer:
                 val_acc = (val_pred == y_val).mean()
 
                 logger.info(f"Модель обучена: Train Acc={train_acc:.3f}, Val Acc={val_acc:.3f}")
+
+                # ОТПРАВКА ПРОГРЕССА ОБУЧЕНИЯ В GUI (через callback)
+                if self._training_progress_callback:
+                    try:
+                        if "valid_0" in evals_result and "log_loss" in evals_result["valid_0"]:
+                            loss_history = evals_result["valid_0"]["log_loss"]
+                            history_obj = type("History", (), {"history": {"loss": loss_history}})()
+                            self._training_progress_callback(history_obj)
+                            logger.info(
+                                f"📊 [AutoTrainer] Отправлен прогресс обучения: {len(loss_history)} эпох, loss={loss_history[-1]:.4f}"
+                            )
+                    except Exception as progress_error:
+                        logger.warning(f"⚠️ Не удалось отправить прогресс обучения: {progress_error}")
 
             except ImportError:
                 logger.warning("LightGBM не установлен, используем RandomForest")
