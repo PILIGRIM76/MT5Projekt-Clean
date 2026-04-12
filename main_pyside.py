@@ -950,17 +950,59 @@ class MainWindow(QMainWindow):
     def apply_style(self, style_name: str):
         if style_name == "Светлая":
             self.setStyleSheet(LIGHT_STYLE)
-            pg.setConfigOption("background", "w")
-            pg.setConfigOption("foreground", "k")
+            bg_color = "w"
+            fg_color = "k"
         elif style_name == "Темная":
             self.setStyleSheet(DARK_STYLE)
-            pg.setConfigOption("background", "#282a36")
-            pg.setConfigOption("foreground", "#f8f8f2")
+            bg_color = "#282a36"
+            fg_color = "#f8f8f2"
         elif style_name == "Стандартная":
             self.setStyleSheet("")
-            pg.setConfigOption("background", "#282a36")
-            pg.setConfigOption("foreground", "#f8f8f2")
+            bg_color = "#282a36"
+            fg_color = "#f8f8f2"
+        else:
+            # По умолчанию тёмная
+            self.setStyleSheet(DARK_STYLE)
+            bg_color = "#282a36"
+            fg_color = "#f8f8f2"
+
+        # FIX: Обновляем фоны pyqtgraph графиков ВРУЧНУЮ
+        # pg.setConfigOption работает только ДО создания виджетов
+        pg.setConfigOption("background", bg_color)
+        pg.setConfigOption("foreground", fg_color)
+
+        # Обновляем фоны всех существующих PlotWidget
+        self._update_all_plot_backgrounds(bg_color, fg_color)
+
+        # FIX: Принудительно обновляем стили всех виджетов
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
         logger.info(f"Применен стиль: {style_name}")
+
+    def _update_all_plot_backgrounds(self, bg_color: str, fg_color: str):
+        """Обновляет фоны всех pyqtgraph виджетов."""
+        plot_widgets = [
+            getattr(self, "loss_plot", None),
+            getattr(self, "model_accuracy_plot", None),
+            getattr(self, "retrain_progress_plot", None),
+            getattr(self, "pnl_plot", None),
+            getattr(self, "observer_pnl_plot", None),
+            getattr(self, "drift_plot", None),
+            # Аналитика
+            getattr(self, "candle_plot", None),
+            getattr(self, "volume_plot", None),
+            # ControlCenter графики
+            getattr(getattr(self, "control_center_tab", None), "retrain_progress_widget", None),
+        ]
+
+        for pw in plot_widgets:
+            if pw is not None and hasattr(pw, "setBackground"):
+                try:
+                    pw.setBackground(bg_color)
+                except Exception:
+                    pass
 
     def _init_widgets(self):
         central_widget = QWidget()
