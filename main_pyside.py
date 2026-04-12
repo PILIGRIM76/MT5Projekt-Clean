@@ -4,23 +4,6 @@
 # ИСПРАВЛЕНИЕ: Отключаем использование системного прокси для всех HTTP-запросов
 # ============================================================================
 import os
-import sys
-
-# ============================================================================
-# === НАСТРОЙКА КОДИРОВКИ КОНСОЛИ (Windows) ===
-# ============================================================================
-if sys.platform == "win32":
-    try:
-        # Устанавливаем UTF-8 для stdout/stderr
-        import io
-
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-        # Включаем режим совместимости с UTF-8
-        os.environ["PYTHONIOENCODING"] = "utf-8"
-    except Exception:
-        pass  # Если не получилось — не критично
-# ============================================================================
 
 # Удаляем переменные окружения прокси, если они есть
 for proxy_var in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
@@ -40,9 +23,8 @@ import sys
 import tempfile
 import threading
 import time
-import traceback as _traceback
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -55,15 +37,10 @@ import pyqtgraph as pg
 import requests
 import urllib3
 from pyqtgraph import BarGraphItem
-
-# ===================================================================
-# === QT MESSAGE HANDLER (перехват сообщений Qt) ===
-# ===================================================================
 from PySide6.QtCore import (
     QAbstractTableModel,
     QDate,
     QEvent,
-    QMessageLogContext,
     QObject,
     QPointF,
     QRectF,
@@ -71,11 +48,9 @@ from PySide6.QtCore import (
     Qt,
     QThreadPool,
     QTimer,
-    QtMsgType,
     QUrl,
     Signal,
     Slot,
-    qInstallMessageHandler,
 )
 from PySide6.QtGui import QAction, QColor, QIcon, QPainterPath, QTextCharFormat
 from PySide6.QtWebChannel import QWebChannel
@@ -131,33 +106,6 @@ from src.gui.styles import DARK_STYLE, LIGHT_STYLE
 from src.gui.widgets import Bridge, CustomCandlestickItem, GraphBackend, GUIBridge
 from src.gui.widgets.defi_widget import DeFiWidget
 from src.strategies.strategy_loader import StrategyLoader
-
-
-def qt_message_handler(mode, context: QMessageLogContext, message: str):
-    """
-    Перехватывает сообщения Qt для отладки критических ошибок.
-    """
-    if mode == QtMsgType.QtDebugMsg:
-        logger.debug(f"[Qt] {message}")
-    elif mode == QtMsgType.QtWarningMsg:
-        logger.warning(f"[Qt-WARNING] {message}")
-    elif mode == QtMsgType.QtCriticalMsg:
-        logger.critical(f"[Qt-CRITICAL] {message}")
-        # Печатаем стек вызовов для критических ошибок
-        stack = _traceback.format_stack()
-        logger.critical("[Qt-CRITICAL] Stack trace:\n%s", "".join(stack))
-    elif mode == QtMsgType.QtFatalMsg:
-        logger.critical(f"[Qt-FATAL] {message}")
-        stack = _traceback.format_stack()
-        logger.critical("[Qt-FATAL] Stack trace:\n%s", "".join(stack))
-        sys.exit(1)
-    elif mode == QtMsgType.QtInfoMsg:
-        logger.info(f"[Qt] {message}")
-
-
-# Устанавливаем обработчик сообщений Qt
-qInstallMessageHandler(qt_message_handler)
-# ===================================================================
 
 # ===================================================================
 # === НАСТРОЙКА ЛОГИРОВАНИЯ (должно быть самым первым) ===
@@ -283,7 +231,7 @@ if "NUMBA_NUM_THREADS" not in os.environ:
 if "TORCH_NUM_THREADS" not in os.environ:
     os.environ["TORCH_NUM_THREADS"] = str(cpu_count)
 
-# 1. Numba JIT включён для производительности (по умолчанию disabled=False)
+# 1. Numba JIT включён для производительности (по умолчанию disabled=False)продолжить
 # Если возникают сбои, установите в "1" для отладки
 os.environ["NUMBA_DISABLE_JIT"] = "0"
 
@@ -359,9 +307,7 @@ app_config_for_path = load_config()
 logger = logging.getLogger(__name__)
 
 
-from src.gui.animation_manager import AnimationManager
 from src.gui.backtest_process import run_backtest_process
-from src.gui.custom_title_bar import CustomTitleBar
 
 # Компоненты вынесены в отдельные модули
 from src.gui.trading_system_adapter import PySideTradingSystem
@@ -422,23 +368,8 @@ class MainWindow(QMainWindow):
         self.scheduler_manager = SchedulerManager()
         self.settings_window = SettingsWindow(self.scheduler_manager, self.config, self)
         self.settings_window.scheduler_status_updated.connect(self.update_thread_status_widget)
-        self.settings_window.theme_preview_requested.connect(self._on_theme_preview_requested)
-        self.settings_window.gui_settings_changed.connect(self._on_gui_settings_changed)
-        self.settings_window.optimization_applied.connect(self._on_optimization_applied)
-        self.settings_window.memory_cleanup_requested.connect(self._on_memory_cleanup_requested)
 
         self.setGeometry(100, 100, 1600, 900)
-
-        # --- Менеджер анимаций ---
-        self.animation_manager = AnimationManager(cpu_monitor=self._get_cpu_percent)
-
-        # --- Always on Top (из конфига) ---
-        self._always_on_top = getattr(config, "ALWAYS_ON_TOP", False)
-        if self._always_on_top:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-
-        # --- Текущая тема ---
-        self._current_theme = getattr(config, "GUI_THEME", "Темная")
 
         # --- ВРЕМЕННЫЙ ВИДЖЕТ ЗАГРУЗКИ ---
         self.loading_label = QLabel("Загрузка ядра Genesis v24.0... Пожалуйста, подождите (AI, DB, NLP).")
@@ -450,7 +381,7 @@ class MainWindow(QMainWindow):
         # --- Инициализация GUI (легкая часть) ---
         self._init_widgets()  # Создание всех виджетов, но без данных
         self.connect_signals()
-        self.apply_style(self._current_theme)
+        self.apply_style("Темная")
 
         # Настройка таймера статуса
         self.status_update_timer = QTimer(self)
@@ -467,137 +398,6 @@ class MainWindow(QMainWindow):
         # Предполагаем, что kg_enabled_checkbox существует после _init_widgets
         self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
         self.on_kg_toggle()
-
-        # --- Инициализация toolbar графика ---
-        self.current_chart_timeframe = "H1"
-        self.current_chart_symbol = "EURUSD"
-
-        # 🔹 Debounce таймер для графика (не чаще 1 раза в 5 сек)
-        self._chart_update_timer = QTimer(self)
-        self._chart_update_timer.setSingleShot(True)
-        self._chart_update_timer.timeout.connect(self._do_chart_update)
-        self._pending_chart_data = None
-        self._last_chart_symbol = None
-
-        # 🔍 ДИАГНОСТИКА ПОТОКОВ
-        import threading as _threading
-
-        print(f"🔍 [THREAD-DEBUG] MainWindow создан в: {_threading.current_thread().name}")
-        print(f"🔍 [THREAD-DEBUG] GUI-поток: {_threading.main_thread().name}")
-        print(f"🔍 [THREAD-DEBUG] _chart_update_timer активен: {self._chart_update_timer.isActive()}")
-
-        # 🔍 ДИАГНОСТИКА ВИДЖЕТА ЭКВИТИ
-        self._debug_equity_widget()
-
-        # 🔥 WATCHDOG: Таймер принудительного обновления эквити (каждые 5 сек)
-        # Это запасной канал на случай если основной сигнал потеряется
-        self.equity_watchdog_timer = QTimer(self)
-        self.equity_watchdog_timer.setInterval(5000)
-        self.equity_watchdog_timer.timeout.connect(self._force_equity_refresh)
-        self.equity_watchdog_timer.start()
-
-        # 🔥 ТАЙМЕР ПРИНУДИТЕЛЬНОГО ОБНОВЛЕНИЯ БАЛАНСА (каждые 3 сек)
-        # Проверяет что виджеты баланса реально обновляются
-        self.balance_display_timer = QTimer(self)
-        self.balance_display_timer.setInterval(3000)
-        self.balance_display_timer.timeout.connect(self._force_balance_display_check)
-        self.balance_display_timer.start()
-
-        # 🔥🔥 ЯДЕРНЫЙ ТЕСТ: Баланс + Эквити + Прибыль 🔥🔥
-        # Работает КАЖДЫЕ 2 сек независимо от сигналов
-        def nuclear_force_update():
-            import logging
-
-            nuke_logger = logging.getLogger(__name__)
-
-            try:
-                current_equity = 0.0
-                current_balance = 0.0
-                current_pnl = 0.0
-
-                # --- Источник 1: AccountManager (если доступен) ---
-                if hasattr(self, "trading_system") and self.trading_system:
-                    core = getattr(self.trading_system, "core_system", None)
-                    if core and hasattr(core, "account_manager"):
-                        acc = core.account_manager
-                        current_balance = float(getattr(acc, "balance", 0.0) or 0.0)
-                        current_equity = float(getattr(acc, "equity", 0.0) or 0.0)
-                        current_pnl = float(getattr(acc, "_last_profit", 0.0) or 0.0)
-
-                # --- Источник 2: Fallback — MT5 напрямую ---
-                if current_equity == 0.0:
-                    try:
-                        import MetaTrader5 as mt5
-
-                        acc_info = mt5.account_info()
-                        if acc_info:
-                            current_balance = float(acc_info.balance)
-                            current_equity = float(acc_info.equity)
-                    except Exception:
-                        pass
-
-                # --- Источник 3: Кэш MainWindow (если есть) ---
-                if current_equity == 0.0:
-                    current_equity = float(getattr(self, "_cached_equity", 0.0) or 0.0)
-                    current_balance = float(getattr(self, "_cached_balance", 0.0) or 0.0)
-
-                # Если данных всё ещё нет — выходим тихо
-                if current_equity == 0.0:
-                    return  # Нет данных — не спамим
-
-                # Вычисляем PnL
-                if current_pnl == 0.0 and current_balance > 0:
-                    current_pnl = current_equity - current_balance
-
-                # Кэшируем для будущих вызовов
-                self._cached_equity = current_equity
-                self._cached_balance = current_balance
-
-                # --- Обновляем виджеты ---
-                if hasattr(self, "equity_label") and self.equity_label:
-                    self.equity_label.setText(f"Эквити: {current_equity:.2f}")
-                    color_eq = "#00FF00" if current_equity >= current_balance else "#FF4444"
-                    self.equity_label.setStyleSheet(f"color: {color_eq}; font-weight: bold; font-size: 14px;")
-                    self.equity_label.repaint()
-                    self.equity_label.setVisible(True)
-
-                if hasattr(self, "balance_label") and self.balance_label:
-                    self.balance_label.setText(f"Баланс: {current_balance:.2f}")
-                    self.balance_label.repaint()
-                    self.balance_label.setVisible(True)
-
-                # Обновляем PnL
-                pnl_value = current_equity - current_balance
-                pnl_labels = [
-                    "open_pnl_label",
-                    "pnl_label",
-                    "label_profit",
-                    "lbl_floating_pl",
-                    "ui_open_pnl_label",
-                    "ui_lbl_profit",
-                ]
-                for name in pnl_labels:
-                    if hasattr(self, name):
-                        pnl_widget = getattr(self, name)
-                        if pnl_widget:
-                            pnl_widget.setText(f"{pnl_value:+.2f}")
-                            color = "#00FF00" if pnl_value >= 0 else "#FF4444"
-                            pnl_widget.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 14px;")
-                            pnl_widget.repaint()
-                            pnl_widget.update()
-                            pnl_widget.setVisible(True)
-                            break
-
-            except Exception as e:
-                nuke_logger.debug(f"[NUCLEAR] Ошибка обновления: {e}")
-
-        # Запускаем таймер прямо сейчас
-        self.nuclear_timer = QTimer(self)
-        self.nuclear_timer.setInterval(2000)  # Каждые 2 секунды
-        self.nuclear_timer.timeout.connect(nuclear_force_update)
-        self.nuclear_timer.start()
-
-        logger.info("✅ ЯДЕРНЫЙ ТЕСТ ЗАПУЩЕН: Интерфейс обновляется каждые 2 сек")
 
         # --- КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Запуск тяжелой инициализации в QThreadPool ---
         # Запускаем сразу, не ждем 100мс, но в фоновом потоке
@@ -657,17 +457,6 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, "control_center_tab"):
             self.control_center_tab.load_initial_settings()
-
-        # Тестовая отправка данных на график обучения (чтобы проверить что он работает)
-        if hasattr(self, "bridge") and self.bridge:
-            try:
-                # Отправляем тестовые данные loss curve
-                test_loss = [2.5, 2.1, 1.8, 1.5, 1.2, 1.0, 0.85, 0.72, 0.65, 0.58]
-                history_obj = type("History", (), {"history": {"loss": test_loss}})()
-                self.bridge.training_history_updated.emit(history_obj)
-                logger.info("[GUI-Init] Отправлены тестовые данные на график обучения")
-            except Exception as e:
-                logger.warning(f"[GUI-Init] Не удалось отправить тестовые данные: {e}")
 
         self.show_notification("Система Genesis v24.0 полностью активна.", 5000)
 
@@ -752,7 +541,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.vdb_results_table)
 
         # Подключение сигналов
-        self.bridge.vector_db_search_results.connect(self._display_vector_db_results, Qt.ConnectionType.QueuedConnection)
+        self.bridge.vector_db_search_results.connect(self._display_vector_db_results)
 
         # Авто-обновление статистики через 2 секунды после старта
         QTimer.singleShot(2000, self._refresh_vector_db_stats)
@@ -1154,577 +943,21 @@ class MainWindow(QMainWindow):
         return group_box
 
     def apply_style(self, style_name: str):
-        """Мгновенное переключение темы без анимаций."""
-        from PySide6.QtWidgets import QApplication
-
-        from src.gui.chart_theme_utils import apply_theme_to_all_plots, apply_theme_to_candlestick_item
-        from src.gui.styles import get_light_theme_qss
-
-        self._current_theme = style_name
-        is_light = style_name == "Светлая"
-
-        # --- КРИТИЧЕСКИ ВАЖНО: Применяем стиль ПРАВИЛЬНО ---
-        # 1. Сначала применяем QSS ко всему приложению (глобально)
-        if is_light:
-            try:
-                qss_content = get_light_theme_qss()
-                if qss_content:
-                    QApplication.instance().setStyleSheet(qss_content)
-                    logger.info(f"[Theme] Применён Light Theme из QSS файла ({len(qss_content)} байт)")
-                else:
-                    QApplication.instance().setStyleSheet(LIGHT_STYLE)
-                    logger.warning("[Theme] QSS файл не найден, используем встроенный LIGHT_STYLE")
-            except Exception as e:
-                logger.critical(f"[Theme] ОШИБКА применения светлой темы: {e}", exc_info=True)
-                QApplication.instance().setStyleSheet(LIGHT_STYLE)
-            # Настройки pyqtgraph для светлой темы (для НОВЫХ виджетов)
+        if style_name == "Светлая":
+            self.setStyleSheet(LIGHT_STYLE)
             pg.setConfigOption("background", "w")
             pg.setConfigOption("foreground", "k")
-        else:
-            QApplication.instance().setStyleSheet(DARK_STYLE)
-            logger.info(f"[Theme] Применён Dark Theme (Dracula, {len(DARK_STYLE)} байт)")
-            # Настройки pyqtgraph для темной темы (для НОВЫХ виджетов)
+        elif style_name == "Темная":
+            self.setStyleSheet(DARK_STYLE)
             pg.setConfigOption("background", "#282a36")
             pg.setConfigOption("foreground", "#f8f8f2")
-
-        # 2. Перекрашиваем ВСЕ существующие графики (критически важно!)
-        # ВРЕМЕННО ОТКЛЮЧЕНО для диагностики падения
-        # apply_theme_to_all_plots(self, is_light)
-        logger.info(f"[Theme] apply_theme_to_all_plots ВРЕМЕННО ОТКЛЮЧЕНО")
-
-        # 3. Обновляем цвета элемента свечей
-        if hasattr(self, "candlestick_item"):
-            apply_theme_to_candlestick_item(self.candlestick_item, is_light)
-
-        # 4. Затем применяем инлайновые стили к виджетам MainWindow
-        try:
-            self._repaint_widgets_for_theme(is_light)
-        except Exception as e:
-            logger.critical(f"[Theme] ОШИБКА перекраски виджетов: {e}", exc_info=True)
-
-        # 5. Обновляем цвета логов
-        try:
-            self._update_log_colors(is_light)
-        except Exception as e:
-            logger.critical(f"[Theme] ОШИБКА обновления цветов логов: {e}", exc_info=True)
-
-        # 6. Принудительная перерисовка ВСЕХ виджетов
-        self.update()
-        self.repaint()
-        QApplication.processEvents()
-
-        # 7. Обновляем все дочерние виджеты включая диалоги
-        try:
-            for widget in QApplication.instance().allWidgets():
-                if widget.isVisible():
-                    # Перезагружаем QSS для каждого виджета
-                    widget.setStyleSheet("")  # Сброс локальных стилей
-                    widget.update()
-                    widget.repaint()
-        except Exception as e:
-            logger.critical(f"[Theme] ОШИБКА обновления виджетов: {e}", exc_info=True)
-
-        # 8. КРИТИЧЕСКИ ВАЖНО: Пересоздаём диалоговые окна если они открыты
-        # Это гарантирует что они получат новую тему
-        try:
-            for widget in QApplication.instance().allWidgets():
-                if isinstance(widget, (QDialog,)) and widget.isVisible():
-                    widget.updateGeometry()
-                    widget.update()
-                    widget.repaint()
-                    QApplication.processEvents()
-        except Exception as e:
-            logger.critical(f"[Theme] ОШИБКА обновления диалогов: {e}", exc_info=True)
-
-        # 8. Debug: проверяем применение стилей
-        app_style = QApplication.instance().styleSheet()
-        logger.debug(f"[Theme] Длина применённого стиля: {len(app_style)} байт")
-        if is_light:
-            logger.debug(f"[Theme] Первые 100 символов стиля: {app_style[:100]}")
-
-        logger.info(f"[Theme] Тема '{style_name}' применена полностью")
-
-    def _repaint_widgets_for_theme(self, is_light: bool) -> None:
-        """Перекрашивает виджеты с инлайновыми стилями при смене темы."""
-        try:
-            if is_light:
-                self._apply_light_inline_styles()
-            else:
-                self._apply_dark_inline_styles()
-        except Exception as e:
-            logger.debug(f"[Theme] Ошибка перекраски виджетов: {e}")
-
-    def _apply_light_inline_styles(self) -> None:
-        """Применяет инлайновые стили для светлой темы."""
-        # --- Верхняя панель ControlBox и UpdateBox ---
-        if hasattr(self, "control_box") and self.control_box:
-            self.control_box.setStyleSheet(
-                "QFrame#ControlBox { border: 2px solid #CBD5E1; border-radius: 8px; "
-                "background-color: #FFFFFF; padding: 8px; }"
-            )
-        if hasattr(self, "update_box") and self.update_box:
-            self.update_box.setStyleSheet(
-                "QFrame#UpdateBox { border: 2px solid #CBD5E1; border-radius: 8px; "
-                "background-color: #FFFFFF; padding: 8px; }"
-            )
-
-        # --- Кнопка перезапуска ---
-        if hasattr(self, "restart_system_button"):
-            self.restart_system_button.setStyleSheet(
-                "background-color: #F59E0B; color: #FFFFFF; font-weight: 700; "
-                "border: 2px solid #D97706; border-radius: 6px; padding: 6px 12px;"
-            )
-
-        # --- Кнопка обновления ---
-        if hasattr(self, "update_button"):
-            self.update_button.setStyleSheet(
-                "QPushButton { background-color: #10B981; color: #FFFFFF; border: none; "
-                "padding: 8px; border-radius: 6px; font-weight: 700; }"
-                "QPushButton:hover { background-color: #059669; }"
-                "QPushButton:disabled { background-color: #E5E7EB; color: #9CA3AF; }"
-            )
-
-        # --- Баланс и Эквити ---
-        if hasattr(self, "balance_label"):
-            self.balance_label.setStyleSheet("color: #3B82F6; font-weight: 700; font-size: 14px;")
-        if hasattr(self, "equity_label"):
-            self.equity_label.setStyleSheet("color: #059669; font-weight: 700; font-size: 14px;")
-
-        # --- Логи ---
-        if hasattr(self, "log_text_edit"):
-            self.log_text_edit.setStyleSheet(
-                "QTextEdit { background-color: #FFFFFF; color: #1A1D23; border: 1px solid #CBD5E1; "
-                "border-radius: 6px; padding: 4px; font-family: 'Consolas', 'Courier New', monospace; }"
-            )
-
-        # --- Статусные метки планировщика ---
-        for label in self.scheduler_status_labels.values():
-            if label:
-                label.setStyleSheet("color: #059669; font-weight: 700;")
-
-        # --- Кнопка перезапуска ---
-        if hasattr(self, "restart_system_button"):
-            self.restart_system_button.setStyleSheet(
-                "background-color: #F59E0B; color: #FFFFFF; font-weight: 700; "
-                "border: 2px solid #D97706; border-radius: 6px; padding: 6px 12px;"
-            )
-
-        # --- Панель обновлений ---
-        if hasattr(self, "update_version_label"):
-            self.update_version_label.setStyleSheet("color: #059669; font-weight: 700;")
-        if hasattr(self, "update_status_label"):
-            self.update_status_label.setStyleSheet("color: #1E293B; font-weight: 500;")
-        if hasattr(self, "update_monitoring_label"):
-            self.update_monitoring_label.setStyleSheet("color: #64748B; font-weight: 500;")
-        if hasattr(self, "update_last_check_label"):
-            self.update_last_check_label.setStyleSheet("color: #64748B; font-size: 11px; font-weight: 500;")
-
-        # --- Uptime ---
-        if hasattr(self, "uptime_label"):
-            self.uptime_label.setStyleSheet("font-weight: 700; color: #059669;")
-
-        # --- PnL ---
-        if hasattr(self, "open_pnl_label"):
-            self.open_pnl_label.setStyleSheet("font-weight: 700; color: #3B82F6;")
-        if hasattr(self, "pnl_day_label"):
-            self.pnl_day_label.setStyleSheet("font-weight: 700; color: #059669;")
-        if hasattr(self, "dd_day_label"):
-            self.dd_day_label.setStyleSheet("font-weight: 700; color: #DC2626;")
-
-        # --- Кнопка закрытия всех позиций ---
-        if hasattr(self, "close_all_pos_button"):
-            self.close_all_pos_button.setStyleSheet(
-                "background-color: #DC2626; color: #FFFFFF; font-weight: 700; "
-                "border: 2px solid #B91C1C; border-radius: 6px; padding: 6px 12px;"
-            )
-
-        # --- VectorDB ---
-        if hasattr(self, "vdb_count_label"):
-            self.vdb_count_label.setStyleSheet("font-size: 12pt; font-weight: 700; color: #059669;")
-        if hasattr(self, "vdb_search_button"):
-            self.vdb_search_button.setStyleSheet(
-                "background-color: #3B82F6; color: #FFFFFF; font-weight: 700; "
-                "border: 2px solid #2563EB; border-radius: 6px; padding: 6px 12px;"
-            )
-        if hasattr(self, "vdb_status_label"):
-            cur_text = self.vdb_status_label.text()
-            color = "#059669" if "готов" in cur_text.lower() or "ready" in cur_text.lower() else "#B45309"
-            self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: 600;")
-
-        # --- Knowledge Graph ---
-        if hasattr(self, "kg_disabled_label"):
-            self.kg_disabled_label.setStyleSheet(
-                "font-size: 14px; color: #64748B; padding: 20px; "
-                "border: 2px dashed #CBD5E1; border-radius: 8px; background-color: #F8FAFC;"
-            )
-
-        # --- Feedback buttons ---
-        if hasattr(self, "good_trade_button"):
-            self.good_trade_button.setStyleSheet(
-                "background-color: #10B981; color: #FFFFFF; font-weight: 700; "
-                "border: 2px solid #059669; border-radius: 6px; padding: 6px 12px;"
-            )
-        if hasattr(self, "bad_trade_button"):
-            self.bad_trade_button.setStyleSheet(
-                "background-color: #EF4444; color: #FFFFFF; font-weight: 700; "
-                "border: 2px solid #DC2626; border-radius: 6px; padding: 6px 12px;"
-            )
-
-        # --- Directive/Model buttons ---
-        if hasattr(self, "delete_directive_button"):
-            self.delete_directive_button.setStyleSheet(
-                "background-color: #EF4444; color: #FFFFFF; font-weight: 700; "
-                "border: 2px solid #DC2626; border-radius: 6px; padding: 6px 12px;"
-            )
-        if hasattr(self, "demote_model_button"):
-            self.demote_model_button.setStyleSheet(
-                "background-color: #7C3AED; color: #FFFFFF; font-weight: 700; "
-                "border: 2px solid #6D28D9; border-radius: 6px; padding: 6px 12px;"
-            )
-
-        # --- Chart toolbar ---
-        if hasattr(self, "chart_symbol_combo"):
-            self.chart_symbol_combo.setStyleSheet(
-                "QComboBox { border: 2px solid #CBD5E1; border-radius: 6px; padding: 6px 10px; "
-                "background-color: #FFFFFF; color: #1A1D23; font-weight: 500; }"
-                "QComboBox:hover { border-color: #3B82F6; }"
-                "QComboBox::drop-down { border: none; width: 20px; }"
-            )
-        if hasattr(self, "chart_timeframe_combo"):
-            self.chart_timeframe_combo.setStyleSheet(
-                "QComboBox { border: 2px solid #CBD5E1; border-radius: 6px; padding: 6px 10px; "
-                "background-color: #FFFFFF; color: #1A1D23; font-weight: 500; }"
-                "QComboBox:hover { border-color: #3B82F6; }"
-                "QComboBox::drop-down { border: none; width: 20px; }"
-            )
-        if hasattr(self, "chart_refresh_btn"):
-            self.chart_refresh_btn.setStyleSheet(
-                "QPushButton { border: 2px solid #CBD5E1; border-radius: 6px; padding: 6px 12px; "
-                "background-color: #FFFFFF; color: #1A1D23; font-weight: 600; }"
-                "QPushButton:hover { background-color: #F0F4FF; border-color: #3B82F6; color: #3B82F6; }"
-                "QPushButton:pressed { background-color: #E0E7FF; }"
-            )
-
-        logger.info("[Theme] Применены инлайновые стили светлой темы")
-
-    def _apply_dark_inline_styles(self) -> None:
-        """Применяет инлайновые стили для тёмной темы."""
-        # --- Верхняя панель ControlBox и UpdateBox ---
-        if hasattr(self, "control_box") and self.control_box:
-            self.control_box.setStyleSheet(
-                "QFrame#ControlBox { border: 2px solid #44475a; border-radius: 8px; "
-                "background-color: #282a36; padding: 8px; }"
-            )
-        if hasattr(self, "update_box") and self.update_box:
-            self.update_box.setStyleSheet(
-                "QFrame#UpdateBox { border: 2px solid #44475a; border-radius: 8px; "
-                "background-color: #282a36; padding: 8px; }"
-            )
-
-        # --- Кнопка перезапуска ---
-        if hasattr(self, "restart_system_button"):
-            self.restart_system_button.setStyleSheet(
-                "background-color: #ffb86c; color: #282a36; font-weight: 700; "
-                "border: 2px solid #f1fa8c; border-radius: 6px; padding: 6px 12px;"
-            )
-
-        # --- Кнопка обновления ---
-        if hasattr(self, "update_button"):
-            self.update_button.setStyleSheet(
-                "QPushButton { background-color: #50fa7b; color: #282a36; border: none; "
-                "padding: 8px; border-radius: 6px; font-weight: 700; }"
-                "QPushButton:hover { background-color: #69ff94; }"
-                "QPushButton:disabled { background-color: #44475a; color: #6272a4; }"
-            )
-
-        # --- Баланс и Эквити ---
-        if hasattr(self, "balance_label"):
-            self.balance_label.setStyleSheet("color: #8be9fd; font-weight: 700; font-size: 14px;")
-        if hasattr(self, "equity_label"):
-            self.equity_label.setStyleSheet("color: #50fa7b; font-weight: 700; font-size: 14px;")
-
-        # --- Логи ---
-        if hasattr(self, "log_text_edit"):
-            self.log_text_edit.setStyleSheet(
-                "QTextEdit { background-color: #282a36; color: #f8f8f2; border: 1px solid #44475a; "
-                "border-radius: 4px; padding: 4px; font-family: 'Consolas', 'Courier New', monospace; }"
-            )
-
-        # --- Статусные метки планировщика ---
-        for label in self.scheduler_status_labels.values():
-            if label:
-                label.setStyleSheet("color: #50fa7b; font-weight: 700;")
-
-        # --- Кнопка перезапуска ---
-        if hasattr(self, "restart_system_button"):
-            self.restart_system_button.setStyleSheet(
-                "background-color: #ffb86c; color: #282a36; font-weight: 700; "
-                "border: 2px solid #f1fa8c; border-radius: 6px; padding: 6px 12px;"
-            )
-
-        # --- Панель обновлений ---
-        if hasattr(self, "update_version_label"):
-            self.update_version_label.setStyleSheet("color: #50fa7b; font-weight: 700;")
-        if hasattr(self, "update_status_label"):
-            self.update_status_label.setStyleSheet("color: #f8f8f2; font-weight: 500;")
-        if hasattr(self, "update_monitoring_label"):
-            self.update_monitoring_label.setStyleSheet("color: #888; font-weight: 500;")
-        if hasattr(self, "update_last_check_label"):
-            self.update_last_check_label.setStyleSheet("color: #888; font-size: 11px; font-weight: 500;")
-
-        # --- Uptime ---
-        if hasattr(self, "uptime_label"):
-            self.uptime_label.setStyleSheet("font-weight: 700; color: #50fa7b;")
-
-        # --- PnL ---
-        if hasattr(self, "open_pnl_label"):
-            self.open_pnl_label.setStyleSheet("font-weight: 700; color: #8be9fd;")
-        if hasattr(self, "pnl_day_label"):
-            self.pnl_day_label.setStyleSheet("font-weight: 700; color: #50fa7b;")
-        if hasattr(self, "dd_day_label"):
-            self.dd_day_label.setStyleSheet("font-weight: 700; color: #ff5555;")
-
-        # --- Кнопка закрытия всех позиций ---
-        if hasattr(self, "close_all_pos_button"):
-            self.close_all_pos_button.setStyleSheet(
-                "background-color: #8B0000; color: #f8f8f2; font-weight: 700; "
-                "border: 2px solid #ff5555; border-radius: 6px; padding: 6px 12px;"
-            )
-
-        # --- VectorDB ---
-        if hasattr(self, "vdb_count_label"):
-            self.vdb_count_label.setStyleSheet("font-size: 12pt; font-weight: 700; color: #50fa7b;")
-        if hasattr(self, "vdb_search_button"):
-            self.vdb_search_button.setStyleSheet(
-                "background-color: #bd93f9; color: #282a36; font-weight: 700; "
-                "border: 2px solid #6272a4; border-radius: 6px; padding: 6px 12px;"
-            )
-        if hasattr(self, "vdb_status_label"):
-            cur_text = self.vdb_status_label.text()
-            color = "#50fa7b" if "готов" in cur_text.lower() or "ready" in cur_text.lower() else "#f1fa8c"
-            self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: 700;")
-
-        # --- Knowledge Graph ---
-        if hasattr(self, "kg_disabled_label"):
-            self.kg_disabled_label.setStyleSheet(
-                "font-size: 14px; color: #6272a4; padding: 20px; "
-                "border: 2px dashed #44475a; border-radius: 8px; background-color: #2d2f3a;"
-            )
-
-        # --- Feedback buttons ---
-        if hasattr(self, "good_trade_button"):
-            self.good_trade_button.setStyleSheet(
-                "background-color: #50fa7b; color: #282a36; font-weight: 700; "
-                "border: 2px solid #3ad55f; border-radius: 6px; padding: 6px 12px;"
-            )
-        if hasattr(self, "bad_trade_button"):
-            self.bad_trade_button.setStyleSheet(
-                "background-color: #ff5555; color: #f8f8f2; font-weight: 700; "
-                "border: 2px solid #ff3b3b; border-radius: 6px; padding: 6px 12px;"
-            )
-
-        # --- Directive/Model buttons ---
-        if hasattr(self, "delete_directive_button"):
-            self.delete_directive_button.setStyleSheet(
-                "background-color: #ff5555; color: #f8f8f2; font-weight: 700; "
-                "border: 2px solid #ff3b3b; border-radius: 6px; padding: 6px 12px;"
-            )
-        if hasattr(self, "demote_model_button"):
-            self.demote_model_button.setStyleSheet(
-                "background-color: #8B0000; color: #f8f8f2; font-weight: 700; "
-                "border: 2px solid #ff5555; border-radius: 6px; padding: 6px 12px;"
-            )
-
-        # --- Chart toolbar ---
-        if hasattr(self, "chart_symbol_combo"):
-            self.chart_symbol_combo.setStyleSheet(
-                "QComboBox { border: 1px solid #44475a; border-radius: 6px; padding: 6px 10px; "
-                "background-color: #3a3c4a; color: #f8f8f2; font-weight: 500; }"
-                "QComboBox:hover { border-color: #bd93f9; }"
-                "QComboBox::drop-down { border: none; width: 20px; }"
-            )
-        if hasattr(self, "chart_timeframe_combo"):
-            self.chart_timeframe_combo.setStyleSheet(
-                "QComboBox { border: 1px solid #44475a; border-radius: 6px; padding: 6px 10px; "
-                "background-color: #3a3c4a; color: #f8f8f2; font-weight: 500; }"
-                "QComboBox:hover { border-color: #bd93f9; }"
-                "QComboBox::drop-down { border: none; width: 20px; }"
-            )
-        if hasattr(self, "chart_refresh_btn"):
-            self.chart_refresh_btn.setStyleSheet(
-                "QPushButton { border: 1px solid #44475a; border-radius: 6px; padding: 6px 12px; "
-                "background-color: #44475a; color: #f8f8f2; font-weight: 600; }"
-                "QPushButton:hover { background-color: #51556a; border-color: #bd93f9; color: #bd93f9; }"
-                "QPushButton:pressed { background-color: #3a3c4a; }"
-            )
-
-        logger.info("[Theme] Применены инлайновые стили тёмной темы")
-
-    def _apply_dark_theme_to_all_widgets(self):
-        """
-        Принудительно применяет темную тему ко всем виджетам.
-        Исправляет проблему когда QSS не применяется к некоторым виджетам.
-        """
-        try:
-            from PySide6.QtWidgets import QApplication
-
-            # Рекурсивно проходим по всем виджетам
-            for widget in QApplication.allWidgets():
-                widget_name = widget.objectName()
-
-                # Пропускаем виджеты с уже заданными инлайновыми стилями
-                if widget.styleSheet():
-                    continue
-
-                # Определяем тип виджета и применяем стиль
-                if isinstance(widget, QLabel):
-                    if not widget.styleSheet():
-                        widget.setStyleSheet("color: #f8f8f2; background-color: transparent;")
-
-                elif isinstance(widget, QPushButton):
-                    if not widget.styleSheet():
-                        widget.setStyleSheet("""
-                            QPushButton {
-                                background-color: #44475a;
-                                border: 1px solid #6272a4;
-                                color: #f8f8f2;
-                                padding: 5px 10px;
-                                border-radius: 4px;
-                            }
-                            QPushButton:hover {
-                                background-color: #51556a;
-                                border-color: #bd93f9;
-                            }
-                        """)
-
-                elif isinstance(widget, QComboBox):
-                    if not widget.styleSheet():
-                        widget.setStyleSheet("""
-                            QComboBox {
-                                background-color: #3a3c4a;
-                                border: 1px solid #44475a;
-                                color: #f8f8f2;
-                                padding: 4px;
-                                border-radius: 4px;
-                            }
-                            QComboBox::drop-down {
-                                border: none;
-                            }
-                            QComboBox QAbstractItemView {
-                                background-color: #282a36;
-                                color: #f8f8f2;
-                                selection-background-color: #44475a;
-                            }
-                        """)
-
-                elif isinstance(widget, QLineEdit):
-                    if not widget.styleSheet():
-                        widget.setStyleSheet("""
-                            QLineEdit {
-                                background-color: #3a3c4a;
-                                border: 1px solid #44475a;
-                                color: #f8f8f2;
-                                padding: 4px;
-                                border-radius: 4px;
-                            }
-                        """)
-
-                elif isinstance(widget, QTextEdit):
-                    if not widget.styleSheet():
-                        widget.setStyleSheet("""
-                            QTextEdit {
-                                background-color: #3a3c4a;
-                                border: 1px solid #44475a;
-                                color: #f8f8f2;
-                                padding: 4px;
-                                border-radius: 4px;
-                            }
-                        """)
-
-                elif isinstance(widget, QTableWidget):
-                    if not widget.styleSheet():
-                        widget.setStyleSheet("""
-                            QTableWidget {
-                                background-color: #282a36;
-                                alternate-background-color: #2d2f3d;
-                                gridline-color: #44475a;
-                                border: 1px solid #44475a;
-                                color: #f8f8f2;
-                            }
-                            QTableWidget::item {
-                                padding: 4px;
-                            }
-                            QHeaderView::section {
-                                background-color: #44475a;
-                                color: #f8f8f2;
-                                padding: 6px;
-                                border: none;
-                                font-weight: bold;
-                            }
-                        """)
-
-                elif isinstance(widget, QTabWidget):
-                    if not widget.styleSheet():
-                        widget.setStyleSheet("""
-                            QTabWidget::pane {
-                                border: 1px solid #44475a;
-                                background-color: #282a36;
-                            }
-                            QTabBar::tab {
-                                background-color: #282a36;
-                                color: #f8f8f2;
-                                border: 1px solid #44475a;
-                                padding: 8px 12px;
-                                border-top-left-radius: 4px;
-                                border-top-right-radius: 4px;
-                            }
-                            QTabBar::tab:selected {
-                                background-color: #44475a;
-                                color: #50fa7b;
-                            }
-                            QTabBar::tab:!selected:hover {
-                                background-color: #3a3c4a;
-                            }
-                        """)
-
-                elif isinstance(widget, QGroupBox):
-                    if not widget.styleSheet():
-                        widget.setStyleSheet("""
-                            QGroupBox {
-                                background-color: #2d2f3d;
-                                border: 1px solid #44475a;
-                                border-radius: 6px;
-                                margin-top: 8px;
-                                padding-top: 12px;
-                                color: #f8f8f2;
-                                font-weight: bold;
-                            }
-                            QGroupBox::title {
-                                subcontrol-origin: margin;
-                                left: 10px;
-                                padding: 0 5px;
-                            }
-                        """)
-
-        except Exception as e:
-            logger.debug(f"[Theme] Ошибка применения темной темы ко всем виджетам: {e}")
+        logger.info(f"Применен стиль: {style_name}")
 
     def _init_widgets(self):
         central_widget = QWidget()
         self.main_central_widget = central_widget
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
-        # --- Custom Title Bar (добавляется в самый верх) ---
-        self._custom_title_bar_container = QFrame()
-        self._custom_title_bar_container.setObjectName("TitleBarContainer")
-        self._custom_title_bar_container.setStyleSheet("QFrame#TitleBarContainer { border: none; background-color: #FFFFFF; }")
-        self._custom_title_bar_layout = QHBoxLayout(self._custom_title_bar_container)
-        self._custom_title_bar_layout.setContentsMargins(0, 0, 0, 0)
-        self._custom_title_bar_layout.setSpacing(0)
-        main_layout.addWidget(self._custom_title_bar_container)
 
         # 1. Создаем текстовую метку (QLabel)
         title_label = QLabel()
@@ -1762,10 +995,6 @@ class MainWindow(QMainWindow):
         kpi_bar = self._create_kpi_bar()
 
         control_box = QFrame()
-        control_box.setObjectName("ControlBox")
-        control_box.setStyleSheet(
-            "QFrame#ControlBox { border: 2px solid #94A3B8; border-radius: 8px; " "background-color: #FFFFFF; padding: 4px; }"
-        )
         control_layout = QHBoxLayout(control_box)
         control_layout.setAlignment(Qt.AlignTop)
 
@@ -1797,10 +1026,6 @@ class MainWindow(QMainWindow):
         control_layout.addLayout(buttons_layout)
 
         update_box = QFrame()
-        update_box.setObjectName("UpdateBox")
-        update_box.setStyleSheet(
-            "QFrame#UpdateBox { border: 2px solid #94A3B8; border-radius: 8px; " "background-color: #FFFFFF; padding: 4px; }"
-        )
         update_layout = QVBoxLayout(update_box)
 
         # Текущая версия
@@ -1853,19 +1078,10 @@ class MainWindow(QMainWindow):
         thread_status_box.setObjectName("ThreadStatusBox")
 
         account_box = QFrame()
-        account_box.setObjectName("AccountInfoBox")
-        account_box.setVisible(True)  # ✅ Гарантируем видимость
-        # Принудительные видимые границы для светлой темы
-        account_box.setStyleSheet(
-            "QFrame#AccountInfoBox { border: 2px solid #94A3B8; border-radius: 8px; "
-            "background-color: #FFFFFF; padding: 6px; }"
-        )
 
         account_layout = QVBoxLayout(account_box)
         self.balance_label = QLabel("Баланс: N/A")
-        self.balance_label.setVisible(True)
         self.equity_label = QLabel("Эквити: N/A")
-        self.equity_label.setVisible(True)  # ✅ Гарантируем видимость
         self.uptime_label = QLabel("Время работы: -")
         self.uptime_label.setStyleSheet("font-weight: bold; color: #50fa7b;")
         self.pc_time_label = QLabel("PC Время: --:--:--")
@@ -2051,9 +1267,6 @@ class MainWindow(QMainWindow):
         # --- ОБЩИЙ ЛЕЙАУТ ---
         left_layout.addWidget(tab_widget)
         log_box = QFrame()
-        log_box.setObjectName("LogBox")
-        # Принудительные видимые границы для светлой темы
-        log_box.setStyleSheet("QFrame#LogBox { border: 2px solid #94A3B8; border-radius: 8px; " "background-color: #FFFFFF; }")
         log_layout = QVBoxLayout(log_box)
 
         # Заголовок и переключатель отладки
@@ -2070,12 +1283,6 @@ class MainWindow(QMainWindow):
 
         self.log_text_edit = QTextEdit()
         self.log_text_edit.setReadOnly(True)
-        self.log_text_edit.setObjectName("LogTextEdit")
-        # Принудительные границы для светлой темы
-        self.log_text_edit.setStyleSheet(
-            "QTextEdit { border: 2px solid #CBD5E1; border-radius: 6px; "
-            "padding: 8px; background-color: #FFFFFF; color: #1A1D23; }"
-        )
         log_layout.addWidget(self.log_text_edit)
         left_layout.addWidget(log_box)
 
@@ -2137,141 +1344,20 @@ class MainWindow(QMainWindow):
     def _create_right_panel(self, vector_db_tab=None):
         right_widget = QTabWidget()
 
-        # --- ВКЛАДКА "ОСНОВНОЙ ГРАФИК" (стиль MT5) ---
-        # Создаём виджет с layout для добавления toolbar
-        chart_container = QWidget()
-        chart_main_layout = QVBoxLayout(chart_container)
-        chart_main_layout.setContentsMargins(0, 0, 0, 0)
-        chart_main_layout.setSpacing(2)
-
-        # 🎯 Toolbar с выбором таймфрейма и символа
-        chart_toolbar = QFrame()
-        chart_toolbar.setObjectName("ChartToolbar")
-        chart_toolbar.setStyleSheet("""
-            #ChartToolbar {
-                background-color: #1e1e1e;
-                border-bottom: 1px solid #333;
-                padding: 4px;
-            }
-        """)
-        toolbar_layout = QHBoxLayout(chart_toolbar)
-        toolbar_layout.setContentsMargins(8, 4, 8, 4)
-
-        # Выбор символа
-        toolbar_layout.addWidget(QLabel("Символ:"))
-        self.chart_symbol_combo = QComboBox()
-        self.chart_symbol_combo.setMinimumWidth(120)
-        self.chart_symbol_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #2d2d2d;
-                color: #fff;
-                border: 1px solid #555;
-                border-radius: 3px;
-                padding: 4px 8px;
-            }
-            QComboBox::drop-down {
-                border: none;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid #888;
-                border-top: 3px solid transparent;
-                border-bottom: 3px solid transparent;
-                margin-right: 5px;
-            }
-        """)
-        # Заполняем символами из конфига
-        self.chart_symbol_combo.addItems(self.config.SYMBOLS_WHITELIST[:10])  # Первые 10
-        self.chart_symbol_combo.setCurrentText("EURUSD")
-        self.chart_symbol_combo.currentTextChanged.connect(self.on_chart_symbol_changed)
-        toolbar_layout.addWidget(self.chart_symbol_combo)
-
-        toolbar_layout.addSpacing(16)
-
-        # Выбор таймфрейма
-        toolbar_layout.addWidget(QLabel("Таймфрейм:"))
-        self.chart_timeframe_combo = QComboBox()
-        self.chart_timeframe_combo.setMinimumWidth(80)
-        self.chart_timeframe_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #2d2d2d;
-                color: #fff;
-                border: 1px solid #555;
-                border-radius: 3px;
-                padding: 4px 8px;
-            }
-            QComboBox::drop-down {
-                border: none;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid #888;
-                border-top: 3px solid transparent;
-                border-bottom: 3px solid transparent;
-                margin-right: 5px;
-            }
-        """)
-        self.timeframe_map = {
-            "M1": mt5.TIMEFRAME_M1,
-            "M5": mt5.TIMEFRAME_M5,
-            "M15": mt5.TIMEFRAME_M15,
-            "M30": mt5.TIMEFRAME_M30,
-            "H1": mt5.TIMEFRAME_H1,
-            "H4": mt5.TIMEFRAME_H4,
-            "D1": mt5.TIMEFRAME_D1,
-        }
-        self.chart_timeframe_combo.addItems(list(self.timeframe_map.keys()))
-        self.chart_timeframe_combo.setCurrentText("H1")  # По умолчанию H1
-        self.chart_timeframe_combo.currentTextChanged.connect(self.on_chart_timeframe_changed)
-        toolbar_layout.addWidget(self.chart_timeframe_combo)
-
-        toolbar_layout.addStretch()
-
-        # Кнопка обновления
-        self.chart_refresh_btn = QPushButton("🔄 Обновить")
-        self.chart_refresh_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #0078D4;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                padding: 4px 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1084D9;
-            }
-            QPushButton:pressed {
-                background-color: #006CBE;
-            }
-        """)
-        self.chart_refresh_btn.clicked.connect(self.on_chart_refresh_clicked)
-        toolbar_layout.addWidget(self.chart_refresh_btn)
-
-        chart_main_layout.addWidget(chart_toolbar)
-
-        # График
+        # --- ВКЛАДКА "ОСНОВНОЙ ГРАФИК" ---
         self.chart_layout_widget = pg.GraphicsLayoutWidget()
-        chart_main_layout.addWidget(self.chart_layout_widget)
-
-        right_widget.addTab(chart_container, "📊 Основной График")
-
+        right_widget.addTab(self.chart_layout_widget, "Основной График")
         self.price_plot = self.chart_layout_widget.addPlot(row=0, col=0)
 
         # Используем форматирование дат на нижней оси
         self.price_plot.setAxisItems({"bottom": pg.DateAxisItem()})
 
-        # 🎨 MT5 стиль: тёмная сетка с низкой прозрачностью
-        grid_pen = pg.mkPen(color="#444", style=Qt.DotLine, width=0.5)
-        self.price_plot.showGrid(x=True, y=True, alpha=0.15)
+        grid_pen = pg.mkPen(color="#888", style=Qt.DotLine)
+        self.price_plot.showGrid(x=True, y=True, alpha=0.3)
         self.price_plot.getAxis("bottom").setPen(grid_pen)
         self.price_plot.getAxis("left").setPen(grid_pen)
-        self.price_plot.getAxis("left").setWidth(70)  # Шире для цены
+        self.price_plot.getAxis("left").setWidth(60)
         self.price_plot.disableAutoRange()
-
-        # 🔧 ИСПРАВЛЕНИЕ: НЕ вызываем setDownsampling/setClipToView!
-        # Эти методы вызывают AttributeError когда в графике есть ScatterPlotItem
-        # (торговые стрелки), у которых нет методов setDownsampling/setAlpha
 
         self.regime_region = pg.LinearRegionItem(
             values=[0, 1], orientation="vertical", movable=False, brush=QColor(0, 0, 0, 0)
@@ -2287,22 +1373,18 @@ class MainWindow(QMainWindow):
 
         self.chart_layout_widget.nextRow()
         self.volume_plot = self.chart_layout_widget.addPlot(row=1, col=0)
-        self.volume_plot.setMaximumHeight(120)  # Чуть меньше для объёма
-        # 🎨 MT5 стиль для объёма
-        self.volume_plot.showGrid(x=True, y=True, alpha=0.15)
+        self.volume_plot.setMaximumHeight(150)
+        self.volume_plot.showGrid(x=True, y=True, alpha=0.3)
         self.volume_plot.getAxis("bottom").setPen(grid_pen)
         self.volume_plot.getAxis("left").setPen(grid_pen)
-        self.volume_plot.getAxis("left").setWidth(70)
+        self.volume_plot.getAxis("left").setWidth(60)
         self.volume_plot.setXLink(self.price_plot)
-        # Скрываем метки оси X для объёма (уже есть на основном графике)
-        self.volume_plot.hideAxis("bottom")
 
         self.candlestick_item = CustomCandlestickItem()
         self.price_plot.addItem(self.candlestick_item)
-        self.volume_item = BarGraphItem(x=[], height=[], width=0.8)
-        # 🎨 MT5 стиль EMA: яркие цвета
-        self.ema50_item = pg.PlotDataItem(pen=pg.mkPen("#FFA500", width=2))  # Оранжевый EMA50
-        self.ema200_item = pg.PlotDataItem(pen=pg.mkPen("#00BFFF", width=2))  # Голубой EMA200
+        self.volume_item = BarGraphItem(x=[], height=[], width=0.8, brush="#50fa7b")
+        self.ema50_item = pg.PlotDataItem(pen=pg.mkPen("c", width=2))
+        self.ema200_item = pg.PlotDataItem(pen=pg.mkPen("y", width=2))
         self.trade_arrows_item = pg.ScatterPlotItem()
         self.price_plot.addItem(self.ema50_item)
         self.price_plot.addItem(self.ema200_item)
@@ -2348,118 +1430,132 @@ class MainWindow(QMainWindow):
         right_widget.addTab(self.control_center_tab, "Центр Управления")
 
         # --- ВКЛАДКА "АНАЛИТИКА" ---
-        try:
-            logger.info("[GUI-Analytics] НАЧИНАЮ создание вкладки Аналитика...")
-            analytics_tab_widget = QWidget()
-            analytics_layout = QVBoxLayout(analytics_tab_widget)
+        analytics_tab_widget = QWidget()
+        analytics_layout = QVBoxLayout(analytics_tab_widget)
 
-            # 1. Создаем ОТДЕЛЬНЫЙ виджет для графика обучения
-            self.loss_plot_widget = pg.PlotWidget(title="🔄 Прогресс обучения (Loss)")
-            self.loss_plot = self.loss_plot_widget.getPlotItem()
-            self.loss_plot.showGrid(x=True, y=True, alpha=0.3)
-            self.loss_plot.getAxis("bottom").setLabel("Эпоха обучения")
-            self.loss_plot.getAxis("left").setLabel("Loss")
-            self.loss_curve = self.loss_plot.plot(pen="y", symbol="o", symbolBrush="y", symbolSize=3)
-            self.loss_curve.setData(x=[], y=[])
-            logger.info("[GUI-Analytics] График обучения инициализирован")
+        # 1. Создаем ОТДЕЛЬНЫЙ виджет для графика обучения
+        self.loss_plot_widget = pg.PlotWidget(title="🔄 Прогресс обучения (Loss)")
+        self.loss_plot = self.loss_plot_widget.getPlotItem()  # Получаем сам объект графика
+        self.loss_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.loss_plot.getAxis("bottom").setLabel("Эпоха обучения")
+        self.loss_plot.getAxis("left").setLabel("Loss")
+        self.loss_curve = self.loss_plot.plot(pen="y", symbol="o", symbolBrush="y", symbolSize=3)
 
-            # 1.1 Компактная панель с двумя графиками
-            compact_charts_widget = QWidget()
-            compact_charts_layout = QHBoxLayout(compact_charts_widget)
-            compact_charts_layout.setContentsMargins(0, 0, 0, 0)
-            compact_charts_layout.setSpacing(5)
+        # Инициализируем график пустыми данными для видимости
+        self.loss_curve.setData(x=[], y=[])
+        logger.info("[GUI-Analytics] График обучения инициализирован")
 
-            self.model_accuracy_plot_widget = pg.PlotWidget(title="📊 Точность")
-            self.model_accuracy_plot = self.model_accuracy_plot_widget.getPlotItem()
-            self.model_accuracy_plot.showGrid(x=True, y=True, alpha=0.3)
-            self.model_accuracy_plot.getAxis("bottom").setLabel("Символ")
-            self.model_accuracy_plot.getAxis("left").setRange(0, 1)
-            self.model_accuracy_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="g")
-            self.model_accuracy_plot.addItem(self.model_accuracy_bars)
-            self.model_accuracy_plot.addItem(pg.InfiniteLine(angle=0, pos=0.5, pen=pg.mkPen("r", style=Qt.DashLine)))
-            self.model_accuracy_data = {}
-            logger.info("[GUI-Analytics] График точности инициализирован")
+        # 1.1 НОВЫЙ: Компактная панель с двумя графиками в одной строке
+        compact_charts_widget = QWidget()
+        compact_charts_layout = QHBoxLayout(compact_charts_widget)
+        compact_charts_layout.setContentsMargins(0, 0, 0, 0)
+        compact_charts_layout.setSpacing(5)
 
-            self.retrain_progress_widget = pg.PlotWidget(title="⏰ До переобучения (ч)")
-            self.retrain_progress_plot = self.retrain_progress_widget.getPlotItem()
-            self.retrain_progress_plot.showGrid(x=True, y=True, alpha=0.3)
-            self.retrain_progress_plot.getAxis("bottom").setLabel("Символ")
-            self.retrain_progress_plot.getAxis("left").setRange(0, 3)
-            self.retrain_progress_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="b")
-            self.retrain_progress_plot.addItem(self.retrain_progress_bars)
-            self.retrain_progress_plot.addItem(pg.InfiniteLine(angle=0, pos=1.0, pen=pg.mkPen("y", style=Qt.DashLine)))
-            self.retrain_progress_data = {}
-            logger.info("[GUI-Analytics] График прогресса инициализирован")
+        # График точности моделей
+        self.model_accuracy_plot_widget = pg.PlotWidget(title="📊 Точность")
+        self.model_accuracy_plot = self.model_accuracy_plot_widget.getPlotItem()
+        self.model_accuracy_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.model_accuracy_plot.getAxis("bottom").setLabel("Символ")
+        self.model_accuracy_plot.getAxis("left").setRange(0, 1)
+        self.model_accuracy_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="g")
+        self.model_accuracy_plot.addItem(self.model_accuracy_bars)
+        self.model_accuracy_plot.addItem(pg.InfiniteLine(angle=0, pos=0.5, pen=pg.mkPen("r", style=Qt.DashLine)))
+        self.model_accuracy_data = {}
+        logger.info("[GUI-Analytics] График точности инициализирован")
 
-            compact_charts_layout.addWidget(self.model_accuracy_plot_widget, 1)
-            compact_charts_layout.addWidget(self.retrain_progress_widget, 1)
+        # График прогресса переобучения
+        self.retrain_progress_widget = pg.PlotWidget(title="⏰ До переобучения (ч)")
+        self.retrain_progress_plot = self.retrain_progress_widget.getPlotItem()
+        self.retrain_progress_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.retrain_progress_plot.getAxis("bottom").setLabel("Символ")
+        self.retrain_progress_plot.getAxis("left").setRange(0, 3)
+        self.retrain_progress_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="b")
+        self.retrain_progress_plot.addItem(self.retrain_progress_bars)
+        self.retrain_progress_plot.addItem(pg.InfiniteLine(angle=0, pos=1.0, pen=pg.mkPen("y", style=Qt.DashLine)))
+        self.retrain_progress_data = {}
+        logger.info("[GUI-Analytics] График прогресса инициализирован")
 
-            # 2. График P&L
-            self.pnl_plot_widget = pg.PlotWidget(title="Кривая доходности (P&L)")
-            self.pnl_plot = self.pnl_plot_widget.getPlotItem()
-            self.pnl_plot.showGrid(x=True, y=True, alpha=0.3)
-            self.pnl_plot.getAxis("left").setLabel("Баланс", units="USD")
-            self.pnl_plot.setAxisItems({"bottom": pg.DateAxisItem()})
-            self.pnl_curve = self.pnl_plot.plot(pen="g")
+        compact_charts_layout.addWidget(self.model_accuracy_plot_widget, 1)
+        compact_charts_layout.addWidget(self.retrain_progress_widget, 1)
 
-            # 3. График режима наблюдателя
-            self.observer_pnl_plot_widget = pg.PlotWidget(title="Доходность (Режим Наблюдателя)")
-            self.observer_pnl_plot = self.observer_pnl_plot_widget.getPlotItem()
-            self.observer_pnl_plot.setAxisItems({"bottom": pg.DateAxisItem()})
-            self.observer_pnl_plot.showGrid(x=True, y=True, alpha=0.3)
-            self.observer_pnl_plot.getAxis("left").setLabel("Баланс (симуляция)", units="USD")
-            self.observer_pnl_plot.getAxis("bottom").setLabel("Время совершения сделок")
-            self.observer_pnl_curve = self.observer_pnl_plot.plot(pen=pg.mkPen("c", width=2))
+        # 2. Создаем ОТДЕЛЬНЫЙ виджет для графика P&L
+        self.pnl_plot_widget = pg.PlotWidget(title="Кривая доходности (P&L)")
+        self.pnl_plot = self.pnl_plot_widget.getPlotItem()
+        self.pnl_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.pnl_plot.getAxis("left").setLabel("Баланс", units="USD")
+        self.pnl_plot.setAxisItems({"bottom": pg.DateAxisItem()})
+        self.pnl_curve = self.pnl_plot.plot(pen="g")
 
-            # 4. График дрейфа
-            self.drift_plot_widget = pg.PlotWidget(title="Ошибка предсказаний AI (Concept Drift)")
-            self.drift_plot = self.drift_plot_widget.getPlotItem()
-            self.drift_plot.showGrid(x=True, y=True, alpha=0.3)
-            self.drift_plot.getAxis("bottom").setLabel("Время")
-            self.drift_plot.getAxis("left").setLabel("Ошибка (APE)")
-            self.drift_plot.setAxisItems({"bottom": pg.DateAxisItem()})
-            self.drift_scatter = pg.ScatterPlotItem(size=8, pen=pg.mkPen(None), brush=pg.mkBrush("#50fa7b"), symbol="o")
-            self.drift_plot.addItem(self.drift_scatter)
-            self.drift_alert_scatter = pg.ScatterPlotItem(
-                size=12, pen=pg.mkPen("w", width=2), brush=pg.mkBrush("#ff5555"), symbol="x"
-            )
-            self.drift_plot.addItem(self.drift_alert_scatter)
-            self.drift_data_points = []
-            self.drift_alert_points = []
+        # 3. Создаем ОТДЕЛЬНЫЙ виджет для графика режима наблюдателя
+        self.observer_pnl_plot_widget = pg.PlotWidget(title="Доходность (Режим Наблюдателя)")
+        self.observer_pnl_plot = self.observer_pnl_plot_widget.getPlotItem()
+        self.observer_pnl_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.observer_pnl_plot.getAxis("left").setLabel("Баланс (симуляция)", units="USD")
+        self.observer_pnl_plot.getAxis("bottom").setLabel("Количество виртуальных сделок")
+        self.observer_pnl_curve = self.observer_pnl_plot.plot(pen=pg.mkPen("c", width=2))
 
-            # 5. Создаём подвкладки
-            analytics_subtabs = QTabWidget()
+        # Ошибка предсказаний (Drift)
+        self.drift_plot_widget = pg.PlotWidget(title="Ошибка предсказаний AI (Concept Drift)")
+        self.drift_plot = self.drift_plot_widget.getPlotItem()
+        self.drift_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.drift_plot.getAxis("bottom").setLabel("Время")
+        self.drift_plot.getAxis("left").setLabel("Ошибка (APE)")
+        self.drift_plot.setAxisItems({"bottom": pg.DateAxisItem()})
 
-            training_charts_widget = QWidget()
-            training_charts_layout = QVBoxLayout(training_charts_widget)
-            training_charts_layout.addWidget(self.loss_plot_widget)
-            training_charts_layout.addWidget(compact_charts_widget)
-            analytics_subtabs.addTab(training_charts_widget, "📈 Обучение")
+        # Scatter plot для нормальных точек (зеленые круги)
+        self.drift_scatter = pg.ScatterPlotItem(size=8, pen=pg.mkPen(None), brush=pg.mkBrush("#50fa7b"), symbol="o")
+        self.drift_plot.addItem(self.drift_scatter)
 
-            performance_charts_widget = QWidget()
-            performance_charts_layout = QVBoxLayout(performance_charts_widget)
-            performance_charts_layout.addWidget(self.pnl_plot_widget)
-            performance_charts_layout.addWidget(self.observer_pnl_plot_widget)
-            analytics_subtabs.addTab(performance_charts_widget, "💰 Производительность")
+        # Отдельный Scatter для точек, где обнаружен дрейф (красные крестики)
+        self.drift_alert_scatter = pg.ScatterPlotItem(
+            size=12, pen=pg.mkPen("w", width=2), brush=pg.mkBrush("#ff5555"), symbol="x"
+        )
+        self.drift_plot.addItem(self.drift_alert_scatter)
 
-            drift_charts_widget = QWidget()
-            drift_charts_layout = QVBoxLayout(drift_charts_widget)
-            drift_charts_layout.addWidget(self.drift_plot_widget)
-            analytics_subtabs.addTab(drift_charts_widget, "🔍 Дрейф")
+        # Хранилище данных для графика
+        self.drift_data_points = []
+        self.drift_alert_points = []
 
-            analytics_layout.addWidget(analytics_subtabs)
-            right_widget.addTab(analytics_tab_widget, "📈 Аналитика")
-            logger.info("[GUI-Analytics] ✅ Вкладка Аналитика успешно создана")
+        # 4. Добавляем все виджеты в вертикальный компоновщик
+        analytics_layout.addWidget(self.loss_plot_widget)
+        analytics_layout.addWidget(compact_charts_widget)  # Компактная панель (2 графика в строку)
+        analytics_layout.addWidget(self.pnl_plot_widget)
+        analytics_layout.addWidget(self.observer_pnl_plot_widget)
+        analytics_layout.addWidget(self.drift_plot_widget)
 
-        except Exception as e:
-            logger.critical(f"[GUI-Analytics] ❌ ОШИБКА создания вкладки Аналитика: {e}", exc_info=True)
-            error_widget = QWidget()
-            error_layout = QVBoxLayout(error_widget)
-            error_label = QLabel(f"❌ Ошибка создания вкладки Аналитика:\n{str(e)}\n\nПроверьте логи для деталей.")
-            error_label.setStyleSheet("color: #DC2626; font-size: 14px; padding: 20px; font-weight: bold;")
-            error_label.setWordWrap(True)
-            error_layout.addWidget(error_label)
-            right_widget.addTab(error_widget, "❌ Аналитика (ошибка)")
+        # Задаем минимальную высоту для видимости графиков
+        self.loss_plot_widget.setMinimumHeight(180)
+        compact_charts_widget.setMinimumHeight(150)
+        self.pnl_plot_widget.setMinimumHeight(150)
+        self.observer_pnl_plot_widget.setMinimumHeight(150)
+        self.drift_plot_widget.setMinimumHeight(150)
+
+        # Создаем подвкладки для аналитики
+        analytics_subtabs = QTabWidget()
+
+        # Подвкладка 1: Графики обучения
+        training_charts_widget = QWidget()
+        training_charts_layout = QVBoxLayout(training_charts_widget)
+        training_charts_layout.addWidget(self.loss_plot_widget)
+        training_charts_layout.addWidget(compact_charts_widget)
+        analytics_subtabs.addTab(training_charts_widget, "📈 Обучение")
+
+        # Подвкладка 2: Производительность
+        performance_charts_widget = QWidget()
+        performance_charts_layout = QVBoxLayout(performance_charts_widget)
+        performance_charts_layout.addWidget(self.pnl_plot_widget)
+        performance_charts_layout.addWidget(self.observer_pnl_plot_widget)
+        analytics_subtabs.addTab(performance_charts_widget, "💰 Производительность")
+
+        # Подвкладка 3: Дрейф и аномалии
+        drift_charts_widget = QWidget()
+        drift_charts_layout = QVBoxLayout(drift_charts_widget)
+        drift_charts_layout.addWidget(self.drift_plot_widget)
+        analytics_subtabs.addTab(drift_charts_widget, "🔍 Дрейф")
+
+        analytics_layout.addWidget(analytics_subtabs)
+
+        right_widget.addTab(analytics_tab_widget, "📈 Аналитика")
 
         # --- ВКЛАДКА "СКАНЕР РЫНКА" ---
         scanner_widget = QWidget()
@@ -2716,8 +1812,6 @@ class MainWindow(QMainWindow):
         self.bt_report_text.setReadOnly(True)
         self.bt_equity_chart_widget = pg.GraphicsLayoutWidget()
         self.bt_equity_plot = self.bt_equity_chart_widget.addPlot(title="Кривая доходности (Equity)")
-        # ✅ ИСПРАВЛЕНИЕ: Устанавливаем DateAxis для правильной оси X (время)
-        self.bt_equity_plot.setAxisItems({"bottom": pg.DateAxisItem()})
         self.bt_equity_curve = self.bt_equity_plot.plot(pen="g")
         results_splitter.addWidget(self.bt_report_text)
         results_splitter.addWidget(self.bt_equity_chart_widget)
@@ -2760,335 +1854,77 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"[GUI-Tab-Left] Ошибка при переключении на вкладку '{tab_name}': {e}", exc_info=True)
 
-    # ========================================================================
-    # CPU мониторинг для AnimationManager
-    # ========================================================================
-
-    def _get_cpu_percent(self) -> float:
-        """Возвращает текущую загрузку CPU в процентах."""
-        try:
-            import psutil
-
-            return psutil.cpu_percent(interval=0.1)
-        except Exception:
-            try:
-                import os
-
-                if hasattr(os, "getloadavg"):
-                    load1, _, _ = os.getloadavg()
-                    import multiprocessing
-
-                    cpu_count = multiprocessing.cpu_count()
-                    return min(100.0, (load1 / cpu_count) * 100.0)
-            except Exception:
-                pass
-            return 0.0
-
-    # ========================================================================
-    # Кастомная рамка окна (Title Bar)
-    # ========================================================================
-
-    def setup_custom_title_bar(self) -> None:
-        """Устанавливает кастомную рамку окна."""
-        if hasattr(self, "_custom_title_bar") and self._custom_title_bar is not None:
-            return
-
-        # КРИТИЧНО: setWindowFlags() на видимом окне уничтожает нативный хендл.
-        # Скрываем -> меняем флаги -> показываем обратно.
-        was_visible = self.isVisible()
-        if was_visible:
-            self.hide()
-            QApplication.processEvents()
-
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowMinimizeButtonHint
-            | Qt.WindowType.WindowMaximizeButtonHint
-            | Qt.WindowType.WindowCloseButtonHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-
-        self._custom_title_bar = CustomTitleBar(
-            title="Genesis v24.0: Reflexive Core",
-            parent=self,
-        )
-
-        self._custom_title_bar.minimize_requested.connect(self.showMinimized)
-        self._custom_title_bar.maximize_requested.connect(self._toggle_maximize)
-        self._custom_title_bar.close_requested.connect(self.close)
-        self._custom_title_bar.attach_to_window(self)
-
-        # ДОБАВЛЯЕМ title bar в layout контейнера
-        if hasattr(self, "_custom_title_bar_layout"):
-            # Очищаем контейнер и добавляем title bar
-            while self._custom_title_bar_layout.count():
-                item = self._custom_title_bar_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            self._custom_title_bar_layout.addWidget(self._custom_title_bar)
-
-        if was_visible:
-            self.show()
-            QApplication.processEvents()
-
-        logger.info("[MainWindow] Кастомная рамка окна установлена")
-
-    def _toggle_maximize(self) -> None:
-        """Переключает режим развернуть/восстановить."""
-        if self.isMaximized():
-            self.showNormal()
-            if hasattr(self, "_custom_title_bar"):
-                self._custom_title_bar.max_btn.setText("□")
-                self._custom_title_bar.max_btn.setToolTip("Развернуть")
-        else:
-            self.showMaximized()
-            if hasattr(self, "_custom_title_bar"):
-                self._custom_title_bar.max_btn.setText("❐")
-                self._custom_title_bar.max_btn.setToolTip("Восстановить")
-
-    # ========================================================================
-    # Always on Top
-    # ========================================================================
-
-    def toggle_always_on_top(self) -> None:
-        """Переключает режим Always on Top."""
-        self._always_on_top = not self._always_on_top
-        if self._always_on_top:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-            logger.info("[MainWindow] Always on Top ВКЛЮЧЁН")
-        else:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
-            logger.info("[MainWindow] Always on Top ОТКЛЮЧЁН")
-        self.show()
-
-    def set_always_on_top(self, enabled: bool) -> None:
-        """Устанавливает режим Always on Top."""
-        if self._always_on_top == enabled:
-            return
-        self.toggle_always_on_top()
-
-    # ========================================================================
-    # Предпросмотр темы
-    # ========================================================================
-
-    @Slot(str)
-    def _on_theme_preview_requested(self, theme_name: str) -> None:
-        """Применяет выбранную тему в режиме предпросмотра."""
-        logger.info(f"[MainWindow] Предпросмотр темы: {theme_name}")
-        self.apply_style(theme_name)
-
-        # Переключаем цвета логов
-        is_light = theme_name == "Светлая"
-        self._update_log_colors(is_light)
-
-    def _update_log_colors(self, light_mode: bool) -> None:
-        """Обновляет цвета логов для текущей темы."""
-        try:
-            # Находим QtLogHandler в корневом логгере
-            import logging
-
-            root = logging.getLogger()
-            for handler in root.handlers:
-                if hasattr(handler, "set_light_mode"):
-                    handler.set_light_mode(light_mode)
-                    logger.info(f"[MainWindow] Цвета логов обновлены: {'светлая' if light_mode else 'тёмная'}")
-                    break
-        except Exception as e:
-            logger.debug(f"[MainWindow] Не удалось обновить цвета логов: {e}")
-
-    @Slot(object)
-    def _on_gui_settings_changed(self, settings: dict) -> None:
-        """Мгновенно применяет сохранённые настройки GUI."""
-        if not settings:
-            return
-
-        logger.info(f"[MainWindow] Получены новые настройки GUI: {settings}")
-
-        # 1. Тема оформления
-        new_theme = settings.get("GUI_THEME")
-        if new_theme:
-            logger.info(f"[MainWindow] Применяю тему: {new_theme}")
-            self.apply_style(new_theme)
-            # Обновляем цвета логов
-            self._update_log_colors(new_theme == "Светлая")
-
-        # 2. Анимации
-        anim_enabled = settings.get("ANIMATIONS_ENABLED")
-        if anim_enabled is not None and hasattr(self, "animation_manager"):
-            self.animation_manager.enabled = anim_enabled
-            logger.info(f"[MainWindow] Анимации: {'включены' if anim_enabled else 'отключены'}")
-
-        # 3. Always on Top
-        aot = settings.get("ALWAYS_ON_TOP")
-        if aot is not None:
-            current = self._always_on_top
-            if aot != current:
-                logger.info(f"[MainWindow] Переключаю Always on Top: {aot}")
-                self.set_always_on_top(aot)
-
-        # 4. Кастомная рамка окна
-        custom_tb = settings.get("USE_CUSTOM_TITLE_BAR")
-        if custom_tb is True and not hasattr(self, "_custom_title_bar"):
-            logger.info("[MainWindow] Активирую кастомную рамку")
-            self.setup_custom_title_bar()
-
-    def _on_optimization_applied(self, optimization: dict) -> None:
-        """
-        Применяет оптимизации системы без перезапуска.
-
-        Args:
-            optimization: dict с ключом 'type' и параметрами оптимизации
-        """
-        opt_type = optimization.get("type")
-
-        if opt_type == "gpu":
-            enabled = optimization.get("enabled", False)
-            logger.info(f"⚡ GPU оптимизация: {'включена' if enabled else 'отключена'}")
-
-            # GPU настройка применяется напрямую в auto_trainer при следующем обучении
-            # Не пытаемся изменить Settings — у него нет USE_GPU_TRAINING
-            self._gpu_training_enabled = enabled
-            logger.info(f"✅ GPU для обучения: {'включён' if enabled else 'отключён'} (вступит в силу при следующем обучении)")
-
-        elif opt_type == "memory":
-            import gc
-
-            gc_enabled = optimization.get("gc_enabled", True)
-            threshold_gb = optimization.get("threshold_gb", 4)
-
-            if gc_enabled:
-                gc.set_threshold(500, 5, 5)
-                gc.collect()
-                logger.info(f"✅ GC оптимизирован: (500, 5, 5), порог памяти: {threshold_gb}ГБ")
-
-        elif opt_type == "logging":
-            account_debug = optimization.get("account_manager_debug", False)
-
-            # Меняем уровень логирования AccountManager
-            import logging
-
-            account_logger = logging.getLogger("src.core.account_manager")
-            if account_debug:
-                account_logger.setLevel(logging.DEBUG)
-                logger.info("✅ AccountManager логи: DEBUG")
-            else:
-                account_logger.setLevel(logging.INFO)
-                logger.info("✅ AccountManager логи: INFO")
-
-        else:
-            logger.warning(f"⚠️ Неизвестный тип оптимизации: {opt_type}")
-
-    def _on_memory_cleanup_requested(self) -> None:
-        """
-        Принудительная очистка памяти — выгрузка неиспользуемых моделей.
-
-        Вызывается из вкладки Оптимизация при нажатии "Применить настройки памяти".
-        """
-        import gc
-
-        logger.info("🧹 Запрос принудительной очистки памяти...")
-
-        if hasattr(self, "trading_system") and self.trading_system:
-            # Выгружаем все модели, которые НЕ нужны прямо сейчас
-            ts = self.trading_system
-
-            # Считаем сколько моделей сейчас в памяти
-            models_before = len(ts.models) if hasattr(ts, "models") else 0
-
-            # Принудительная выгрузка неиспользуемых моделей
-            if hasattr(ts, "_load_champion_models_into_memory"):
-                # Передаём пустой список — выгрузит ВСЕ модели
-                # Модели будут перезагружены лениво при следующем цикле торговли
-                ts.models.clear()
-                ts.x_scalers.clear()
-                ts.y_scalers.clear()
-                logger.info(f"🧹 Выгружено {models_before} моделей из памяти")
-
-            # Сборка мусора
-            gc.collect()
-
-            # Очистка CUDA кэша
-            import torch
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                logger.info("🧹 CUDA кэш очищен")
-
-            models_after = len(ts.models) if hasattr(ts, "models") else 0
-            logger.info(f"🧹 Очистка памяти завершена: было {models_before} моделей, стало {models_after}")
-        else:
-            gc.collect()
-            logger.info("🧹 Сборка мусора выполнена (торговая система недоступна)")
-
     def connect_signals(self):
         self.start_button.clicked.connect(self.start_trading)
         self.stop_button.clicked.connect(self.stop_trading)
         self.settings_button.clicked.connect(self.open_settings_window)
-        self.bridge.drift_data_updated.connect(self.update_drift_chart, Qt.ConnectionType.QueuedConnection)
+        self.bridge.drift_data_updated.connect(self.update_drift_chart)
 
         # Подключаем правильный обработчик для чекбокса
         self.observer_checkbox.clicked.connect(self.on_observer_checkbox_clicked)
 
         self.update_button.clicked.connect(self.apply_update)
-        self.bridge.update_status_changed.connect(self.update_update_status, Qt.ConnectionType.QueuedConnection)
-        self.bridge.status_updated.connect(self.update_status, Qt.ConnectionType.QueuedConnection)
-        self.bridge.balance_updated.connect(self.update_balance, Qt.ConnectionType.QueuedConnection)
+        self.bridge.update_status_changed.connect(self.update_update_status)
+        self.bridge.status_updated.connect(self.update_status)
+        self.bridge.balance_updated.connect(self.update_balance)
         self.bridge.log_message_added.connect(self.add_log_message, Qt.ConnectionType.QueuedConnection)
-        # КРИТИЧЕСКИ ВАЖНО: Обновления таблиц должны выполняться в главном потоке!
-        self.bridge.positions_updated.connect(self.update_positions_table, Qt.ConnectionType.QueuedConnection)
-        self.bridge.history_updated.connect(self.update_history_table, Qt.ConnectionType.QueuedConnection)
+        self.bridge.positions_updated.connect(self.update_positions_table)
+        self.bridge.history_updated.connect(self.update_history_table)
         self.bridge.training_history_updated.connect(self.update_training_chart, Qt.ConnectionType.QueuedConnection)
-        # 🔥 ОТКЛЮЧЕНО: Отрисовка графика блокировала обновление эквити/PnL
-        # Если нужен график — раскомментируйте строку ниже
-        # self.bridge.candle_chart_updated.connect(self.update_candle_chart)
-        logger.info("[GUI] Отрисовка графика ОТКЛЮЧЕНА для стабильности эквити/PnL")
-        self.bridge.pnl_updated.connect(self.update_pnl_chart, Qt.ConnectionType.QueuedConnection)
-        self.bridge.market_scan_updated.connect(self.update_market_scanner_view, Qt.ConnectionType.QueuedConnection)
+        self.bridge.candle_chart_updated.connect(self.update_candle_chart)
+        self.bridge.pnl_updated.connect(self.update_pnl_chart)
+        self.bridge.market_scan_updated.connect(self.update_market_scanner_view)
         logger.info("[GUI] Сигнал market_scan_updated подключен к update_market_scanner_view")
-        self.bridge.uptime_updated.connect(self.update_uptime, Qt.ConnectionType.QueuedConnection)
-        self.bridge.rd_progress_updated.connect(self.update_rd_view, Qt.ConnectionType.QueuedConnection)
+        self.bridge.uptime_updated.connect(self.update_uptime)
+        self.bridge.rd_progress_updated.connect(self.update_rd_view)
         self.history_table.clicked.connect(self.on_history_trade_clicked)
-        self.bridge.xai_data_ready.connect(self.display_xai_chart, Qt.ConnectionType.QueuedConnection)
+        self.bridge.xai_data_ready.connect(self.display_xai_chart)
         self.close_pos_button.clicked.connect(self.close_selected_position)
         self.close_all_pos_button.clicked.connect(self.close_all_positions)
-        self.bridge.all_positions_closed.connect(self.on_all_positions_closed, Qt.ConnectionType.QueuedConnection)
+        self.bridge.all_positions_closed.connect(self.on_all_positions_closed)
         # self.force_train_button.clicked.connect(self.force_training)  # УДАЛЕНО - кнопка перенесена в Центр Управления
         self.force_rd_button.clicked.connect(self.force_rd)
-        self.bridge.market_regime_updated.connect(self.update_market_regime_viz, Qt.ConnectionType.QueuedConnection)
+        self.bridge.market_regime_updated.connect(self.update_market_regime_viz)
         self.bt_run_button.clicked.connect(self.run_backtest)
         self.bt_test_type_combo.currentIndexChanged.connect(self._on_backtest_type_changed)
-        self.bridge.backtest_finished.connect(self.display_backtest_results, Qt.ConnectionType.QueuedConnection)
+        self.bridge.backtest_finished.connect(self.display_backtest_results)
 
         # НОВЫЕ: Подключение сигналов для визуализации переобучения
         self.bridge.model_accuracy_updated.connect(self.update_model_accuracy_chart, Qt.ConnectionType.QueuedConnection)
         self.bridge.retrain_progress_updated.connect(self.update_retrain_progress_chart, Qt.ConnectionType.QueuedConnection)
         logger.info("[GUI] Сигналы model_accuracy_updated и retrain_progress_updated подключены")
 
-        #  Указываем правильный метод on_initialization_successful +++
-        self.bridge.initialization_failed.connect(self.on_initialization_failed, Qt.ConnectionType.QueuedConnection)
-        self.bridge.initialization_successful.connect(self.on_initialization_successful, Qt.ConnectionType.QueuedConnection)
+        # Подключаем сигнал также к ControlCenter для графика прогресса
+        if hasattr(self.control_center_tab, "update_retrain_progress_chart"):
+            self.bridge.retrain_progress_updated.connect(
+                self.control_center_tab.update_retrain_progress_chart, Qt.ConnectionType.QueuedConnection
+            )
+            logger.info("[GUI] Сигнал retrain_progress_updated подключён к ControlCenter")
 
-        self.bridge.directives_updated.connect(self.update_directives_table, Qt.ConnectionType.QueuedConnection)
-        self.bridge.times_updated.connect(self.update_times, Qt.ConnectionType.QueuedConnection)
+        #  Указываем правильный метод on_initialization_successful +++
+        self.bridge.initialization_failed.connect(self.on_initialization_failed)
+        self.bridge.initialization_successful.connect(self.on_initialization_successful)
+
+        self.bridge.directives_updated.connect(self.update_directives_table)
+        self.bridge.times_updated.connect(self.update_times)
         self.create_directive_button.clicked.connect(self.open_create_directive_dialog)
         self.delete_directive_button.clicked.connect(self._delete_selected_directive)
         self.restart_system_button.clicked.connect(self._prompt_and_restart)
         self.refresh_models_button.clicked.connect(self.refresh_model_list)
         self.demote_model_button.clicked.connect(self.demote_selected_model)
-        self.bridge.model_list_updated.connect(self.update_models_table, Qt.ConnectionType.QueuedConnection)
+        self.bridge.model_list_updated.connect(self.update_models_table)
         self.good_trade_button.clicked.connect(lambda: self.record_feedback(1))
         self.bad_trade_button.clicked.connect(lambda: self.record_feedback(-1))
-        self.bridge.orchestrator_allocation_updated.connect(self.update_orchestrator_panel, Qt.ConnectionType.QueuedConnection)
-        self.bridge.knowledge_graph_updated.connect(self.update_knowledge_graph, Qt.ConnectionType.QueuedConnection)
-        self.bridge.observer_pnl_updated.connect(self.update_observer_pnl_chart, Qt.ConnectionType.QueuedConnection)
-        self.bridge.thread_status_updated.connect(self.update_thread_status, Qt.ConnectionType.QueuedConnection)
+        self.bridge.orchestrator_allocation_updated.connect(self.update_orchestrator_panel)
+        self.bridge.knowledge_graph_updated.connect(self.update_knowledge_graph)
+        self.bridge.observer_pnl_updated.connect(self.update_observer_pnl_chart)
+        self.bridge.thread_status_updated.connect(self.update_thread_status)
         self.control_center_tab.settings_changed.connect(self.on_runtime_settings_changed)
         self.kg_enabled_checkbox.stateChanged.connect(self.on_kg_toggle)
-        self.bridge.heavy_initialization_finished.connect(
-            self.on_heavy_initialization_finished_slot, Qt.ConnectionType.QueuedConnection
-        )
+        self.bridge.orchestrator_allocation_updated.connect(self.update_orchestrator_panel)
+        self.bridge.heavy_initialization_finished.connect(self.on_heavy_initialization_finished_slot)
 
-        self.bridge.pnl_kpis_updated.connect(self.update_pnl_kpis, Qt.ConnectionType.QueuedConnection)
+        self.bridge.pnl_kpis_updated.connect(self.update_pnl_kpis)
 
         # ИСПРАВЛЕНИЕ: Удалена дублирующая связь market_scan_updated -> control_center_tab.update_market_table
         # Эта связь уже установлена в control_center_widget.py:47 через _connect_signals()
@@ -3371,22 +2207,7 @@ class MainWindow(QMainWindow):
             report_text += f"{key}: {value}\n"
         self.bt_report_text.setText(report_text)
         if not equity_df.empty:
-            # ✅ ИСПРАВЛЕНИЕ: Используем реальное время вместо arange
-            if "time" in equity_df.columns:
-                equity_df = equity_df.copy()
-                equity_df["time"] = pd.to_datetime(equity_df["time"])
-                x_values = equity_df["time"].values.astype("datetime64[ms]").astype(np.int64) // 10**6
-            elif "datetime" in equity_df.columns:
-                equity_df = equity_df.copy()
-                equity_df["datetime"] = pd.to_datetime(equity_df["datetime"])
-                x_values = equity_df["datetime"].values.astype("datetime64[ms]").astype(np.int64) // 10**6
-            else:
-                # Fallback: генерируем время
-                logger.warning("[GUI-Backtest] Колонка 'time' не найдена, используется fallback")
-                now = datetime.now()
-                x_values = np.array([(now - timedelta(minutes=len(equity_df) - i)).timestamp() for i in range(len(equity_df))])
-
-            self.bt_equity_curve.setData(x=x_values.tolist(), y=equity_df["equity"].values.tolist())
+            self.bt_equity_curve.setData(x=np.arange(len(equity_df)), y=equity_df["equity"].values)
         else:
             self.bt_equity_curve.clear()
         self.bt_run_button.setEnabled(True)
@@ -3709,241 +2530,33 @@ class MainWindow(QMainWindow):
         self.status_label.setText(message)
         self.status_label.setStyleSheet("color: red;" if is_error else "")
 
-    @Slot(float, float)
     def update_balance(self, balance, equity):
-        """
-        Безопасное обновление баланса с защитой от зависаний.
-        Watchdog: гарантирует выполнение даже если предыдущее обновление застряло.
-        """
-        import threading
-        import time
+        """Обновляет баланс и эквити, а также рассчитывает открытый PnL."""
+        logger.debug(f"[GUI-Balance] update_balance вызван: balance={balance}, equity={equity}")
+        self.balance_label.setText(f"Баланс: {balance:.2f}")
+        self.equity_label.setText(f"Эквити: {equity:.2f}")
 
-        try:
-            # 🔹 1. Проверка: мы в главном потоке?
-            from PySide6.QtCore import QCoreApplication, QMetaObject, Qt
+        # Принудительное обновление виджетов
+        self.balance_label.update()
+        self.equity_label.update()
 
-            if threading.current_thread() is not threading.main_thread():
-                # Перенаправляем в главный поток и выходим
-                from PySide6.QtCore import Q_ARG
+        logger.debug(f"[GUI-Balance] balance_label и equity_label обновлены")
 
-                QMetaObject.invokeMethod(
-                    self,
-                    "update_balance",
-                    Qt.ConnectionType.QueuedConnection,
-                    Q_ARG(float, balance),
-                    Q_ARG(float, equity),
-                )
-                return
+        # Рассчитываем и обновляем открытый PnL (разница между эквити и балансом)
+        open_pnl = equity - balance
+        open_pnl_pct = (open_pnl / balance * 100) if balance > 0 else 0
 
-            # 🔹 2. Быстрая диагностика
-            current_time = time.time()
-            current_thread = threading.current_thread().name
-            print(f"💰 [BALANCE-DEBUG] {time.strftime('%H:%M:%S')} | equity={equity:.2f} | thread={current_thread}")
+        logger.debug(f"[GUI-Balance] Открытый PnL: {open_pnl:.2f} ({open_pnl_pct:.2f}%)")
 
-            interval = 0.0
-            if hasattr(self, "_last_balance_update_time"):
-                interval = current_time - self._last_balance_update_time
-                if interval > 5.0:
-                    print(f"⚠️ [BALANCE-DEBUG] Большой интервал: {interval:.1f}с")
-            self._last_balance_update_time = current_time
-
-            # 🔹 3. Минимальное обновление (никаких тяжёлых операций!)
-            self.balance_label.setText(f"Баланс: {balance:.2f}")
-            self.equity_label.setText(f"Эквити: {equity:.2f}")
-            self.equity_label.setVisible(True)  # Гарантируем видимость
-
-            # 🔹 4. Открытый PnL
-            open_pnl = equity - balance
-            open_pnl_pct = (open_pnl / balance * 100) if balance > 0 else 0
-
-            if hasattr(self, "open_pnl_label"):
-                color = "#50fa7b" if open_pnl >= 0 else "#ff5555"
-                pnl_text = f"<span style='font-weight: bold; color:{color}'>{open_pnl:+.2f} ({open_pnl_pct:+.2f}%)</span>"
-                self.open_pnl_label.setText(pnl_text)
-
-            # 🔹 5. Принудительная перерисовка + ОБРАБОТКА СОБЫТИЙ Qt
-            self.balance_label.update()
-            self.equity_label.update()
-            self.balance_label.repaint()
-            self.equity_label.repaint()
-
-            # 🔥 КРИТИЧНО: Обрабатываем события Qt сразу после обновления
-            # Это предотвращает "залипание" GUI во время тяжёлых операций
-            from PySide6.QtWidgets import QApplication
-
-            QApplication.processEvents()
-
-        except Exception as e:
-            # 🔹 6. НИКОГДА не даём ошибке остановить обновление
-            logger.error(f"❌ Ошибка обновления GUI баланса: {e}", exc_info=True)
-            # Попытка восстановить видимость
-            if hasattr(self, "equity_label"):
-                self.equity_label.setVisible(True)
-                self.equity_label.show()
-
-    def _debug_equity_widget(self):
-        """Проверяет тип и свойства виджета эквити."""
-        lbl = getattr(self, "equity_label", None)
-        if lbl is None:
-            logger.error("❌ equity_label NOT FOUND")
-            # Ищем похожие виджеты
-            for name in dir(self):
-                obj = getattr(self, name)
-                if hasattr(obj, "text") and hasattr(obj, "setText"):
-                    logger.info(f"🔍 Found: {name} (type: {type(obj).__name__}, text: '{obj.text()}')")
-            return
-
-        logger.info(f"✅ equity_label found:")
-        logger.info(f"   - Type: {type(lbl).__name__}")
-        logger.info(f"   - Visible: {lbl.isVisible()}")
-        logger.info(f"   - Enabled: {lbl.isEnabled()}")
-        logger.info(f"   - Text: '{lbl.text()}'")
-        logger.info(f"   - StyleSheet: '{lbl.styleSheet()}'")
-        logger.info(f"   - Parent: {lbl.parent().objectName() if lbl.parent() else 'None'}")
-        logger.info(f"   - Geometry: {lbl.geometry()}")
-
-    def _force_equity_refresh(self):
-        """
-        Watchdog: принудительно запрашивает баланс у AccountManager и обновляет GUI.
-        Это запасной канал на случай если основной сигнал потерялся.
-        """
-        try:
-            if hasattr(self, "trading_system") and self.trading_system:
-                acc_manager = getattr(self.trading_system, "account_manager", None)
-                if acc_manager and hasattr(acc_manager, "update_info"):
-                    # Обновляем данные из MT5
-                    success = acc_manager.update_info()
-                    if success:
-                        # Обновляем GUI через сигнал чтобы все компоненты знали
-                        self.bridge.balance_updated.emit(acc_manager.balance, acc_manager.equity)
-                        # Прямое обновление GUI (дублируем для надёжности)
-                        self.update_balance(acc_manager.balance, acc_manager.equity)
-                        logger.debug("🔄 [WATCHDOG] Balance refreshed via signal + direct call")
-        except Exception as e:
-            logger.debug(f"⚠️ [WATCHDOG] Refresh failed: {e}")
-
-    def _force_balance_display_check(self):
-        """
-        Проверяет что виджеты баланса/эквити действительно обновляются.
-        Если данные в TradingSystem отличаются от отображаемых — принудительно обновляет.
-        """
-        try:
-            if hasattr(self, "trading_system") and self.trading_system:
-                acc_manager = getattr(self.trading_system, "account_manager", None)
-                if acc_manager and hasattr(acc_manager, "balance"):
-                    # Сравниваем то что в GUI с тем что в TradingSystem
-                    current_balance_text = self.balance_label.text()
-                    current_equity_text = self.equity_label.text()
-
-                    expected_balance = f"Баланс: {acc_manager.balance:.2f}"
-                    expected_equity = f"Эквити: {acc_manager.equity:.2f}"
-
-                    # Если текст не совпадает — принудительно обновляем
-                    if current_balance_text != expected_balance or current_equity_text != expected_equity:
-                        logger.debug(f"🔄 [BALANCE-CHECK] GUI out of sync, forcing update")
-                        # Отправляем сигнал
-                        self.bridge.balance_updated.emit(acc_manager.balance, acc_manager.equity)
-                        # Прямое обновление
-                        self.update_balance(acc_manager.balance, acc_manager.equity)
-        except Exception as e:
-            logger.debug(f"⚠️ [BALANCE-CHECK] Check failed: {e}")
-
-    def _force_gui_sync(self, equity: float):
-        """
-        Финальный фикс: сохраняет формат + гарантирует перерисовку.
-        Адаптировано под архитектуру БЕЗ self.ui (прямые self.equity_label).
-        """
-        try:
-            if not hasattr(self, "equity_label") or self.equity_label is None:
-                return
-
-            lbl = self.equity_label
-
-            # 🔹 1. Сохраняем ОРИГИНАЛЬНЫЙ текст целиком
-            original_text = lbl.text()
-
-            # 🔹 2. Формируем новый текст, СОХРАНЯЯ префикс
-            if "Эквити:" in original_text or "Equity:" in original_text:
-                import re
-
-                match = re.match(r"^([^\d]*)(\d+\.?\d*)", original_text)
-                if match:
-                    prefix = match.group(1).strip()
-                    new_text = f"{prefix} {equity:.2f} ✓"
-                else:
-                    new_text = f"{original_text} ✓"
-            else:
-                new_text = f"{equity:.2f} ✓"
-
-            # 🔹 3. Обновляем текст
-            lbl.setText(new_text)
-
-            # 🔹 4. ЯВНАЯ перерисовка + проталкивание событий
-            from PySide6.QtCore import QTimer
-            from PySide6.QtWidgets import QApplication
-
-            lbl.repaint()
-            lbl.update()
-            QApplication.processEvents()
-            QApplication.processEvents()
-
-            # 🔹 5. Возврат через 600 мс
-            def restore():
-                if lbl is not None and lbl.isVisible():
-                    lbl.setText(original_text)
-                    lbl.repaint()
-                    lbl.update()
-                    QApplication.processEvents()
-
-            if threading.current_thread() is threading.main_thread():
-                QTimer.singleShot(600, restore)
-            else:
-                from PySide6.QtCore import QMetaObject, Qt
-
-                QMetaObject.invokeMethod(lbl, restore, Qt.ConnectionType.QueuedConnection)
-
-            logger.debug(f"✅ Final sync: '{original_text}' → '{new_text}'")
-
-        except Exception as e:
-            logger.debug(f"⚠️ Final sync skipped: {e}")
-
-    def _debug_balance_update(self, equity: float):
-        """
-        Безопасный визуальный тест обновления интерфейса.
-        НЕ ломает систему при ошибке — эквити всё равно обновится в логе.
-        """
-        try:
-            # 🔹 1. Проверка: существует ли виджет?
-            if not hasattr(self, "equity_label") or self.equity_label is None:
-                logger.warning("⚠️ [DEBUG] self.equity_label is None!")
-                return
-
-            lbl = self.equity_label
-
-            # 🔹 2. Проверка: виджет жив?
-            if not lbl.isVisible() or not lbl.isEnabled():
-                logger.warning(f"⚠️ [DEBUG] equity_label visible={lbl.isVisible()}, enabled={lbl.isEnabled()}")
-
-            # 🔹 3. Безопасное обновление стиля (только в главном потоке)
-            if threading.current_thread() is threading.main_thread():
-                original_style = lbl.styleSheet()
-                lbl.setStyleSheet("border: 2px solid #2ecc71; border-radius: 4px;")
-                QTimer.singleShot(500, lambda: lbl.setStyleSheet(original_style))
-                logger.debug("✅ [DEBUG] Style updated successfully")
-            else:
-
-                def update_style():
-                    original_style = lbl.styleSheet()
-                    lbl.setStyleSheet("border: 2px solid #2ecc71; border-radius: 4px;")
-                    QTimer.singleShot(500, lambda: lbl.setStyleSheet(original_style))
-
-                from PySide6.QtCore import QMetaObject, Qt
-
-                QMetaObject.invokeMethod(self, update_style, Qt.ConnectionType.QueuedConnection)
-                logger.debug("✅ [DEBUG] Style update queued for main thread")
-
-        except Exception as e:
-            logger.error(f"❌ [DEBUG] Style update failed: {e}", exc_info=True)
+        # Обновляем метку открытого PnL (незакрытые позиции)
+        if hasattr(self, "open_pnl_label"):
+            color = "#50fa7b" if open_pnl >= 0 else "#ff5555"
+            pnl_text = f"<span style='font-weight: bold; color:{color}'>{open_pnl:+.2f} ({open_pnl_pct:+.2f}%)</span>"
+            self.open_pnl_label.setText(pnl_text)
+            self.open_pnl_label.update()
+            logger.debug(f"[GUI-Balance] open_pnl_label обновлён: {pnl_text}")
+        else:
+            logger.warning("[GUI-Balance] open_pnl_label не найден!")
 
     def _toggle_debug_logs(self, state):
         """Включает или выключает режим отладки (DEBUG) для логирования."""
@@ -4120,65 +2733,27 @@ class MainWindow(QMainWindow):
             logger.error(f"[GUI-Dialog] Ошибка при работе с окном настроек: {e}", exc_info=True)
 
     def update_observer_pnl_chart(self, pnl_history: list):
-        """Обновляет график P&L наблюдателя с правильной осью X (время)."""
-        # Защита: проверяем существование виджетов
-        if not hasattr(self, "observer_pnl_curve") or self.observer_pnl_curve is None:
-            return
-        if not hasattr(self, "observer_pnl_plot_widget") or self.observer_pnl_plot_widget is None:
-            return
-
         if not pnl_history:
-            try:
-                self.observer_pnl_curve.setData(x=[], y=[])
-            except RuntimeError:
-                pass  # Виджет был удалён
+            self.observer_pnl_curve.setData(x=[], y=[])
             return
         try:
             initial_balance = 10000  # Стартовый баланс для симуляции
             cumulative_pnl = np.cumsum(pnl_history)
             equity_curve = initial_balance + cumulative_pnl
 
-            # ✅ ИСПРАВЛЕНИЕ: Используем реальное время вместо arange
-            # Если pnl_history содержит объекты с time_close — используем их
-            if hasattr(pnl_history[-1], "time_close"):
-                timestamps = np.array([deal.time_close.timestamp() for deal in pnl_history])
-            else:
-                # Fallback: используем текущее время минус интервал
-                now = datetime.now().timestamp()
-                timestamps = np.array([now - (len(pnl_history) - i) * 3600 for i in range(len(pnl_history))])
-                logger.warning("[GUI-Observer] time_close не найден, используется fallback по времени")
+            # Преобразуем в списки для совместимости с pyqtgraph
+            x_data = list(np.arange(len(equity_curve)))
+            y_data = [float(v) for v in equity_curve]
 
-            x_data = timestamps.tolist()
-            y_data = equity_curve.tolist()
-
-            # ДИНАМИЧЕСКОЕ МАСШТАБИРОВАНИЕ для графика наблюдателя
             self.observer_pnl_curve.setData(x=x_data, y=y_data)
-            self.observer_pnl_plot.enableAutoRange(x=True, y=True)
-            self.observer_pnl_plot.setAutoVisible(x=True, y=True)
-
-            # Динамический цвет
-            final_pnl = cumulative_pnl[-1]
-            pen_color = "#10B981" if final_pnl >= 0 else "#EF4444"
-            self.observer_pnl_curve.setPen(pg.mkPen(pen_color, width=2))
-
-            pnl_sign = "+" if final_pnl >= 0 else ""
-            self.observer_pnl_plot.setTitle(f"Доходность (Наблюдатель: {pnl_sign}{final_pnl:.2f})")
+            self.observer_pnl_plot.setTitle(f"Доходность (Наблюдатель: {cumulative_pnl[-1]:.2f})")
         except Exception as e:
             logger.error(f"Ошибка при построении графика P&L наблюдателя: {e}", exc_info=True)
 
     def update_pnl_chart(self, trade_history: list):
         logger.info(f"[GUI-PnL] Обновление графика P&L: {len(trade_history)} сделок")
-        # Защита: проверяем существование виджетов
-        if not hasattr(self, "pnl_curve") or self.pnl_curve is None:
-            return
-        if not hasattr(self, "pnl_plot_widget") or self.pnl_plot_widget is None:
-            return
-
         if not trade_history:
-            try:
-                self.pnl_curve.setData([], [])
-            except RuntimeError:
-                pass
+            self.pnl_curve.setData([], [])
             logger.debug("[GUI-PnL] История сделок пуста, график очищен")
             return
         try:
@@ -4208,31 +2783,9 @@ class MainWindow(QMainWindow):
             x_data = [float(t) for t in timestamps]
             y_data = [float(p) for p in cumulative_profit]
 
-            # ДИНАМИЧЕСКОЕ МАСШТАБИРОВАНИЕ: автоматическая подстройка осей
             self.pnl_curve.setData(x=x_data, y=y_data)
-
-            # Автоматически масштабируем вид под данные
-            self.pnl_plot.enableAutoRange(x=True, y=True)
-            self.pnl_plot.setAutoVisible(x=True, y=True)
-
-            # Динамический цвет графика в зависимости от итогового P&L
-            final_pnl = cumulative_profit[-1]
-            if final_pnl >= 0:
-                # Прибыль — зелёный градиент
-                pen_color = "#10B981"
-                shadow_color = "#059669"
-            else:
-                # Убыток — красный градиент
-                pen_color = "#EF4444"
-                shadow_color = "#DC2626"
-
-            self.pnl_curve.setPen(pg.mkPen(pen_color, width=2.5))
-
-            # Обновляем заголовок с цветовой индикацией
-            pnl_sign = "+" if final_pnl >= 0 else ""
-            self.pnl_plot.setTitle(f"Кривая доходности (P&L: {pnl_sign}{final_pnl:.2f} USD)")
-
-            logger.debug(f"[GUI-PnL] График динамически обновлён: {len(x_data)} точек, P&L: {pnl_sign}{final_pnl:.2f}")
+            self.pnl_plot.setTitle(f"Кривая доходности (P&L: {cumulative_profit[-1]:.2f})")
+            logger.debug(f"[GUI-PnL] График успешно обновлен, итоговый P&L: {cumulative_profit[-1]:.2f}")
         except Exception as e:
             logger.error(f"[GUI-PnL] Ошибка при построении графика P&L: {e}", exc_info=True)
 
@@ -4264,8 +2817,6 @@ class MainWindow(QMainWindow):
                     logger.info(f"[GUI-Training] Обновление графика: {len(loss_values)} эпох, loss={loss_values[-1]:.4f}")
                     self.loss_curve.setData(x=x_values, y=y_values)
                     self.loss_plot.setTitle(f"Прогресс обучения (Loss: {loss_values[-1]:.4f})")
-                    self.loss_plot.enableAutoRange(x=True, y=True)
-                    self.loss_plot.setAutoVisible(x=True, y=True)
                     logger.info(f"[GUI-Training] График обновлен успешно")
                 else:
                     logger.warning("[GUI-Training] Список loss пуст")
@@ -4279,15 +2830,15 @@ class MainWindow(QMainWindow):
     def update_model_accuracy_chart(self, accuracy_data: dict):
         """
         Обновляет график точности моделей по символам.
-        """
-        # Защита: проверяем существование виджетов
-        if not hasattr(self, "model_accuracy_bars") or self.model_accuracy_bars is None:
-            logger.warning("[GUI-ModelAccuracy] Виджет не инициализирован")
-            return
-        if not hasattr(self, "model_accuracy_plot_widget") or self.model_accuracy_plot_widget is None:
-            return
 
+        Args:
+            accuracy_data: Словарь {symbol: accuracy} где accuracy от 0 до 1
+        """
         try:
+            if not hasattr(self, "model_accuracy_bars") or self.model_accuracy_bars is None:
+                logger.warning("[GUI-ModelAccuracy] Виджет не инициализирован")
+                return
+
             if not accuracy_data:
                 logger.debug("[GUI-ModelAccuracy] Нет данных для отображения")
                 self.model_accuracy_bars.setOpts(x=[], height=[])
@@ -4326,15 +2877,15 @@ class MainWindow(QMainWindow):
     def update_retrain_progress_chart(self, progress_data: dict):
         """
         Обновляет график прогресса переобучения.
-        """
-        # Защита: проверяем существование виджетов
-        if not hasattr(self, "retrain_progress_bars") or self.retrain_progress_bars is None:
-            logger.warning("[GUI-RetrainProgress] Виджет не инициализирован")
-            return
-        if not hasattr(self, "retrain_progress_widget") or self.retrain_progress_widget is None:
-            return
 
+        Args:
+            progress_data: Словарь {symbol: hours_since_training}
+        """
         try:
+            if not hasattr(self, "retrain_progress_bars") or self.retrain_progress_bars is None:
+                logger.warning("[GUI-RetrainProgress] Виджет не инициализирован")
+                return
+
             if not progress_data:
                 logger.debug("[GUI-RetrainProgress] Нет данных для отображения")
                 self.retrain_progress_bars.setOpts(x=[], height=[])
@@ -4344,13 +2895,12 @@ class MainWindow(QMainWindow):
             symbols = list(progress_data.keys())
             hours = [progress_data[s] for s in symbols]
 
-            # Цветовое кодирование: красный > 24ч (пора переобучать),
-            # жёлтый 12-24ч (скоро пора), зелёный < 12ч (всё ок)
+            # Цветовое кодирование: красный > 1ч (пора переобучать), жёлтый 0.5-1ч, зелёный < 0.5ч
             colors = []
             for h in hours:
-                if h >= 24.0:
+                if h >= 1.0:
                     colors.append("#ff5555")  # Красный - пора переобучать!
-                elif h >= 12.0:
+                elif h >= 0.5:
                     colors.append("#ffb86c")  # Оранжевый - скоро пора
                 else:
                     colors.append("#50fa7b")  # Зелёный - ещё рано
@@ -4360,7 +2910,7 @@ class MainWindow(QMainWindow):
             self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
 
             # Обновляем заголовок
-            symbols_to_retrain = sum(1 for h in hours if h >= 24.0)  # ИСПРАВЛЕНО: порог 24 часа как в TradingSystem
+            symbols_to_retrain = sum(1 for h in hours if h >= 1.0)
             self.retrain_progress_widget.setTitle(f"⏰ Прогресс переобучения (требуют: {symbols_to_retrain})")
 
             # Сохраняем данные
@@ -4373,268 +2923,76 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"[GUI-RetrainProgress] Ошибка при обновлении графика: {e}", exc_info=True)
 
-    # === 🎯 Обработчики toolbar графика ===
-    def on_chart_symbol_changed(self, symbol: str):
-        """Обработчик изменения символа на графике."""
-        self.current_chart_symbol = symbol
-        logger.info(f"[GUI-Chart] Символ изменён на: {symbol}")
-        self.request_chart_update()
-
-    def on_chart_timeframe_changed(self, timeframe: str):
-        """Обработчик изменения таймфрейма на графике."""
-        self.current_chart_timeframe = timeframe
-        logger.info(f"[GUI-Chart] Таймфрейм изменён на: {timeframe}")
-        self.request_chart_update()
-
-    def on_chart_refresh_clicked(self):
-        """Обработчик кнопки обновления графика."""
-        logger.info(f"[GUI-Chart] Запрошено обновление: {self.current_chart_symbol} {self.current_chart_timeframe}")
-        self.request_chart_update()
-
-    def request_chart_update(self):
-        """
-        Запрашивает обновление графика с debounce (не чаще 1 раза в 5 сек).
-        Предотвращает блокировку GUI частыми обновлениями.
-        """
-        timeframe_mt5 = self.timeframe_map.get(self.current_chart_timeframe, mt5.TIMEFRAME_H1)
-        symbol = self.current_chart_symbol
-
-        # Сохраняем.pending данные
-        self._pending_chart_data = (symbol, timeframe_mt5)
-
-        # Перезапускаем таймер: если новые данные придут за 5 сек — обновим один раз
-        if not self._chart_update_timer.isActive():
-            self._chart_update_timer.start(5000)  # 5 секунд
-        else:
-            logger.debug(f"[GUI-Chart] Debounce: обновление отложено для {symbol}")
-
-    def _do_chart_update(self):
-        """Выполняет отложенное обновление графика (вызывается из главного потока)."""
-        if self._pending_chart_data:
-            symbol, timeframe_mt5 = self._pending_chart_data
-            self._pending_chart_data = None
-
-            logger.info(f"[GUI-Chart] Debounce завершён, запрашиваем {symbol} TF={timeframe_mt5}")
-            if hasattr(self.trading_system, "request_chart_data"):
-                self.trading_system.request_chart_data(symbol, timeframe_mt5)
-            else:
-                logger.warning("[GUI-Chart] Метод request_chart_data не найден в trading_system")
-
     def update_candle_chart(self, df: pd.DataFrame, symbol: str):
-        """
-        Обновляет график свечей в стиле MT5.
-        🔹 НЕ блокирует GUI — отложенная отрисовка через QTimer.singleShot
-        🔹 Если вызван из фонового потока — перенаправляет в главный.
-        🔹 Ограничивает до 100 баров для быстрой отрисовки.
-        """
-        import time as _time
-
-        # 🔹 1. Защита: выполняем только в главном потоке
-        if threading.current_thread() is not threading.main_thread():
-            # Перенаправляем в главный поток и выходим
-            logger.debug(f"[GUI-Chart] Перенаправление в главный поток: {symbol}")
-            QTimer.singleShot(0, lambda: self.update_candle_chart(df, symbol))
-            return
-
-        # 🔥 ОТЛОЖЕННАЯ ОТРИСОВКА: даём GUI обработать накопившиеся события (PnL, эквити)
-        # Это предотвращает "заморозку" эквити во время отрисовки графика
-        QTimer.singleShot(
-            50,  # Задержка 50мс — GUI успеет обновить эквити/PnL
-            lambda: self._do_draw_candle_chart(df, symbol),
+        logger.info(
+            f"[GUI-Chart] update_candle_chart вызван: symbol={symbol}, df is None={df is None}, df.empty={df.empty if df is not None else 'N/A'}, len={len(df) if df is not None else 0}"
         )
-
-    def _do_draw_candle_chart(self, df: pd.DataFrame, symbol: str):
-        """
-        Реальная отрисовка свечей (вызывается отложенно через QTimer.singleShot).
-        """
-        import time as _time
-
-        start = _time.time()
-
+        if df is None or df.empty or len(df) < 2:
+            logger.warning(f"[GUI-Chart] Данные недостаточны для отображения графика {symbol}")
+            return
         try:
-            # 🔍 ТОЧЕЧНАЯ ДИАГНОСТИКА ГРАФИКА
-            print(
-                f"📊 [CHART-DEBUG] {_time.strftime('%H:%M:%S')} | "
-                f"thread={threading.current_thread().name} | "
-                f"df.empty={df.empty if df is not None else 'None'} | "
-                f"len={len(df) if df is not None else 0}"
-            )
-
-            # 🔹 2. Быстрый выход если нет данных
-            if df is None or df.empty or len(df) < 2:
-                logger.debug(f"[GUI-Chart] {symbol}: нет данных, пропускаем")
-                self.candlestick_item.setData(None)
-                self.volume_item.setOpts(x=[], height=[])
-                return
-
-            # 🔹 3. Берём ТОЛЬКО последние 100 баров (быстрая отрисовка!)
-            df_clean = df.tail(100).copy()
-
-            # 🔥 КРИТИЧНО: Отдаём управление GUI перед тяжёлой подготовкой данных
-            from PySide6.QtWidgets import QApplication
-
-            QApplication.processEvents()
-
-            # Подготовка X (время)
-            if "time" in df_clean.columns:
-                if df_clean["time"].dtype == "object" or np.issubdtype(df_clean["time"].dtype, np.datetime64):
-                    df_clean["time"] = pd.to_datetime(df_clean["time"])
-                    x_data = df_clean["time"].values.astype("datetime64[ms]").astype("int64")
-                elif np.issubdtype(df_clean["time"].dtype, np.number):
-                    x_data = (df_clean["time"].values * 1000).astype("int64")
-                else:
-                    df_clean["time"] = pd.to_datetime(df_clean["time"], errors="coerce")
-                    x_data = df_clean["time"].values.astype("datetime64[ms]").astype("int64")
-            else:
-                # Fallback: генерируем время
-                now_ms = int(pd.Timestamp.now("UTC").timestamp() * 1000)
-                interval_ms = 3600000
-                n_bars = len(df_clean)
-                x_data = np.array([now_ms - (n_bars - 1 - i) * interval_ms for i in range(n_bars)], dtype="int64")
-                df_clean["time"] = pd.to_datetime(x_data, unit="ms")
-
-            # Очистка от дубликатов/NaN
-            df_clean["_x_timestamp"] = x_data
-            df_clean = df_clean.drop_duplicates(subset="_x_timestamp", keep="last")
-            df_clean = df_clean.dropna(subset=["open", "high", "low", "close"])
-            x_data = df_clean["_x_timestamp"].values.astype("int64")
-
-            if len(x_data) < 2:
-                logger.debug(f"[GUI-Chart] {symbol}: после очистки осталось {len(x_data)} баров")
-                return
-
-            # 🔥 КРИТИЧНО: Ещё раз отдаём управление GUI перед извлечением OHLCV
-            QApplication.processEvents()
-
-            # Извлекаем OHLCV
-            open_vals = df_clean["open"].values.astype(np.float64)
-            high_vals = df_clean["high"].values.astype(np.float64)
-            low_vals = df_clean["low"].values.astype(np.float64)
-            close_vals = df_clean["close"].values.astype(np.float64)
-            volume_vals = (
-                df_clean["tick_volume"].values.astype(np.float64)
-                if "tick_volume" in df_clean.columns
-                else np.zeros(len(x_data))
-            )
-
-            # Формируем данные свечей
-            candlestick_data = np.column_stack((x_data, open_vals, high_vals, low_vals, close_vals))
-
-            # Отрисовка свечей
-            self.candlestick_item.setData(candlestick_data)
-
-            # 🔥 КРИТИЧНО: Отдаём управление GUI после setData
-            QApplication.processEvents()
-
-            # Обновление объёма
-            volume_colors = [
-                pg.mkBrush("#00C853") if close_vals[i] >= open_vals[i] else pg.mkBrush("#FF1744") for i in range(len(df_clean))
-            ]
-
-            bar_width = np.diff(x_data).mean() * 0.7 if len(x_data) > 1 else 3600000
-            self.volume_item.setOpts(
-                x=x_data.astype(np.float64),
-                height=volume_vals,
-                width=bar_width,
-                brushes=volume_colors,
-            )
-
-            # Заголовок
+            df = df.sort_index()  # Гарантируем хронологию
+            logger.info(f"[GUI-Chart] Обновление графика для {symbol}, баров: {len(df)}")
             self.price_plot.setTitle(f"График {symbol}")
-
-            # Авто-масштаб ТОЛЬКО при смене символа (оптимизация производительности)
-            if self._last_chart_symbol != symbol:
-                if len(x_data) > 1:
-                    time_span = x_data[-1] - x_data[0]
-                    x_padding = max(time_span * 0.05, 3600000)
-                    x_min = float(x_data[0] - x_padding)
-                    x_max = float(x_data[-1] + x_padding)
-
-                    price_range = max(high_vals) - min(low_vals)
-                    y_padding = max(price_range * 0.1, price_range * 0.01)
-                    y_min = float(min(low_vals) - y_padding)
-                    y_max = float(max(high_vals) + y_padding)
-
-                    self.price_plot.setXRange(x_min, x_max, padding=0)
-                    self.price_plot.setYRange(y_min, y_max, padding=0.05)
-
-                self._last_chart_symbol = symbol
-
-            # 🔥 КРИТИЧНО: Принудительная перерисовка + обработка событий Qt
-            # Это предотвращает "чёрный экран" когда данные есть но не отрисовались
-            self.price_plot.repaint()
-            self.volume_plot.repaint()
-            QApplication.processEvents()
-
-            # 🔹 Диагностика времени выполнения
-            elapsed_ms = (_time.time() - start) * 1000
-            if elapsed_ms > 100:
-                logger.warning(f"⚠️ [GUI-Chart] {symbol} обновлялся {elapsed_ms:.0f} мс (медленно!)")
+            # Оптимизация: используем последние 200 баров без копирования лишних данных
+            if len(df) > 200:
+                df_chart = df.tail(200)
+                logger.debug(f"[GUI-Chart] График обрезан до 200 баров из {len(df)}")
             else:
-                logger.debug(f"✅ [GUI-Chart] {symbol}: {len(candlestick_data)} баров, {elapsed_ms:.0f} мс")
+                df_chart = df
 
+            # Оптимизация: преобразование данных в numpy массивы для ускорения
+            timestamps = (pd.to_datetime(df_chart.index).astype(np.int64) / 1e9).astype(np.float64)
+            open_vals = df_chart["open"].values.astype(np.float64)
+            high_vals = df_chart["high"].values.astype(np.float64)
+            low_vals = df_chart["low"].values.astype(np.float64)
+            close_vals = df_chart["close"].values.astype(np.float64)
+
+            candlestick_data = np.column_stack((timestamps, open_vals, high_vals, low_vals, close_vals))
+            self.candlestick_item.setData(candlestick_data)
+            logger.debug(f"[GUI-Chart] Данные свечей установлены: {len(candlestick_data)} баров")
+
+            # Обновление объема
+            volume_vals = df_chart["tick_volume"].values
+            self.volume_item.setOpts(x=timestamps, height=volume_vals)
+
+            # === ИСПРАВЛЕНИЕ: Устанавливаем диапазон вручную с правильным масштабом ===
+            if len(timestamps) > 1:
+                # Вычисляем диапазон по X (время)
+                time_span = timestamps[-1] - timestamps[0]
+                x_padding = max(time_span * 0.1, 3600)  # Минимум 1 час отступ
+                x_min = timestamps[0] - x_padding
+                x_max = timestamps[-1] + x_padding
+
+                # Вычисляем диапазон по Y (цена) с учетом волатильности
+                price_range = max(high_vals) - min(low_vals)
+                # Минимум 1 единица отступ
+                y_padding = max(price_range * 0.1, 1.0)
+                y_min = min(low_vals) - y_padding
+                y_max = max(high_vals) + y_padding
+
+                # Применяем диапазон с небольшим отступом
+                self.price_plot.setXRange(x_min, x_max, padding=0.02)
+                self.price_plot.setYRange(y_min, y_max, padding=0.02)
+                logger.debug(
+                    f"[GUI-Chart] Диапазон установлен: X=[{x_min:.0f}, {x_max:.0f}] ({time_span/3600:.1f}ч), Y=[{y_min:.2f}, {y_max:.2f}] ({price_range:.2f})"
+                )
+
+            logger.info(f"[GUI-Chart] График {symbol} успешно обновлен, {len(candlestick_data)} баров отображено")
         except Exception as e:
-            # 🔹 НИКОГДА не даём ошибке графика "уронить" весь GUI
-            logger.debug(f"⚠️ [GUI-Chart] {symbol} ошибка (не критично): {e}")
+            logger.error(f"[GUI-Chart] Ошибка при обновлении графика {symbol}: {e}", exc_info=True)
 
     def update_trade_arrows(self, symbol: str):
-        """Обновляет стрелки сделок на графике."""
-        if not self.chart_trade_history:
-            self.trade_arrows_item.clear()
-            return
-
-        buy_positions = []
-        sell_positions = []
-
+        trade_points = []
         for deal in self.chart_trade_history:
             if deal.symbol == symbol:
                 timestamp = deal.time_open.timestamp()
                 price = deal.price_open
-
-                if deal.trade_type == "BUY":
-                    buy_positions.append(
-                        {
-                            "x": timestamp,
-                            "y": price,
-                            "brush": pg.mkBrush("#00C853"),  # Зелёная стрелка вверх
-                            "symbol": "t1",
-                            "size": 12,
-                            "pen": pg.mkPen("#00C853", width=1),
-                        }
-                    )
-                else:
-                    sell_positions.append(
-                        {
-                            "x": timestamp,
-                            "y": price,
-                            "brush": pg.mkBrush("#FF1744"),  # Красная стрелка вниз
-                            "symbol": "t",
-                            "size": 12,
-                            "pen": pg.mkPen("#FF1744", width=1),
-                        }
-                    )
-
-        # Обновляем стрелки раздельно для разных типов
-        if buy_positions:
-            self.trade_arrows_item.setData(
-                x=[p["x"] for p in buy_positions],
-                y=[p["y"] for p in buy_positions],
-                brush=[p["brush"] for p in buy_positions],
-                symbol="t1",
-                size=12,
-                pen=pg.mkPen("#00C853", width=1),
-            )
-        elif sell_positions:
-            self.trade_arrows_item.setData(
-                x=[p["x"] for p in sell_positions],
-                y=[p["y"] for p in sell_positions],
-                brush=[p["brush"] for p in sell_positions],
-                symbol="t",
-                size=12,
-                pen=pg.mkPen("#FF1744", width=1),
-            )
-        else:
-            self.trade_arrows_item.clear()
+                arrow_symbol, color = ("t1", "g") if deal.trade_type == "BUY" else ("t", "r")
+                trade_points.append(
+                    {"pos": (timestamp, price), "symbol": arrow_symbol, "brush": pg.mkBrush(color), "size": 15}
+                )
+        self.trade_arrows_item.setData(trade_points)
 
     def update_market_regime_viz(self, regime: str):
         color = self.regime_colors.get(regime, QColor(0, 0, 0, 0))
@@ -4646,15 +3004,8 @@ class MainWindow(QMainWindow):
     def update_drift_chart(self, timestamp: float, symbol: str, error: float, is_drift: bool):
         """
         Обновляет график ошибок предсказания.
+        Принимает timestamp (секунды), символ, ошибку (0.0 - 1.0) и флаг дрейфа.
         """
-        # Защита: проверяем существование виджетов
-        if not hasattr(self, "drift_scatter") or self.drift_scatter is None:
-            return
-        if not hasattr(self, "drift_alert_scatter") or self.drift_alert_scatter is None:
-            return
-        if not hasattr(self, "drift_plot_widget") or self.drift_plot_widget is None:
-            return
-
         try:
             # Логируем входящие данные, чтобы видеть, приходят ли они вообще
             logger.info(f"[GUI Drift] Получены данные: Time={timestamp}, Sym={symbol}, Err={error:.4f}, Drift={is_drift}")
@@ -4980,8 +3331,8 @@ def run_core_process(config_dict):
     app_config = Settings(**config_dict)
 
     # Настраиваем логирование для этого процесса
-    # Логируем только в файл/консоль (без GUI, light_mode=False для консоли)
-    setup_qt_logging(lambda *a, **k: None, app_config, light_mode=False)
+    # Логируем только в файл/консоль
+    setup_qt_logging(lambda *a, **k: None, app_config)
 
     logger.critical("--- CORE PROCESS STARTED ---")
 
@@ -5037,12 +3388,8 @@ def main():
         PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
         sound_manager = SoundManager(project_root=PROJECT_ROOT)
 
-        # 2. Определяем тему ДО настройки логирования
-        theme = getattr(app_config, "GUI_THEME", "Темная")
-        is_light = theme == "Светлая"
-
-        # 3. Вызываем setup_qt_logging с правильным режимом цветов
-        setup_qt_logging(bridge.log_message_added, app_config, light_mode=is_light)
+        # 2. Вызываем нашу новую функцию ОДИН РАЗ, передав ей нужный сигнал и конфиг
+        setup_qt_logging(bridge.log_message_added, app_config)
         trading_system_adapter = PySideTradingSystem(config=app_config, bridge=bridge, sound_manager=sound_manager)
 
         window = MainWindow(trading_system_adapter, app_config)
@@ -5050,30 +3397,8 @@ def main():
         # Добавляем обработчик aboutToQuit
         app.aboutToQuit.connect(lambda: logger.info("=== QApplication.aboutToQuit СИГНАЛ ПОЛУЧЕН ==="))
 
-        # --- ВАЖНО: Применяем тему ОДИН раз через apply_style() ---
-        # apply_style() уже загружает QSS файл И применяет инлайновые стили
-        # НЕ нужно вызывать app.setStyleSheet() отдельно!
-        window.apply_style(theme)
-        logger.info(f"[Main] Тема '{theme}' применена через apply_style()")
-
         window.show()
         logger.info("=== ОКНО ПОКАЗАНО, РАЗМЕР: {}x{} ===".format(window.width(), window.height()))
-
-        # --- Кастомная рамка окна (опционально, из конфига) ---
-        if getattr(app_config, "USE_CUSTOM_TITLE_BAR", False):
-            window.setup_custom_title_bar()
-            logger.info("[Main] Кастомная рамка окна активирована")
-
-        # --- Состояние анимаций из конфига ---
-        if hasattr(window, "animation_manager"):
-            window.animation_manager.enabled = getattr(app_config, "ANIMATIONS_ENABLED", True)
-            logger.info(f"[Main] Анимации: {'включены' if window.animation_manager.enabled else 'отключены'}")
-
-        # --- Принудительное обновление всех виджетов ---
-        window.update()
-        window.repaint()
-        QApplication.processEvents()
-        logger.info("[Main] Виджеты обновлены после применения темы")
 
         logger.info("=== GUI ЗАПУЩЕН УСПЕШНО, ВХОД В EVENT LOOP ===")
         exit_code = app.exec()
