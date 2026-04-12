@@ -4657,15 +4657,47 @@ class TradingSystem(QObject):
         logger.info(f"[Async Training] Начало обучения для {symbol}...")
 
         try:
-            # Загрузка данных (не блокирует)
+            # Загрузка данных (НЕБЛОКИРУЮЩАЯ — через БД)
             logger.info(f"[Async Training] Шаг 1: Загрузка данных для {symbol}...")
             data_load_start = standard_time.time()
-            df_full = self.data_provider.get_historical_data(
-                symbol,
-                timeframe,
-                datetime.now() - timedelta(days=self.config.TRAINING_DATA_POINTS / 12),
-                datetime.now(),
-            )
+
+            # Пытаемся загрузить из БД (не требует mt5_lock!)
+            df_full = None
+            try:
+                query = """
+                    SELECT timestamp, open, high, low, close, tick_volume
+                    FROM candle_data
+                    WHERE symbol LIKE ? AND timeframe = 16385
+                    ORDER BY timestamp DESC
+                    LIMIT 5000
+                """
+                import pandas as pd
+
+                df_full = pd.read_sql_query(query, self.db_manager.engine, params=(f"{symbol}%",))
+                if len(df_full) > 0:
+                    df_full.rename(columns={"timestamp": "time"}, inplace=True)
+                    df_full["time"] = pd.to_datetime(df_full["time"])
+                    df_full.set_index("time", inplace=True)
+                    logger.info(f"[Async Training] Загружено {len(df_full)} баров из БД для {symbol}")
+            except Exception as db_error:
+                logger.debug(f"[Async Training] БД недоступна, пробуем MT5: {db_error}")
+
+            # Если БД не помогла — пробуем MT5
+            if df_full is None or len(df_full) < 1000:
+                logger.info(f"[Async Training] БД недостаточно данных, пробуем MT5...")
+                try:
+                    df_full = self.data_provider.get_historical_data(
+                        symbol,
+                        timeframe,
+                        datetime.now() - timedelta(days=self.config.TRAINING_DATA_POINTS / 12),
+                        datetime.now(),
+                    )
+                except Exception as mt5_error:
+                    logger.warning(f"[Async Training] MT5 недоступен: {mt5_error}")
+                    if df_full is None or len(df_full) < 1000:
+                        logger.warning(f"[Async Training] Недостаточно данных для {symbol}. Пропуск.")
+                        return
+
             data_load_time = standard_time.time() - data_load_start
             logger.info(
                 f"[Async Training] Загрузка данных заняла {data_load_time:.2f} сек, баров: {len(df_full) if df_full is not None else 0}"
