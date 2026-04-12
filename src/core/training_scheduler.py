@@ -177,8 +177,10 @@ class TrainingScheduler:
         if self.training_in_progress:
             return False
 
+        # FIX: Если last_training_time None — первое обучение должно запуститься!
         if self.last_training_time is None:
-            return False  # Первый запуск только по расписанию
+            logger.info("🔄 Первое автообучение: запускаю немедленно!")
+            return True
 
         hours_since_last = (datetime.now() - self.last_training_time).total_seconds() / 3600
         return hours_since_last >= self.interval_hours
