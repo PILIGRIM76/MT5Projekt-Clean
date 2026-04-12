@@ -285,21 +285,17 @@ class ControlCenterWidget(QWidget):
         self.force_train_btn.clicked.connect(self._force_training_requested)
         training_layout.addWidget(self.force_train_btn)
 
-        # Горизонтальный layout для статуса и таймера
-        status_timer_layout = QHBoxLayout()
+        # Таймер обратного отсчёта — ОТДЕЛЬНОЙ строкой НАД статусом
+        self.next_training_label = QLabel("⏳ Следующее обучение: --:--")
+        self.next_training_label.setStyleSheet("color: #f1fa8c; font-size: 13px; font-weight: bold; padding: 5px;")
+        self.next_training_label.setAlignment(Qt.AlignCenter)
+        training_layout.addWidget(self.next_training_label)
 
+        # Статус обучения — под таймером (с переносом слов)
         self.training_status_label = QLabel("Статус: Ожидание...")
         self.training_status_label.setStyleSheet("color: #8be9fd; font-size: 12px;")
-        status_timer_layout.addWidget(self.training_status_label)
-
-        # Таймер обратного отсчёта — в правом углу
-        self.next_training_label = QLabel("⏳ Следующее: --:--")
-        self.next_training_label.setStyleSheet("color: #f1fa8c; font-size: 12px; font-weight: bold;")
-        self.next_training_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        status_timer_layout.addStretch()  # Растягиваем пространство между статусом и таймером
-        status_timer_layout.addWidget(self.next_training_label)
-
-        training_layout.addLayout(status_timer_layout)
+        self.training_status_label.setWordWrap(True)
+        training_layout.addWidget(self.training_status_label)
 
         # Таймер обновления обратного отсчёта (каждую секунду)
         self.countdown_timer = QTimer(self)
@@ -746,7 +742,7 @@ class ControlCenterWidget(QWidget):
                     else:
                         countdown_text = f"{seconds}с"
 
-                    self.next_training_label.setText(f"⏳ Следующее: {countdown_text}")
+                    self.next_training_label.setText(f"⏳ Следующее обучение: {countdown_text}")
 
                     # Цвет меняется в зависимости от времени
                     if total_seconds < 300:  # Меньше 5 минут
