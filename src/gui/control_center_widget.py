@@ -1,6 +1,7 @@
 # src/gui/control_center_widget.py
 import logging
 
+import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -284,6 +285,18 @@ class ControlCenterWidget(QWidget):
         """)
         self.force_train_btn.clicked.connect(self._force_training_requested)
         training_layout.addWidget(self.force_train_btn)
+
+        # === ГРАФИК ПРОГРЕССА ПЕРЕОБУЧЕНИЯ ===
+        self.retrain_progress_widget = pg.PlotWidget(title="⏰ До переобучения (ч)")
+        self.retrain_progress_widget.setMaximumHeight(120)
+        self.retrain_progress_widget.showGrid(x=True, y=True, alpha=0.3)
+        self.retrain_progress_widget.getAxis("bottom").setLabel("Символ")
+        self.retrain_progress_widget.getAxis("left").setLabel("Часов")
+        self.retrain_progress_widget.getAxis("left").setRange(0, 3)
+        self.retrain_progress_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="b")
+        self.retrain_progress_widget.addItem(self.retrain_progress_bars)
+        self.retrain_progress_data = {}
+        training_layout.addWidget(self.retrain_progress_widget)
 
         # Таймер обратного отсчёта — ОТДЕЛЬНОЙ строкой НАД статусом
         self.next_training_label = QLabel("⏳ Следующее обучение: --:--")
@@ -767,3 +780,39 @@ class ControlCenterWidget(QWidget):
         except Exception as e:
             self.next_training_label.setText(f"⚠️ Ошибка: {str(e)[:20]}")
             self.next_training_label.setStyleSheet("color: #ff5555; font-size: 12px; padding: 5px;")
+
+    def update_retrain_progress_chart(self, progress_data: dict):
+        """Обновляет график прогресса переобучения."""
+        try:
+            if not hasattr(self, "retrain_progress_bars"):
+                return
+
+            if not progress_data:
+                self.retrain_progress_bars.setOpts(x=[], height=[])
+                return
+
+            symbols = list(progress_data.keys())
+            hours = [progress_data[s] for s in symbols]
+
+            # Цветовое кодирование: адаптивные пороги
+            colors = []
+            for h in hours:
+                if h >= 0.5:  # 30 минут
+                    colors.append("#ff5555")  # Красный
+                elif h >= 0.25:  # 15 минут
+                    colors.append("#ffb86c")  # Оранжевый
+                else:
+                    colors.append("#50fa7b")  # Зелёный
+
+            x_positions = list(range(len(symbols)))
+            self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
+
+            # Обновляем заголовок с процентом
+            total = len(symbols)
+            symbols_older_30min = sum(1 for h in hours if h >= 0.5)
+            percent = (symbols_older_30min / total * 100) if total > 0 else 0
+            self.retrain_progress_widget.setTitle(f"⏰ До переобучения (ч) — {symbols_older_30min}/{total} ({percent:.0f}%)")
+
+            self.retrain_progress_data = progress_data
+        except Exception as e:
+            logging.error(f"Ошибка обновления графика прогресса: {e}")
