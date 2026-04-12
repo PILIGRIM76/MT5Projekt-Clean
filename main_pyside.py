@@ -951,6 +951,10 @@ class MainWindow(QMainWindow):
             self.setStyleSheet(DARK_STYLE)
             pg.setConfigOption("background", "#282a36")
             pg.setConfigOption("foreground", "#f8f8f2")
+        elif style_name == "Стандартная":
+            self.setStyleSheet("")
+            pg.setConfigOption("background", "#282a36")
+            pg.setConfigOption("foreground", "#f8f8f2")
         logger.info(f"Применен стиль: {style_name}")
 
     def _init_widgets(self):

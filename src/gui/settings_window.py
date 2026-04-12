@@ -3694,7 +3694,7 @@ class SettingsWindow(QDialog):
         # --- Тема интерфейса ---
         layout.addWidget(QLabel("Тема оформления:"), row, 0)
         self.gui_theme_combo = QComboBox()
-        self.gui_theme_combo.addItems(["Темная", "Светлая"])
+        self.gui_theme_combo.addItems(["Темная", "Светлая", "Стандартная"])
         # Значение будет установлено при загрузке настроек
         layout.addWidget(self.gui_theme_combo, row, 1)
         row += 1
