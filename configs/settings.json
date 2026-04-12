@@ -544,7 +544,7 @@
   "MODEL_FORMAT": "joblib",
   "ACTIVE_MODEL": "EURUSD_model",
   "BACKUP_MODEL": "GBPUSD_model",
-  "GUI_THEME": "Стандартная",
+  "GUI_THEME": "Темная",
   "ALWAYS_ON_TOP": true,
   "USE_CUSTOM_TITLE_BAR": true,
   "ANIMATIONS_ENABLED": true,

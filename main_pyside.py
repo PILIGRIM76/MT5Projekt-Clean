@@ -2734,8 +2734,8 @@ class MainWindow(QMainWindow):
         try:
             if dialog.exec():
                 logger.info("[GUI-Dialog] Окно настроек закрыто с сохранением, применяем изменения...")
-                new_config = load_config()
-                self.trading_system.update_configuration(new_config)
+                # ПРИМЕНЯЕМ ВСЕ НАСТРОЙКИ включая тему
+                self.on_settings_saved()
             else:
                 logger.info("[GUI-Dialog] Окно настроек закрыто без сохранения")
         except Exception as e:
