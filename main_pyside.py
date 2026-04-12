@@ -948,61 +948,83 @@ class MainWindow(QMainWindow):
         return group_box
 
     def apply_style(self, style_name: str):
+        """Применяет тему оформления ко всему приложению."""
+        logger.info(f"[Theme] === НАЧАЛО СМЕНЫ ТЕМЫ: {style_name} ===")
+
         if style_name == "Светлая":
             self.setStyleSheet(LIGHT_STYLE)
             bg_color = "w"
-            fg_color = "k"
         elif style_name == "Темная":
             self.setStyleSheet(DARK_STYLE)
             bg_color = "#282a36"
-            fg_color = "#f8f8f2"
         elif style_name == "Стандартная":
-            self.setStyleSheet("")
-            bg_color = "#282a36"
-            fg_color = "#f8f8f2"
+            # Стандартная = светлая тема Windows с лёгким серым фоном
+            self.setStyleSheet("""
+                QWidget { background-color: #f0f0f0; color: #000000; }
+                QMainWindow, QDialog { background-color: #f0f0f0; }
+                QPushButton { background-color: #e1e1e1; border: 1px solid #adadad; padding: 5px 15px; }
+                QPushButton:hover { background-color: #e5f1fb; border: 1px solid #0078d7; }
+                QLineEdit, QTextEdit, QPlainTextEdit { background-color: #ffffff; border: 1px solid #adadad; }
+                QTabBar::tab { background-color: #e1e1e1; border: 1px solid #adadad; padding: 5px 10px; }
+                QTabBar::tab:selected { background-color: #f0f0f0; border-bottom: 1px solid #f0f0f0; }
+                QHeaderView::section { background-color: #e1e1e1; border: 1px solid #adadad; }
+                QTableWidget, QTreeView, QListView { background-color: #ffffff; border: 1px solid #adadad; }
+                QComboBox { background-color: #ffffff; border: 1px solid #adadad; }
+                QSpinBox, QDoubleSpinBox { background-color: #ffffff; border: 1px solid #adadad; }
+                QGroupBox { border: 1px solid #adadad; border-radius: 3px; margin-top: 10px; }
+                QMenuBar { background-color: #f0f0f0; }
+                QStatusBar { background-color: #f0f0f0; }
+            """)
+            bg_color = "#f0f0f0"
         else:
-            # По умолчанию тёмная
             self.setStyleSheet(DARK_STYLE)
             bg_color = "#282a36"
-            fg_color = "#f8f8f2"
 
-        # FIX: Обновляем фоны pyqtgraph графиков ВРУЧНУЮ
-        # pg.setConfigOption работает только ДО создания виджетов
-        pg.setConfigOption("background", bg_color)
-        pg.setConfigOption("foreground", fg_color)
+        logger.info(f"[Theme] Stylesheet установлен, bg_color={bg_color}")
 
-        # Обновляем фоны всех существующих PlotWidget
-        self._update_all_plot_backgrounds(bg_color, fg_color)
+        # Обновляем фоны ВСЕХ PlotWidget
+        self._update_all_plot_backgrounds(bg_color)
 
-        # FIX: Принудительно обновляем стили всех виджетов
+        # Принудительно обновляем ВСЕ виджеты
+        QApplication.processEvents()
+        updated_widgets = 0
+        for widget in self.findChildren(QWidget):
+            try:
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+                widget.update()
+                updated_widgets += 1
+            except Exception:
+                pass
+
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
+        QApplication.processEvents()
 
-        logger.info(f"Применен стиль: {style_name}")
+        logger.info(f"[Theme] === ТЕМА {style_name} ПРИМЕНЕНА === (обновлено {updated_widgets} виджетов)")
 
-    def _update_all_plot_backgrounds(self, bg_color: str, fg_color: str):
-        """Обновляет фоны всех pyqtgraph виджетов."""
-        plot_widgets = [
-            getattr(self, "loss_plot", None),
-            getattr(self, "model_accuracy_plot", None),
-            getattr(self, "retrain_progress_plot", None),
-            getattr(self, "pnl_plot", None),
-            getattr(self, "observer_pnl_plot", None),
-            getattr(self, "drift_plot", None),
-            # Аналитика
-            getattr(self, "candle_plot", None),
-            getattr(self, "volume_plot", None),
-            # ControlCenter графики
-            getattr(getattr(self, "control_center_tab", None), "retrain_progress_widget", None),
-        ]
+    def _update_all_plot_backgrounds(self, bg_color: str):
+        """Обновляет фоны ВСЕХ pyqtgraph PlotWidget."""
+        import pyqtgraph as pg
 
-        for pw in plot_widgets:
-            if pw is not None and hasattr(pw, "setBackground"):
-                try:
-                    pw.setBackground(bg_color)
-                except Exception:
-                    pass
+        # Находим все PlotWidget через поиск по всему дереву виджетов
+        all_plot_widgets = self.findChildren(pg.PlotWidget)
+        logger.info(f"[Theme] Найдено {len(all_plot_widgets)} PlotWidget")
+
+        success = 0
+        failed = 0
+        for i, pw in enumerate(all_plot_widgets):
+            try:
+                pw.setBackground(bg_color)
+                success += 1
+                if i < 5:
+                    logger.debug(f"[Theme]   {i+1}. {pw.objectName() or 'unnamed'} -> {bg_color}")
+            except Exception as e:
+                failed += 1
+                logger.warning(f"[Theme] Ошибка обновления фона: {e}")
+
+        logger.info(f"[Theme] Обновлено {success}/{len(all_plot_widgets)} PlotWidget (неудачно: {failed}), bg={bg_color}")
 
     def _init_widgets(self):
         central_widget = QWidget()
