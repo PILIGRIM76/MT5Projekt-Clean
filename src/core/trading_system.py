@@ -1,4 +1,4 @@
-# src/core/trading_system.py
+﻿# src/core/trading_system.py
 import asyncio
 import functools
 import gc
@@ -5171,7 +5171,7 @@ class TradingSystem(QObject):
                     with open(metadata_file, "r", encoding="utf-8") as f:
                         metadata = json.load(f)
                         trained_at = datetime.fromisoformat(metadata["trained_at"])
-                        hours_since = (datetime.now() - trained_at).total_seconds() / 3600
+                        hours_since = max(0, (datetime.now() - trained_at).total_seconds() / 3600)
                         progress_data[symbol] = hours_since
                 else:
                     progress_data[symbol] = 999.0  # Модели нет - требует обучения

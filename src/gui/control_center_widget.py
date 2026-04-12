@@ -725,9 +725,10 @@ class ControlCenterWidget(QWidget):
             if not hasattr(self, "trading_system") or not self.trading_system:
                 return
 
-            # Получаем TrainingScheduler
-            scheduler = getattr(self.trading_system, "training_scheduler", None)
-            if not scheduler or not scheduler.is_running:
+            # Получаем TrainingScheduler через core_system (adapter -> core)
+            core = getattr(self.trading_system, "core_system", None)
+            scheduler = getattr(core, "training_scheduler", None) if core else None
+            if not scheduler:
                 self.next_training_label.setText("⏸️ Автообучение не запущено")
                 self.next_training_label.setStyleSheet("color: #6272a4; font-size: 14px; font-weight: bold; padding: 5px;")
                 return
@@ -792,7 +793,8 @@ class ControlCenterWidget(QWidget):
                 return
 
             symbols = list(progress_data.keys())
-            hours = [progress_data[s] for s in symbols]
+            # FIX: Все значения должны быть >= 0
+            hours = [max(0, progress_data[s]) for s in symbols]
 
             # Цветовое кодирование: адаптивные пороги
             colors = []
