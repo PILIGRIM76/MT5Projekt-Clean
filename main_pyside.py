@@ -856,6 +856,11 @@ class MainWindow(QMainWindow):
             # 1. Загружаем новую конфигурацию
             new_config = load_config()
 
+            # 1.5. ПРИМЕНЯЕМ ТЕМУ сразу после загрузки конфига
+            theme_name = getattr(new_config, "GUI_THEME", "Темная")
+            self.apply_style(theme_name)
+            logger.info(f"[GUI] Тема применена: {theme_name}")
+
             # 2. Применяем к торговой системе
             self.trading_system.update_configuration(new_config)
 
