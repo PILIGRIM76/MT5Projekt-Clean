@@ -792,29 +792,80 @@ class ControlCenterWidget(QWidget):
                 self.retrain_progress_bars.setOpts(x=[], height=[])
                 return
 
-            symbols = list(progress_data.keys())
-            # FIX: Все значения должны быть >= 0
-            hours = [max(0, progress_data[s]) for s in symbols]
+            # Проверяем формат данных - новый формат от get_retrain_progress() или старый
+            if "total_symbols" in progress_data and "symbols_needing_retrain" in progress_data:
+                # НОВЫЙ ФОРМАТ от AutoTrainer.get_retrain_progress()
+                total = progress_data["total_symbols"]
+                needs_count = progress_data["count_needing_retrain"]
+                needs_percent = progress_data["progress_percent"]
+                threshold = progress_data["threshold_percent"]
+                can_retrain = progress_data["can_start_retrain"]
+                symbols_needing = progress_data["symbols_needing_retrain"]
 
-            # Цветовое кодирование: адаптивные пороги
-            colors = []
-            for h in hours:
-                if h >= 0.5:  # 30 минут
-                    colors.append("#ff5555")  # Красный
-                elif h >= 0.25:  # 15 минут
-                    colors.append("#ffb86c")  # Оранжевый
-                else:
-                    colors.append("#50fa7b")  # Зелёный
+                # Показываем ВСЕ символы в whitelist
+                # Получаем доступ к config через bridge
+                all_symbols = []
+                try:
+                    if hasattr(self.bridge, "core_system") and hasattr(self.bridge.core_system, "config"):
+                        all_symbols = self.bridge.core_system.config.SYMBOLS_WHITELIST
+                except Exception:
+                    pass
 
-            x_positions = list(range(len(symbols)))
-            self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
+                if not all_symbols:
+                    # Fallback: берём из прогресса
+                    all_symbols = list(set(symbols_needing))
 
-            # Обновляем заголовок с процентом
-            total = len(symbols)
-            symbols_older_30min = sum(1 for h in hours if h >= 0.5)
-            percent = (symbols_older_30min / total * 100) if total > 0 else 0
-            self.retrain_progress_widget.setTitle(f"⏰ До переобучения (ч) — {symbols_older_30min}/{total} ({percent:.0f}%)")
+                # Строим график: для символов требующих - 1.0, для остальных - 0.0
+                hours = []
+                colors = []
+                symbols = []
 
-            self.retrain_progress_data = progress_data
+                for symbol in all_symbols:
+                    symbols.append(symbol)
+                    if symbol in symbols_needing:
+                        hours.append(1.0)  # Требует переобучения
+                        colors.append("#ff5555")  # Красный
+                    else:
+                        hours.append(0.0)  # Не требует
+                        colors.append("#50fa7b")  # Зелёный
+
+                x_positions = list(range(len(symbols)))
+                self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
+
+                # Обновляем заголовок с процентом и порогом
+                status_icon = "⚠️" if can_retrain else "✅"
+                self.retrain_progress_widget.setTitle(
+                    f"{status_icon} Прогресс переобучения: {needs_count}/{total} ({needs_percent:.0%}) / {threshold:.0%} порог"
+                )
+
+                self.retrain_progress_data = progress_data
+
+            else:
+                # СТАРЫЙ ФОРМАТ: {symbol: hours_since_training}
+                symbols = list(progress_data.keys())
+                hours = [max(0, progress_data[s]) for s in symbols]
+
+                # Цветовое кодирование: адаптивные пороги
+                colors = []
+                for h in hours:
+                    if h >= 0.5:  # 30 минут
+                        colors.append("#ff5555")  # Красный
+                    elif h >= 0.25:  # 15 минут
+                        colors.append("#ffb86c")  # Оранжевый
+                    else:
+                        colors.append("#50fa7b")  # Зелёный
+
+                x_positions = list(range(len(symbols)))
+                self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
+
+                # Обновляем заголовок с процентом
+                total = len(symbols)
+                symbols_older_30min = sum(1 for h in hours if h >= 0.5)
+                percent = (symbols_older_30min / total * 100) if total > 0 else 0
+                self.retrain_progress_widget.setTitle(
+                    f"⏰ До переобучения (ч) — {symbols_older_30min}/{total} ({percent:.0f}%)"
+                )
+
+                self.retrain_progress_data = progress_data
         except Exception as e:
             logging.error(f"Ошибка обновления графика прогресса: {e}")

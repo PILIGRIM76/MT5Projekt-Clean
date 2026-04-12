@@ -194,6 +194,75 @@ def prepare_for_heavy_task():
         logger.info("🧹 Память подготовлена для тяжёлой задачи")
 
 
+def cleanup_resources(force_gc: bool = True, clear_cuda_cache: bool = True, log_memory: bool = True):
+    """
+    Принудительная очистка памяти после тяжёлых операций.
+
+    ВЫЗЫВАТЬ:
+    - После завершения цикла обучения
+    - После R&D цикла
+    - После загрузки/выгрузки моделей
+    - Раз в N часов для профилактики
+
+    Args:
+        force_gc: Принудительный сборщик мусора
+        clear_cuda_cache: Очистка CUDA cache (если GPU)
+        log_memory: Логирование состояния памяти
+    """
+    logger.info("🧹 [Cleanup] Запуск очистки ресурсов...")
+
+    # 1. Очистка CUDA cache (GPU)
+    if clear_cuda_cache and HAS_TORCH:
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()  # Очистка IPC памяти
+                logger.debug("🧹 [Cleanup] CUDA cache очищен")
+
+            # Очистка кэша allocator
+            if hasattr(torch.cuda, "reset_peak_memory_stats"):
+                torch.cuda.reset_peak_memory_stats()
+        except Exception as e:
+            logger.warning(f"⚠️ [Cleanup] Ошибка очистки CUDA cache: {e}")
+
+    # 2. Сборка мусора Python
+    if force_gc:
+        try:
+            collected = gc.collect()
+            logger.debug(f"🧹 [Cleanup] GC собрал {collected} объектов")
+        except Exception as e:
+            logger.warning(f"⚠️ [Cleanup] Ошибка GC: {e}")
+
+    # 3. Логирование состояния памяти
+    if log_memory:
+        try:
+            import psutil
+
+            mem = psutil.virtual_memory()
+            free_gb = mem.available / (1024**3)
+            used_gb = mem.used / (1024**3)
+            percent = mem.percent
+
+            logger.info(
+                f"📊 [Cleanup] Состояние памяти:\n"
+                f"   Использовано: {used_gb:.1f}GB ({percent}%)\n"
+                f"   Свободно: {free_gb:.1f}GB"
+            )
+
+            # Предупреждение если память высокая
+            if percent > 85:
+                logger.warning(
+                    f"⚠️ [Cleanup] ВЫСОКОЕ ПОТРЕБЛЕНИЕ ПАМЯТИ: {percent}%\n"
+                    f"   Рекомендуется перезапустить систему или выгрузить неиспользуемые модели"
+                )
+        except ImportError:
+            logger.info("🧹 [Cleanup] Очистка завершена (psutil недоступен)")
+        except Exception as e:
+            logger.warning(f"⚠️ [Cleanup] Ошибка логирования памяти: {e}")
+
+    logger.info("✅ [Cleanup] Очистка ресурсов завершена")
+
+
 class MappedDataLoader:
     """
     Memory-mapped загрузчик данных для больших файлов.

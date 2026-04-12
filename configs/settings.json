@@ -531,7 +531,7 @@
       "twitter_enabled": false,
       "telegram_news_enabled": false,
       "yahoo_news_enabled": true,
-      "google_trends_enabled": false
+      "google_trends_enabled": true
     },
     "keywords": [],
     "symbols": [],

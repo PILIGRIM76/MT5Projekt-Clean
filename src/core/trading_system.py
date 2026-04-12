@@ -4914,6 +4914,8 @@ class TradingSystem(QObject):
         2. Отсутствие scaler
         3. Истекшее время с последнего обучения
         4. Новые символы добавленные в whitelist
+
+        ВАЖНО: Проверяет порог 30% - если меньше 30% символов требуют переобучения, НЕ запускает!
         """
         try:
             logger.info("=" * 80)
@@ -4929,6 +4931,27 @@ class TradingSystem(QObject):
                 if not symbols_to_retrain:
                     logger.info("✅ Все символы обучены и актуальны - переобучение не требуется")
                     return
+
+                # ПРОВЕРКА ПОРОГА 30%
+                total_symbols = len(self.config.SYMBOLS_WHITELIST)
+                needs_count = len(symbols_to_retrain)
+                needs_percent = needs_count / total_symbols if total_symbols > 0 else 0
+                threshold = self.auto_trainer.retrain_threshold_percent
+
+                logger.info(f"📊 Прогресс переобучения: {needs_count}/{total_symbols} ({needs_percent:.1%}) символов требуют")
+
+                if needs_percent < threshold:
+                    logger.info(
+                        f"⏸️ ПЕРЕОБУЧЕНИЕ ОТМЕНЕНО: {needs_percent:.1%} < {threshold:.0%} порога\n"
+                        f"   ✅ Готовы: {total_symbols - needs_count} символов\n"
+                        f"   ⏳ Требуют: {needs_count} символов\n"
+                        f"   📊 Прогресс: {needs_percent:.1%}"
+                    )
+                    # Обновляем GUI чтобы показать что проверка была
+                    self._send_retrain_progress_to_gui()
+                    return
+
+                logger.info(f"🚀 ПОРОГ ДОСТИГНУТ: {needs_percent:.1%} >= {threshold:.0%}")
 
                 # Ограничиваем количество символов
                 symbols_to_retrain = symbols_to_retrain[:max_symbols]
@@ -5152,60 +5175,59 @@ class TradingSystem(QObject):
     def _send_retrain_progress_to_gui(self):
         """
         Собирает и отправляет в GUI данные о прогрессе переобучения.
+        Использует AutoTrainer.get_retrain_progress() для получения точного прогресса.
         """
         try:
             import json
             from pathlib import Path
 
-            progress_data = {}
-            # Используем model_loader для получения пути к моделям
-            models_path = (
-                self.model_loader._resolve_model_dir()
-                if self.model_loader
-                else Path(self.config.DATABASE_FOLDER) / "ai_models"
-            )
+            # Если AutoTrainer доступен, используем его метод get_retrain_progress()
+            if hasattr(self, "auto_trainer") and self.auto_trainer:
+                progress_info = self.auto_trainer.get_retrain_progress()
 
-            for symbol in self.config.SYMBOLS_WHITELIST:
-                metadata_file = models_path / f"{symbol}_metadata.json"
-                if metadata_file.exists():
-                    with open(metadata_file, "r", encoding="utf-8") as f:
-                        metadata = json.load(f)
-                        trained_at = datetime.fromisoformat(metadata["trained_at"])
-                        hours_since = max(0, (datetime.now() - trained_at).total_seconds() / 3600)
-                        progress_data[symbol] = hours_since
-                else:
-                    progress_data[symbol] = 999.0  # Модели нет - требует обучения
+                # Отправляем расширенный прогресс в GUI
+                if self.bridge:
+                    self.bridge.retrain_progress_updated.emit(progress_info)
 
-            if progress_data and self.bridge:
-                self.bridge.retrain_progress_updated.emit(progress_data)
+                total = progress_info["total_symbols"]
+                needs_count = progress_info["count_needing_retrain"]
+                needs_percent = progress_info["progress_percent"]
+                threshold = progress_info["threshold_percent"]
+                can_retrain = progress_info["can_start_retrain"]
 
-                # АДАПТИВНЫЙ ПОРОГ: зависит от процента моделей требующих переобучения
-                total_models = len(progress_data)
-
-                # Считаем сколько моделей старше 30 минут (новый интервал)
-                symbols_older_30min = sum(1 for h in progress_data.values() if h >= 0.5)
-                symbols_older_1h = sum(1 for h in progress_data.values() if h >= 1.0)
-                symbols_older_24h = sum(1 for h in progress_data.values() if h >= 24.0)
-
-                # Проценты
-                percent_30min = (symbols_older_30min / total_models * 100) if total_models > 0 else 0
-                percent_1h = (symbols_older_1h / total_models * 100) if total_models > 0 else 0
-                percent_24h = (symbols_older_24h / total_models * 100) if total_models > 0 else 0
-
-                # Определяем статус
-                if percent_30min >= 30:
+                # Логируем статус
+                if can_retrain:
                     status = "⚠️ ТРЕБУЕТСЯ ПЕРЕОБУЧЕНИЕ"
                     logger.warning(
-                        f"⏰ Прогресс переобучения: {symbols_older_30min}/{total_models} ({percent_30min:.0f}%) старше 30 мин → {status}"
+                        f"⏰ Прогресс переобучения: {needs_count}/{total} ({needs_percent:.1%}) >= {threshold:.0%} → {status}"
                     )
-                elif percent_1h >= 50:
-                    status = "🟡 Многие модели устаревают"
-                    logger.info(f"⏰ Прогресс переобучения: {symbols_older_1h}/{total_models} ({percent_1h:.0f}%) старше 1 ч")
                 else:
                     status = "✅ Актуально"
                     logger.info(
-                        f"⏰ Прогресс переобучения: {symbols_older_30min}/{total_models} ({percent_30min:.0f}%) старше 30 мин, {status}"
+                        f"⏰ Прогресс переобучения: {needs_count}/{total} ({needs_percent:.1%}) < {threshold:.0%} → {status}"
                     )
+            else:
+                # Fallback: старая логика через metadata файлы
+                progress_data = {}
+                models_path = (
+                    self.model_loader._resolve_model_dir()
+                    if self.model_loader
+                    else Path(self.config.DATABASE_FOLDER) / "ai_models"
+                )
+
+                for symbol in self.config.SYMBOLS_WHITELIST:
+                    metadata_file = models_path / f"{symbol}_metadata.json"
+                    if metadata_file.exists():
+                        with open(metadata_file, "r", encoding="utf-8") as f:
+                            metadata = json.load(f)
+                            trained_at = datetime.fromisoformat(metadata["trained_at"])
+                            hours_since = max(0, (datetime.now() - trained_at).total_seconds() / 3600)
+                            progress_data[symbol] = hours_since
+                    else:
+                        progress_data[symbol] = 999.0  # Модели нет - требует обучения
+
+                if progress_data and self.bridge:
+                    self.bridge.retrain_progress_updated.emit(progress_data)
 
         except Exception as e:
             logger.error(f"Ошибка при отправке прогресса переобучения в GUI: {e}", exc_info=True)
@@ -5213,20 +5235,31 @@ class TradingSystem(QObject):
     def _periodic_training_status_update_loop(self):
         """
         Фоновый цикл для периодического обновления статусов переобучения в GUI.
-        Запускается каждые 5 минут.
+
+        ИСПРАВЛЕНИЕ: Увеличена частота обновления с 5 минут до 10 секунд
+        для более отзывчивого отображения данных в GUI.
         """
         logger.info("⏰ Запуск цикла обновления статусов переобучения...")
-        update_interval = 300  # 5 минут
+        update_interval = 10  # FIX: 10 секунд вместо 300 (5 минут)
 
-        # Первая задержка 30 секунд для стабильности
-        self.stop_event.wait(30)
+        # Первая задержка 5 секунд для быстрого старта
+        self.stop_event.wait(5)
+
+        # Отправляем данные сразу при старте
+        try:
+            if self.bridge:
+                logger.info("📊 Отправка начальных данных в GUI...")
+                self._send_retrain_progress_to_gui()
+                self._send_model_accuracy_to_gui()
+        except Exception as e:
+            logger.error(f"Ошибка начальной отправки данных в GUI: {e}")
 
         while not self.stop_event.is_set():
             try:
                 # Обновляем прогресс переобучения И точность моделей
                 if self.bridge:
                     self._send_retrain_progress_to_gui()
-                    self._send_model_accuracy_to_gui()  # 🔧 FIX: Отправляем точность моделей
+                    self._send_model_accuracy_to_gui()
 
                 # Ждём следующий интервал
                 self.stop_event.wait(update_interval)

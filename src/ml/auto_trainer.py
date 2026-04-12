@@ -98,6 +98,17 @@ class AutoTrainer:
         self._last_bars_count: Dict[str, int] = {}
         self._last_accuracy: Dict[str, float] = {}
 
+        # Порог запуска переобучения (процент символов)
+        # Приоритет: config.auto_retraining.threshold_percent > AUTO_RETRAIN_THRESHOLD_PERCENT > 0.30
+        if hasattr(config, "auto_retraining") and config.auto_retraining:
+            self.retrain_threshold_percent = getattr(config.auto_retraining, "threshold_percent", 0.30)
+            logger.info(f"  🎯 Порог запуска переобучения из auto_retraining: {self.retrain_threshold_percent:.0%}")
+        else:
+            self.retrain_threshold_percent = getattr(config, "AUTO_RETRAIN_THRESHOLD_PERCENT", 0.30)
+            logger.info(
+                f"  🎯 Порог запуска переобучения из AUTO_RETRAIN_THRESHOLD_PERCENT: {self.retrain_threshold_percent:.0%}"
+            )
+
         # Статистика
         self.stats = {"last_training_time": None, "models_trained": 0, "training_errors": 0}
 
@@ -116,6 +127,7 @@ class AutoTrainer:
         logger.info(f"  📊 Мин. сэмплов: {self.min_samples_for_retrain}")
         logger.info(f"  📈 Мин. новых баров для триггера: {self.min_new_bars_for_retrain}")
         logger.info(f"  📉 Порог падения точности: {self.accuracy_drop_threshold:.0%}")
+        logger.info(f"  🎯 Порог запуска переобучения: {self.retrain_threshold_percent:.0%}")
         logger.info(f"  💾 Путь к моделям: {self.models_path}")
 
     def should_retrain_adaptive(
@@ -637,6 +649,14 @@ class AutoTrainer:
             self.stats["last_training_time"] = datetime.now()
             self.stats["models_trained"] += 1
 
+            # ОЧИСТКА ПАМЯТИ после обучения
+            try:
+                from src.core.memory_utils import cleanup_resources
+
+                cleanup_resources(force_gc=True, clear_cuda_cache=True, log_memory=True)
+            except Exception as cleanup_error:
+                logger.warning(f"⚠️ Ошибка очистки памяти после обучения: {cleanup_error}")
+
             return True
 
         except Exception as e:
@@ -951,34 +971,82 @@ class AutoTrainer:
             logger.error(f"Ошибка проверки необходимости переобучения для {symbol}: {e}")
             return True  # При ошибке возвращаем True для безопасности
 
-    def auto_train_all(self) -> Dict[str, bool]:
+    def auto_train_all(self, threshold_percent: float = 0.30) -> Dict[str, bool]:
         """
-        Автоматически переобучает все модели которые нуждаются по НЕСКОЛЬКИМ КРИТЕРИЯМ.
+        Автоматически переобучает все модели когда 30%+ символов нуждаются в переобучении.
+
+        Args:
+            threshold_percent: Порог символов для запуска переобучения (0.30 = 30%)
 
         Returns:
-            Словарь {symbol: успех}
+            Словарь {symbol: успех} или пустой dict если порог не достигнут
         """
-        logger.info("🔍 Запуск автоматического переобучения...")
+        logger.info("🔍 Запуск проверки необходимости переобучения...")
 
-        results = {}
-        retrain_count = 0
-        skip_count = 0
+        # ШАГ 1: Сначала проверяем какие символы нуждаются в переобучении
+        symbols_needing_retrain = []
+        symbols_ok = []
 
         for symbol in self.config.SYMBOLS_WHITELIST:
             # Загружаем текущие данные для проверки триггеров
             current_data = self.load_training_data(symbol)
 
             if self.should_retrain(symbol, current_data):
-                logger.info(f"🔄 {symbol}: Начало переобучения...")
-                success = self.train_model(symbol)
-                results[symbol] = success
-                if success:
-                    retrain_count += 1
+                symbols_needing_retrain.append(symbol)
             else:
-                results[symbol] = True  # Не нужно переобучать
-                skip_count += 1
+                symbols_ok.append(symbol)
 
-        logger.info(f"✅ Переобучение завершено: {retrain_count} переобучено, {skip_count} пропущено из {len(results)}")
+        total_symbols = len(self.config.SYMBOLS_WHITELIST)
+        needs_count = len(symbols_needing_retrain)
+        needs_percent = needs_count / total_symbols if total_symbols > 0 else 0
+
+        logger.info(
+            f"📊 Прогресс переобучения: {needs_count}/{total_symbols} ({needs_percent:.1%}) символов требуют переобучения"
+        )
+
+        # ШАГ 2: Проверяем порог - если меньше 30%, НЕ переобучаем
+        if needs_percent < self.retrain_threshold_percent:
+            logger.info(
+                f"⏸️ Переобучение ОТМЕНЕНО: {needs_percent:.1%} < {self.retrain_threshold_percent:.0%} порога\n"
+                f"   ✅ Готовы: {len(symbols_ok)} символов\n"
+                f"   ⏳ Требуют: {needs_count} символов\n"
+                f"   📊 Прогресс: {needs_percent:.1%}"
+            )
+            return {}
+
+        logger.info(
+            f"🚀 ПОРОГ ДОСТИГНУТ: {needs_percent:.1%} >= {threshold_percent:.0%}\n"
+            f"   Запускаем переобучение {needs_count} символов..."
+        )
+
+        # ШАГ 3: Переобучаем все символы которые нуждаются
+        results = {}
+        retrain_count = 0
+        error_count = 0
+
+        for symbol in symbols_needing_retrain:
+            logger.info(f"🔄 {symbol}: Начало переобучения...")
+            success = self.train_model(symbol)
+            results[symbol] = success
+            if success:
+                retrain_count += 1
+            else:
+                error_count += 1
+
+        # Отмечаем все переобученные символы
+        for symbol in symbols_needing_retrain:
+            self.mark_retrained(symbol)
+
+        logger.info(
+            f"✅ Переобучение завершено:\n"
+            f"   📊 Всего символов: {total_symbols}\n"
+            f"   ✅ Было готово: {len(symbols_ok)}\n"
+            f"   🔄 Переобучено: {retrain_count}/{needs_count}\n"
+            f"   ❌ Ошибок: {error_count}\n"
+            f"   📈 Новый прогресс: {(len(symbols_ok) + retrain_count)}/{total_symbols} "
+            f"({(len(symbols_ok) + retrain_count) / total_symbols:.1%})"
+        )
+
         logger.info(f"📊 Успешность: {sum(results.values())}/{len(results)}")
 
         return results
@@ -986,6 +1054,42 @@ class AutoTrainer:
     def get_statistics(self) -> Dict[str, Any]:
         """Возвращает статистику авто-тренера."""
         return {**self.stats, "models_cached": len(self.models), "retrain_interval_hours": self.retrain_interval_hours}
+
+    def get_retrain_progress(self) -> Dict[str, Any]:
+        """
+        Возвращает прогресс переобучения для GUI.
+
+        Returns:
+            Dict с информацией о прогрессе:
+            - total_symbols: Общее количество символов
+            - symbols_needing_retrain: Список символов требующих переобучения
+            - count_needing_retrain: Количество требующих переобучения
+            - progress_percent: Процент символов требующих переобучения
+            - threshold_percent: Порог запуска переобучения
+            - threshold_reached: Достигнут ли порог
+            - can_start_retrain: Можно ли запустить переобучение
+        """
+        symbols_needing_retrain = []
+
+        for symbol in self.config.SYMBOLS_WHITELIST:
+            current_data = self.load_training_data(symbol)
+            if self.should_retrain(symbol, current_data):
+                symbols_needing_retrain.append(symbol)
+
+        total_symbols = len(self.config.SYMBOLS_WHITELIST)
+        count_needing = len(symbols_needing_retrain)
+        progress_percent = count_needing / total_symbols if total_symbols > 0 else 0
+        threshold_reached = progress_percent >= self.retrain_threshold_percent
+
+        return {
+            "total_symbols": total_symbols,
+            "symbols_needing_retrain": symbols_needing_retrain,
+            "count_needing_retrain": count_needing,
+            "progress_percent": round(progress_percent, 3),
+            "threshold_percent": self.retrain_threshold_percent,
+            "threshold_reached": threshold_reached,
+            "can_start_retrain": threshold_reached,
+        }
 
 
 class AutoTrainerScheduler:

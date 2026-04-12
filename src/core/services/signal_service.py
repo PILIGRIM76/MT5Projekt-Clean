@@ -491,6 +491,9 @@ class SignalService:
         """
         Делает предсказание ОДНОЙ модели с её собственными признаками и scaler.
 
+        ВАЖНО: Реализована ЖЁСТКАЯ валидация признаков. При mismatch модель БЛОКИРУЕТСЯ
+        и инициируется автоматическое переобучение.
+
         Returns:
             (prediction, confidence) или (None, None) при ошибке
         """
@@ -506,6 +509,38 @@ class SignalService:
 
         # Авторитетное количество признаков из scaler
         expected_n_features = x_scaler.n_features_in_ if hasattr(x_scaler, "n_features_in_") else None
+
+        # 1.5. КРИТИЧЕСКАЯ ВАЛИДАЦИЯ: Проверяем модель на mismatch ДО предсказания
+        model = model_data.get("model")
+        if model is None:
+            logger.warning(f"[{symbol}] {model_type}: модель не найдена")
+            return None, None
+
+        # Проверяем сколько признаков ожидает модель
+        model_expected_features = None
+        if hasattr(model, "n_features_in_"):
+            model_expected_features = model.n_features_in_
+        elif hasattr(model, "feature_names_in_"):
+            model_expected_features = len(model.feature_names_in_)
+
+        # Проверяем сколько признаков ожидает scaler
+        scaler_expected_features = expected_n_features
+
+        # Если есть модель и scaler - они ДОЛЖНЫ совпадать
+        if model_expected_features and scaler_expected_features:
+            if model_expected_features != scaler_expected_features:
+                logger.critical(
+                    f"🚨 [{symbol}] {model_type}: КРИТИЧЕСКИЙ MISMATCH!\n"
+                    f"   Модель ожидает: {model_expected_features} признаков\n"
+                    f"   Scaler хранит: {scaler_expected_features} признаков\n"
+                    f"   РАЗНИЦА: {abs(model_expected_features - scaler_expected_features)} признаков\n"
+                    f"   🛑 МОДЕЛЬ ЗАБЛОКИРОВАНА - торговля запрещена!\n"
+                    f"   🔄 Требуется переобучение: запустите auto-retrain"
+                )
+                # БЛОКИРУЕМ использование модели - НЕ торгуем на "мусорных" данных!
+                # Инициируем авто-переобучение если доступен AutoTrainer
+                self._trigger_auto_retrain_if_available(symbol)
+                return None, None
 
         # 2. Получаем список признаков модели
         model_features = model_data.get("features", [])
@@ -563,115 +598,33 @@ class SignalService:
         if not np.all(np.isfinite(last_sequence_raw)):
             last_sequence_raw = np.nan_to_num(last_sequence_raw, nan=0.0, posinf=1e9, neginf=-1e9)
 
-        # === КРИТИЧЕСКАЯ ПРОВЕРКА: валидация alignment признаков ===
-        expected_features = x_scaler.n_features_in_ if hasattr(x_scaler, "n_features_in_") else len(model_features)
+        # === ФИНАЛЬНАЯ ПРОВЕРКА: количество признаков ДОЛЖНО совпадать ===
         actual_features = last_sequence_raw.shape[-1]
 
-        # Проверяем ЧТО ожидает модель (не scaler!)
-        model_expected = None
-        if model_data.get("model") is not None and hasattr(model_data["model"], "n_features_in_"):
-            model_expected = model_data["model"].n_features_in_
-
-        if expected_features != actual_features or (model_expected and model_expected != actual_features):
-            # Подробное логирование для диагностики
-            logger.warning(
-                f"[{symbol}] {model_type}: mismatch scaler({expected_features}) vs model({model_expected}) vs actual({actual_features}). "
-                f"model_features count={len(model_features)}, first_5={model_features[:5]}"
+        if actual_features != scaler_expected_features:
+            logger.critical(
+                f"🚨 [{symbol}] {model_type}: MISMATCH входных данных!\n"
+                f"   Scaler ожидает: {scaler_expected_features} признаков\n"
+                f"   Фактически подано: {actual_features} признаков\n"
+                f"   Разница: {abs(scaler_expected_features - actual_features)} признаков\n"
+                f"   🛑 ПРЕДСКАЗАНИЕ ЗАБЛОКИРОВАНО!\n"
+                f"   Входные данные: {model_features[:5]}..."
             )
+            # Блокируем предсказание - НЕ торгуем на мусорных данных!
+            self._trigger_auto_retrain_if_available(symbol)
+            return None, None
 
-            # Если модель ожидает ДРУГОГО количества признаков чем scaler — используем модель как авторитет
-            if model_expected and model_expected != expected_features:
-                logger.info(
-                    f"[{symbol}] {model_type}: Модель ожидает {model_expected} признаков, scaler — {expected_features}. "
-                    f"Используем модель как авторитет, scaler будет пропущен."
-                )
-                # Перестраиваем данные под модель
-                if model_expected > actual_features:
-                    # Дополняем нулями — НО помечаем что это degraded предсказание
-                    missing_count = model_expected - actual_features
-                    padding = np.zeros((last_sequence_raw.shape[0], missing_count))
-                    last_sequence_raw = np.hstack([last_sequence_raw, padding])
-                    logger.warning(
-                        f"[{symbol}] {model_type}: Дополнено {missing_count} нулевых признаков до {model_expected}. "
-                        f"Предсказание будет DEGRADED (ложная уверенность)."
-                    )
-                    # Пропускаем scaler — он несовместим
-                    x_scaler = None
-                    # Помечаем что предсказание degraded
-                    prediction_metadata["degraded"] = True
-                    prediction_metadata["reason"] = "feature_padding"
-                elif model_expected < actual_features:
-                    # Обрезаем
-                    last_sequence_raw = last_sequence_raw[:, :model_expected]
-                    logger.info(f"[{symbol}] {model_type}: Обрезано до {model_expected} признаков для модели")
-                    x_scaler = None
-            elif hasattr(x_scaler, "feature_names_in_"):
-                scaler_features = list(x_scaler.feature_names_in_)
-                logger.info(f"[{symbol}] {model_type}: Восстановление признаков из scaler: {scaler_features[:5]}...")
-
-                # Добавляем недостающие признаки
-                missing_from_scaler = [f for f in scaler_features if f not in df_processed.columns]
-                for feat in missing_from_scaler:
-                    df_processed[feat] = 0.0
-
-                # Берём только те признаки, что ожидает scaler (в правильном порядке!)
-                available = [f for f in scaler_features if f in df_processed.columns]
-                last_sequence = df_processed[available].tail(self.n_steps)
-                last_sequence_raw = last_sequence.values
-
-                # Проверяем ещё раз
-                if last_sequence_raw.shape[-1] != expected_features:
-                    logger.error(
-                        f"[{symbol}] {model_type}: Не удалось выровнять признаки. "
-                        f"Ожидается: {expected_features}, получено: {last_sequence_raw.shape[-1]}"
-                    )
-                    return None, None
-
-                logger.info(f"[{symbol}] {model_type}: Признаки выровнены: {last_sequence_raw.shape[-1]} features")
-
-            # Попытка восстановления №2: пробуем обрезать или дополнить признаки
-            elif actual_features < expected_features:
-                logger.warning(
-                    f"[{symbol}] {model_type}: Нехватка признаков ({actual_features} < {expected_features}). "
-                    f"Попытка дополнить нулями..."
-                )
-                # Дополняем нулями до нужного размера
-                padding = np.zeros((last_sequence_raw.shape[0], expected_features - actual_features))
-                last_sequence_raw = np.hstack([last_sequence_raw, padding])
-                logger.info(f"[{symbol}] {model_type}: Дополнено до {last_sequence_raw.shape[-1]} признаков")
-
-            elif actual_features > expected_features:
-                logger.warning(
-                    f"[{symbol}] {model_type}: Избыток признаков ({actual_features} > {expected_features}). "
-                    f"Обрезаем до первых {expected_features}..."
-                )
-                # Обрезаем до нужного размера
-                last_sequence_raw = last_sequence_raw[:, :expected_features]
-                logger.info(f"[{symbol}] {model_type}: Обрезано до {last_sequence_raw.shape[-1]} признаков")
-
-            else:
-                # scaler не хранит имена признаков — fallback невозможен
-                logger.error(
-                    f"[{symbol}] {model_type}: КРИТИЧЕСКИЙ mismatch scaler({expected_features}) vs actual({actual_features}). "
-                    f"Модель НЕ может быть использована. Запустите force_retrain_all.py"
-                )
-                return None, None
+        logger.debug(f"[{symbol}] {model_type}: ✅ Валидация пройдена: {actual_features} признаков")
         # ================================================================
 
-        # 5. Масштабирование (пропускаем если scaler несовместим)
+        # 5. Масштабирование
         try:
-            if x_scaler is not None:
-                last_sequence_scaled = x_scaler.transform(last_sequence_raw)
-            else:
-                # Scaler пропущен из-за несовместимости feature count с моделью
-                last_sequence_scaled = last_sequence_raw
-                logger.debug(f"[{symbol}] {model_type}: Масштабирование пропущено (scaler несовместим)")
+            last_sequence_scaled = x_scaler.transform(last_sequence_raw)
         except Exception as e:
             logger.error(f"[{symbol}] {model_type}: ошибка масштабирования: {e}")
             return None, None
 
         # 6. Предсказание
-        model = model_data.get("model")
         if model is None:
             logger.warning(f"[{symbol}] {model_type}: модель не найдена")
             return None, None
@@ -887,3 +840,33 @@ class SignalService:
                 highest_score, best_strategy = final_score, strategy
 
         return best_strategy, highest_score
+
+    def _trigger_auto_retrain_if_available(self, symbol: str):
+        """
+        Инициирует автоматическое переобучение при обнаружении mismatch.
+
+        Вызывается когда модель заблокирована из-за несовпадения признаков.
+        Проверяет наличие AutoTrainer и запускает переобучение для конкретного символа.
+        """
+        try:
+            # Проверяем есть ли доступ к AutoTrainer через trading_system
+            if hasattr(self, "trading_system") and self.trading_system:
+                if hasattr(self.trading_system, "auto_trainer") and self.trading_system.auto_trainer:
+                    logger.info(f"🔄 [{symbol}] Запуск авто-переобучения через AutoTrainer...")
+                    # Запускаем переобучение для конкретного символа
+                    success = self.trading_system.auto_trainer.train_model(symbol)
+                    if success:
+                        logger.info(f"✅ [{symbol}] Авто-переобучение запущено успешно")
+                        # Отмечаем что модель переобучена
+                        self.trading_system.auto_trainer.mark_retrained(symbol)
+                    else:
+                        logger.error(f"❌ [{symbol}] Ошибка авто-переобучения")
+                else:
+                    logger.warning(
+                        f"⚠️ [{symbol}] AutoTrainer недоступен. "
+                        f"Запустите переобучение вручную через GUI или force_retrain_all.py"
+                    )
+            else:
+                logger.warning(f"⚠️ [{symbol}] TradingSystem ссылка недоступна. " f"Запустите переобучение вручную.")
+        except Exception as e:
+            logger.error(f"❌ [{symbol}] Ошибка запуска авто-переобучения: {e}", exc_info=True)

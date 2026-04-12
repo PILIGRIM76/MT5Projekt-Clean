@@ -238,6 +238,12 @@ class AutoRetrainingSettings(BaseModel):
     interval_hours: float = Field(default=0.5, description="Интервал между запусками в часах (0.5 = 30 мин).")
     max_symbols: int = Field(default=30, description="Макс. кол-во символов для обучения.")
     max_workers: int = Field(default=3, description="Кол-во параллельных потоков обучения.")
+    threshold_percent: float = Field(
+        default=0.30,
+        description="Порог запуска переобучения (0.30 = 30% символов должны требовать переобучения)",
+        ge=0.0,
+        le=1.0,
+    )
 
 
 class ChampionshipSettings(BaseModel):
