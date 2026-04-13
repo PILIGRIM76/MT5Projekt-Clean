@@ -21,11 +21,17 @@ import pytest
 # Добавляем src в path для импортов
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.core.circuit_breaker import CircuitBreaker, circuit_breaker_registry
 from src.core.config_models import Settings
-from src.core.event_bus import EventBus, event_bus
+from src.core.event_bus import AsyncEventBus, EventBus, event_bus
 
 # Импорты компонентов
 from src.core.events import Event, EventFactory, EventType
+
+# Импорты threading архитектуры
+from src.core.lock_manager import LockHierarchy, LockLevel
+from src.core.resource_governor import ResourceClass, ResourceGovernor
+from src.core.thread_domains import DomainRegistry, ThreadDomain
 
 # ===========================================
 # Logging Configuration
@@ -656,3 +662,95 @@ def mock_bridge():
     bridge.pnl_kpis_updated = MagicMock()
 
     return bridge
+
+
+# ===========================================
+# Threading Architecture Fixtures
+# ===========================================
+
+
+@pytest.fixture
+def lock_manager():
+    """Фикстура с изолированным lock_manager для тестов"""
+    mgr = LockHierarchy(default_timeout=1.0)  # Короткий таймаут для тестов
+    yield mgr
+    mgr.reset()  # Очистка между тестами
+
+
+@pytest.fixture
+async def async_event_bus_new():
+    """Асинхронная фикстура для нового AsyncEventBus"""
+    bus = AsyncEventBus(max_queue_size=100, dispatch_interval_ms=5.0)
+    await bus.start()
+    yield bus
+    await bus.stop(timeout=2.0)
+
+
+@pytest.fixture
+def resource_governor():
+    """Фикстура с изолированным ResourceGovernor"""
+    ResourceGovernor._instance = None
+    ResourceGovernor._singleton_lock = threading.Lock()
+    gov = ResourceGovernor()
+    yield gov
+    gov.reset_stats()
+
+
+@pytest.fixture
+def circuit_breaker():
+    """Фикстура с CircuitBreaker для тестов"""
+    breaker = CircuitBreaker(
+        name="test_breaker",
+        failure_threshold=3,
+        recovery_timeout=1.0,  # Быстрое восстановление для тестов
+    )
+    yield breaker
+    breaker.reset()
+
+
+@pytest.fixture
+def clean_circuit_breaker_registry():
+    """Очистка реестра circuit breaker'ов между тестами"""
+    circuit_breaker_registry.reset_all()
+    yield circuit_breaker_registry
+    circuit_breaker_registry.reset_all()
+
+
+@pytest.fixture
+def clean_domain_registry():
+    """Очистка реестра доменов между тестами"""
+    DomainRegistry.reset()
+    yield DomainRegistry
+    DomainRegistry.reset()
+
+
+# ===========================================
+# MT5 Mock Fixtures
+# ===========================================
+
+
+@pytest.fixture
+def mt5_mock():
+    """Mock для MetaTrader5 API — не требует реального подключения"""
+
+    class MT5Mock:
+        def __init__(self):
+            self.connected = False
+            self._lock = threading.Lock()
+
+        def initialize(self, **kwargs):
+            with self._lock:
+                self.connected = True
+                return True
+
+        def shutdown(self):
+            with self._lock:
+                self.connected = False
+
+        def history_deals_get(self, *args, **kwargs):
+            if not self.connected:
+                raise RuntimeError("MT5 not initialized")
+            # Возвращаем фейковые данные для тестов
+            return []
+
+    return MT5Mock()
