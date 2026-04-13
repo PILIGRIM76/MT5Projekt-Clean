@@ -189,16 +189,10 @@ class DataSyncOrchestrator:
             )
 
     async def _fetch_mt5_full(self, symbol: str) -> List[Dict[str, Any]]:
-        """
-        Полная загрузка 1000 баров с защитой локом.
+        """Полная загрузка 1000 баров с защитой локом."""
 
-        Returns:
-            Список баров с OHLCV данными
-        """
-
-        async def _fetch_sync():
+        def _fetch_sync():
             with lock_manager._locks[LockLevel.MT5_ACCESS]:
-                # Используем copy_rates_from_pos для полной загрузки
                 import MetaTrader5 as mt5
 
                 rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, 1000)
@@ -237,17 +231,14 @@ class DataSyncOrchestrator:
             Список новых баров
         """
 
-        async def _fetch_sync():
+        def _fetch_sync():
             with lock_manager._locks[LockLevel.MT5_ACCESS]:
                 import MetaTrader5 as mt5
 
-                # Загружаем бары с указанной даты
-                rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, 100)  # Последние 100 баров должно хватить
-
+                rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, 100)
                 if rates is None:
                     return []
 
-                # Фильтруем только новые бары
                 bars = []
                 for r in rates:
                     bar_time = datetime.fromtimestamp(r[0])
@@ -264,7 +255,6 @@ class DataSyncOrchestrator:
                                 "real_volume": int(r[7]) if len(r) > 7 else 0,
                             }
                         )
-
                 return bars
 
         try:
