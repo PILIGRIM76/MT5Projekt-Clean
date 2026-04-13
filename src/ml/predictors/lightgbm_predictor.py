@@ -86,14 +86,40 @@ class LightGBMPredictor(BasePredictor):
 
         data = self._preprocess(data)
 
-        # Основной вывод
-        raw_prediction = self.model.predict(data.reshape(1, -1))[0]
+        # ИСПРАВЛЕНИЕ: Восстанавливаем DataFrame с именами признаков для LightGBM
+        # чтобы избежать предупреждения "X does not have valid feature names"
+        data_for_predict = data
+        try:
+            # Проверяем есть ли у модели сохранённые имена признаков
+            if hasattr(self.model, "feature_name_"):
+                feature_names = self.model.feature_name_
+            elif hasattr(self.model, "_feature_name"):
+                feature_names = self.model._feature_name
+            else:
+                feature_names = None
+
+            if feature_names and data.ndim == 2 and len(feature_names) == data.shape[1]:
+                # Модель была обучена с именами признаков — восстанавливаем DataFrame
+                import pandas as pd
+
+                data_for_predict = pd.DataFrame(data, columns=feature_names)
+                logger.debug(f"[LightGBM] ✅ DataFrame восстановлен с {len(feature_names)} признаками")
+        except Exception as e:
+            logger.debug(f"[LightGBM] Не удалось восстановить DataFrame (не критично): {e}")
+            data_for_predict = data  # Fallback к numpy
+
+        # Основной вывод — используем DataFrame если удалось восстановить
+        raw_prediction = self.model.predict(
+            data_for_predict.reshape(1, -1) if hasattr(data_for_predict, "values") else data_for_predict
+        )[0]
 
         # Вероятности (если доступны)
         proba = None
         if hasattr(self.model, "predict_proba"):
             try:
-                proba = self.model.predict_proba(data.reshape(1, -1))[0]
+                proba = self.model.predict_proba(
+                    data_for_predict.reshape(1, -1) if hasattr(data_for_predict, "values") else data_for_predict
+                )[0]
             except Exception:
                 proba = None
 

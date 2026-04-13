@@ -1541,10 +1541,24 @@ class MainWindow(QMainWindow):
         self.retrain_progress_plot = self.retrain_progress_widget.getPlotItem()
         self.retrain_progress_plot.showGrid(x=True, y=True, alpha=0.3)
         self.retrain_progress_plot.getAxis("bottom").setLabel("Символ")
+        self.retrain_progress_plot.getAxis("left").setLabel("Часов")
         self.retrain_progress_plot.getAxis("left").setRange(0, 3)
-        self.retrain_progress_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="b")
+
+        # КРИТИЧНО: Verical line (порог) вместо horizontal — angle=90 это вертикальная линия
+        # Но лучше использовать горизонтальную на Y=1.0 (angle=0)
+        self.retrain_progress_threshold_line = pg.InfiniteLine(
+            angle=0,  # Горизонтальная линия
+            pos=1.0,  # На уровне Y=1.0 час
+            pen=pg.mkPen("y", width=2, style=Qt.PenStyle.DashLine),
+            label="Порог: 1ч",
+            labelOpts={"position": 0.98, "color": (255, 255, 0), "movable": False},
+        )
+        self.retrain_progress_plot.addItem(self.retrain_progress_threshold_line)
+
+        self.retrain_progress_bars = pg.BarGraphItem(
+            x=[], height=[], width=0.6, brush="b"  # Увеличено с 0.5 для лучшей видимости
+        )
         self.retrain_progress_plot.addItem(self.retrain_progress_bars)
-        self.retrain_progress_plot.addItem(pg.InfiniteLine(angle=0, pos=1.0, pen=pg.mkPen("y", style=Qt.DashLine)))
         self.retrain_progress_data = {}
         logger.info("[GUI-Analytics] График прогресса инициализирован")
 
@@ -3011,9 +3025,15 @@ class MainWindow(QMainWindow):
         Обновляет график прогресса переобучения.
 
         Args:
-            progress_data: Словарь {symbol: hours_since_training}
+            progress_data: Словарь {symbol: hours_since_training} ИЛИ
+                          {"total_symbols": ..., "symbols_needing_retrain": [...], ...}
         """
         try:
+            # DEBUG: Логируем что пришло
+            logger.info(
+                f"[GUI-RetrainProgress DEBUG] Получены данные: тип={type(progress_data)}, ключи={list(progress_data.keys())[:5]}..."
+            )
+
             if not hasattr(self, "retrain_progress_bars") or self.retrain_progress_bars is None:
                 logger.warning("[GUI-RetrainProgress] Виджет не инициализирован")
                 return
@@ -3033,30 +3053,70 @@ class MainWindow(QMainWindow):
                 can_retrain = progress_data["can_start_retrain"]
                 symbols_needing = progress_data["symbols_needing_retrain"]
 
-                # Создаём данные для графика: 1.0 если требует переобучения, 0.0 если нет
-                all_symbols = symbols_needing.copy()
-                # Добавляем символы которые НЕ требуют переобучения (если известны)
-                # Для простоты показываем только требующие
-                symbols = symbols_needing
-                hours = [1.0] * len(symbols_needing)  # Все требуют
+                logger.info(
+                    f"[GUI-RetrainProgress] Новый формат: всего={total}, требуют={needs_count} ({needs_percent:.0%}), порог={threshold:.0%}"
+                )
 
-                # Цветовое кодирование: все красные (требуют переобучения)
-                colors = ["#ff5555"] * len(symbols)
+                # КРИТИЧНО: Показываем символы требующие переобучения
+                if symbols_needing and len(symbols_needing) > 0:
+                    # Есть символы требующие переобучения — показываем ТОЛЬКО их
+                    symbols = list(symbols_needing)  # Копируем список
+                    # КРИТИЧНО: Высота = 1.0 час (порог переобучения), НЕ отрицательное!
+                    hours = [1.0] * len(symbols)
+                    colors = ["#ff5555"] * len(symbols)  # Красные
+
+                    logger.info(f"[GUI-RetrainProgress] Отображаю {len(symbols)} символов с height=1.0: {symbols[:5]}...")
+                else:
+                    # ВСЕ символы актуальны — показываем первые 10 из whitelist
+                    if hasattr(self, "trading_system") and hasattr(self.trading_system, "config"):
+                        all_symbols = self.trading_system.config.SYMBOLS_WHITELIST
+                        symbols = list(all_symbols)[:10]  # Первые 10
+                    else:
+                        symbols = [f"S{i}" for i in range(min(10, total))]
+
+                    # Height = 0.0 (все актуальны, до переобучения далеко)
+                    hours = [0.0] * len(symbols)
+                    colors = ["#50fa7b"] * len(symbols)  # Зелёные
+
+                    logger.info(f"[GUI-RetrainProgress] Все модели актуальны, отображаю {len(symbols)} символов с height=0.0")
 
                 # Обновляем заголовок с порогом
                 status_icon = "⚠️" if can_retrain else "✅"
                 self.retrain_progress_widget.setTitle(
-                    f"{status_icon} Прогресс переобучения: {needs_count}/{total} ({needs_percent:.0%}) / {threshold:.0%} порог"
+                    f"{status_icon} Прогресс: {needs_count}/{total} ({needs_percent:.0%}) / {threshold:.0%} порог"
                 )
             else:
                 # СТАРЫЙ ФОРМАТ: {symbol: hours_since_training}
+                logger.info(f"[GUI-RetrainProgress] Старый формат: {len(progress_data)} символов")
+
                 symbols = list(progress_data.keys())
-                hours = [progress_data[s] for s in symbols]
+                hours_raw = [progress_data[s] for s in symbols]
 
-                # Проверяем что hours - это числа а не списки
-                hours = [float(h) if not isinstance(h, (int, float)) else h for h in hours]
+                # DEBUG: Логируем сырые значения
+                logger.info(f"[GUI-RetrainProgress DEBUG] Сырые значения (первые 5): {list(zip(symbols[:5], hours_raw[:5]))}")
 
-                # Цветовое кодирование: красный > 1ч (пора переобучать), жёлтый 0.5-1ч, зелёный < 0.5ч
+                # КРИТИЧНО: Преобразуем в числа и защищаемся от некорректных значений
+                hours = []
+                for idx, h in enumerate(hours_raw):
+                    try:
+                        h_float = float(h) if not isinstance(h, (int, float)) else h
+
+                        # КРИТИЧНО: Защита от отрицательных значений!
+                        if h_float < 0:
+                            logger.warning(
+                                f"[GUI-RetrainProgress] ⚠️ Отрицательное время для {symbols[idx]}: {h_float:.2f}ч. Устанавливаю 0.0."
+                            )
+                            h_float = 0.0
+
+                        hours.append(max(0.0, min(h_float, 999.0)))  # Clamp 0..999
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"[GUI-RetrainProgress] Некорректное значение {h} для {symbols[idx]}: {e}")
+                        hours.append(0.0)
+
+                # DEBUG: Логируем обработанные значения
+                logger.info(f"[GUI-RetrainProgress DEBUG] Обработанные hours (первые 5): {list(zip(symbols[:5], hours[:5]))}")
+
+                # Цветовое кодирование: красный >= 1ч, жёлтый 0.5-1ч, зелёный < 0.5ч
                 colors = []
                 for h in hours:
                     if h >= 1.0:
@@ -3068,19 +3128,77 @@ class MainWindow(QMainWindow):
 
                 # Обновляем заголовок
                 symbols_to_retrain = sum(1 for h in hours if h >= 1.0)
-                self.retrain_progress_widget.setTitle(f"⏰ Прогресс переобучения (требуют: {symbols_to_retrain})")
+                self.retrain_progress_widget.setTitle(f"⏰ Прогресс (требуют: {symbols_to_retrain}/{len(symbols)})")
+                logger.info(
+                    f"[GUI-RetrainProgress] Старый формат: {len(symbols)} символов, требуют переобучения: {symbols_to_retrain}"
+                )
 
-            # Обновляем график
+            # КРИТИЧНО: Обновляем Y диапазон ПЕРЕД обновлением баров
+            y_max = 3.0  # Значение по умолчанию
+            if hours:
+                max_height = max(hours) if hours else 3.0
+                y_max = max(3.0, max_height + 0.5)  # Минимум 3.0, иначе с запасом
+                try:
+                    self.retrain_progress_plot.getAxis("left").setRange(0, y_max)
+                    logger.debug(f"[GUI-RetrainProgress] Y диапазон установлен: 0..{y_max:.1f}")
+                except Exception as e:
+                    logger.warning(f"[GUI-RetrainProgress] Не удалось установить Y диапазон: {e}")
+
+            # КРИТИЧНО: Полностью сбрасываем бары перед обновлением
+            # Это решает проблему "один символ вместо всех"
+            try:
+                self.retrain_progress_plot.removeItem(self.retrain_progress_bars)
+            except Exception:
+                pass  # Мог не быть добавлен
+
+            # Создаём НОВЫЙ BarGraphItem с правильными данными
             x_positions = list(range(len(symbols)))
-            self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
+            self.retrain_progress_bars = pg.BarGraphItem(
+                x=x_positions, height=hours, width=0.6, brushes=[pg.mkBrush(c) for c in colors]
+            )
+            self.retrain_progress_plot.addItem(self.retrain_progress_bars)
+
+            logger.info(
+                f"[GUI-RetrainProgress] BarGraphItem создан: x={x_positions[:3]}..., height={hours[:3]}..., count={len(symbols)}"
+            )
+
+            # Обновляем подписи оси X (только если символов <= 15)
+            if len(symbols) <= 15 and len(symbols) > 0:
+                try:
+                    axis = self.retrain_progress_plot.getAxis("bottom")
+                    short_labels = [(i, s[:4]) for i, s in enumerate(symbols)]
+                    axis.setTicks([short_labels])
+                    logger.debug(f"[GUI-RetrainProgress] Подписи оси X установлены: {short_labels[:3]}...")
+                except Exception as e:
+                    logger.warning(f"[GUI-RetrainProgress] Не удалось установить подписи: {e}")
+            elif len(symbols) > 15:
+                # Слишком много символов — убираем подписи чтобы не загромождать
+                try:
+                    self.retrain_progress_plot.getAxis("bottom").setTicks([])
+                except Exception:
+                    pass
+
+            # Устанавливаем X диапазон
+            if len(symbols) > 0:
+                try:
+                    self.retrain_progress_plot.setXRange(-0.5, len(symbols) - 0.5, padding=0)
+                    logger.debug(f"[GUI-RetrainProgress] X диапазон установлен: -0.5..{len(symbols)-0.5}")
+                except Exception as e:
+                    logger.warning(f"[GUI-RetrainProgress] Не удалось установить X диапазон: {e}")
 
             # Сохраняем данные
             self.retrain_progress_data = progress_data
 
-            logger.info(f"[GUI-RetrainProgress] График обновлён: {len(symbols)} символов")
+            logger.info(
+                f"[GUI-RetrainProgress] ✅ График обновлён: {len(symbols)} символов, Ymax={y_max:.1f}, "
+                f"height_range=[{min(hours):.2f}, {max(hours):.2f}]"
+            )
 
         except Exception as e:
-            logger.error(f"[GUI-RetrainProgress] Ошибка при обновлении графика: {e}", exc_info=True)
+            logger.error(f"[GUI-RetrainProgress] ❌ Ошибка при обновлении графика: {e}", exc_info=True)
+            import traceback
+
+            traceback.print_exc()
 
     def update_candle_chart(self, df: pd.DataFrame, symbol: str):
         logger.info(

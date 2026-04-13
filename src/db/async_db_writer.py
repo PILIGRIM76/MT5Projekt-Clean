@@ -112,6 +112,7 @@ class AsyncDBWriter:
             "model_updated",
             "system_status",
             "feed_error",
+            "bars_to_save",  # ← Новый тип события от DataSyncOrchestrator
         ]
 
         for event_type in events_to_subscribe:
@@ -130,13 +131,26 @@ class AsyncDBWriter:
 
     async def _enqueue(self, event: SystemEvent):
         """Добавление события в очередь"""
-        self.queue.append(
-            {
-                "event_type": event.type,
-                "payload": str(event.payload),
-                "timestamp": event.timestamp,
-            }
-        )
+        # Специальная обработка для bars_to_save
+        if event.type == "bars_to_save":
+            bars = event.payload.get("bars", [])
+            symbol = event.payload.get("symbol", "unknown")
+            self.queue.append(
+                {
+                    "event_type": "bars_insert",
+                    "payload": {"symbol": symbol, "bars": bars},
+                    "timestamp": event.timestamp,
+                }
+            )
+            logger.debug(f"Queued {len(bars)} bars for {symbol}")
+        else:
+            self.queue.append(
+                {
+                    "event_type": event.type,
+                    "payload": str(event.payload),
+                    "timestamp": event.timestamp,
+                }
+            )
 
         # Автоматический flush при достижении batch_size
         if len(self.queue) >= self.batch_size:
@@ -169,17 +183,47 @@ class AsyncDBWriter:
                     self._ensure_table(conn)
 
                     cursor = conn.cursor()
-                    cursor.executemany(
-                        "INSERT INTO event_logs (event_type, payload, timestamp) "
-                        "VALUES (:event_type, :payload, :timestamp)",
-                        batch,
-                    )
+                    bars_inserted = 0
+
+                    for item in batch:
+                        if item["event_type"] == "bars_insert":
+                            # Специальная вставка баров
+                            symbol = item["payload"]["symbol"]
+                            bars = item["payload"]["bars"]
+                            bars_inserted += self._insert_bars(cursor, symbol, bars)
+                        else:
+                            # Обычная вставка событий
+                            cursor.execute(
+                                "INSERT INTO event_logs (event_type, payload, timestamp) "
+                                "VALUES (:event_type, :payload, :timestamp)",
+                                item,
+                            )
+
                     conn.commit()
 
                     self._total_written += len(batch)
                     self._flush_count += 1
 
-                    logger.debug(f"DB flushed: {len(batch)} records written " f"(total={self._total_written})")
+                    if bars_inserted > 0:
+                        logger.info(
+                            f"DB flushed: {bars_inserted} bars inserted, {len(batch)} events (total={self._total_written})"
+                        )
+                    else:
+                        logger.debug(f"DB flushed: {len(batch)} records written (total={self._total_written})")
+
+                    # Публикация события о успешной записи
+                    if bars_inserted > 0:
+                        await self.event_bus.publish(
+                            SystemEvent(
+                                type="db_flushed",
+                                payload={
+                                    "bars_inserted": bars_inserted,
+                                    "events_written": len(batch),
+                                    "total_written": self._total_written,
+                                },
+                                priority=EventPriority.LOW,
+                            )
+                        )
 
                     success = True
 

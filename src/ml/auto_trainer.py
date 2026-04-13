@@ -534,14 +534,15 @@ class AutoTrainer:
 
             # Скалирование — сохраняем имена признаков в scaler
             scaler = StandardScaler()
-            # Устанавливаем feature_names_in_ вручную (StandardScaler хранит его)
-            scaler.feature_names_in_ = np.array(feature_columns)
-            scaler.n_features_in_ = len(feature_columns)
             X_train_scaled = scaler.fit_transform(X_train)
             X_val_scaled = scaler.transform(X_val)
 
+            # Устанавливаем feature_names_in_ ПОСЛЕ fit_transform (иначе перезапишется)
+            scaler.feature_names_in_ = np.array(feature_columns)
+            scaler.n_features_in_ = len(feature_columns)
+            logger.debug(f"StandardScaler: установлено {len(feature_columns)} признаков")
+
             # Обучаем простую модель (LightGBM для скорости)
-            evals_result = {}  # ДЛЯ ОТСЛЕЖИВАНИЯ ПРОГРЕССА
             try:
                 import lightgbm as lgb
 
@@ -581,6 +582,7 @@ class AutoTrainer:
 
                 # ДОБАВЛЕНО: callbacks для отслеживания прогресса
                 # Early Stopping + Real-time Loss Tracking
+                evals_result = {}
                 callbacks_list = [
                     lgb.record_evaluation(evals_result),
                     lgb.early_stopping(stopping_rounds=15, verbose=False),  # Early stopping после 15 эпох без улучшений
@@ -666,12 +668,29 @@ class AutoTrainer:
 
                 logger.info(f"[AutoTrainer] 🚀 Запуск model.fit() для {symbol}...")
 
-                model.fit(
-                    X_train_scaled,
-                    y_train,
-                    eval_set=[(X_val_scaled, y_val)],
-                    callbacks=callbacks_list,
-                )
+                # КРИТИЧНО: Используем DataFrame для обучения чтобы модель запомнила имена признаков
+                try:
+                    import pandas as pd
+
+                    X_train_df = pd.DataFrame(X_train_scaled, columns=feature_columns)
+                    X_val_df = pd.DataFrame(X_val_scaled, columns=feature_columns)
+
+                    model.fit(
+                        X_train_df,
+                        y_train,
+                        eval_set=[(X_val_df, y_val)],
+                        callbacks=callbacks_list,
+                    )
+                    logger.info(f"✅ LightGBM обучена на DataFrame с {len(feature_columns)} признаками")
+                except Exception as df_error:
+                    logger.warning(f"Не удалось использовать DataFrame, обучаем на numpy: {df_error}")
+                    # Fallback к numpy array
+                    model.fit(
+                        X_train_scaled,
+                        y_train,
+                        eval_set=[(X_val_scaled, y_val)],
+                        callbacks=callbacks_list,
+                    )
 
                 # ОТПРАВКА РЕАЛЬНЫХ ДАННЫХ LOSS ПОСЛЕ ОБУЧЕНИЯ
                 if self._training_progress_callback and "valid_0" in evals_result and "log_loss" in evals_result["valid_0"]:

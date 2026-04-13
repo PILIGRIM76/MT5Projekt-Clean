@@ -148,29 +148,41 @@ class DataSyncOrchestrator:
                 logger.debug(f"No new bars for {symbol}")
                 return
 
-            # 3. Сохранение в БД
-            saved = await self._upsert_bars(symbol, bars)
-            if saved > 0:
-                self._last_sync[symbol] = datetime.now()
-                self._sync_count += 1
-                self._total_bars_saved += saved
-
-                logger.debug(f"Saved {saved} bars for {symbol} to DB " f"(mode={mode}, total_in_db={db_count + saved})")
-
-                # 4. Уведомление системы через EventBus
-                await self.event_bus.publish(
-                    SystemEvent(
-                        type="data_synced",
-                        payload={
-                            "symbol": symbol,
-                            "count": saved,
-                            "mode": mode,
-                            "total_bars": db_count + saved,
-                        },
-                        priority=EventPriority.MEDIUM,
-                        source_domain=ThreadDomain.DATA_INGEST,
-                    )
+            # 3. Публикация события для AsyncDBWriter (полностью асинхронная запись)
+            await self.event_bus.publish(
+                SystemEvent(
+                    type="bars_to_save",
+                    payload={
+                        "symbol": symbol,
+                        "bars": bars,
+                        "mode": mode,
+                    },
+                    priority=EventPriority.MEDIUM,
+                    source_domain=ThreadDomain.DATA_INGEST,
                 )
+            )
+
+            saved = len(bars)
+            self._last_sync[symbol] = datetime.now()
+            self._sync_count += 1
+            self._total_bars_saved += saved
+
+            logger.debug(f"Queued {saved} bars for {symbol} to DB " f"(mode={mode}, total_in_db={db_count + saved})")
+
+            # 4. Уведомление системы о синхронизации
+            await self.event_bus.publish(
+                SystemEvent(
+                    type="data_synced",
+                    payload={
+                        "symbol": symbol,
+                        "count": saved,
+                        "mode": mode,
+                        "total_bars": db_count + saved,
+                    },
+                    priority=EventPriority.MEDIUM,
+                    source_domain=ThreadDomain.DATA_INGEST,
+                )
+            )
 
         except Exception as e:
             self._error_count += 1

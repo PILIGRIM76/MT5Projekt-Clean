@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
+import pandas as pd
 
 from src.core.config_models import Settings
 from src.ml.model_paths import ModelPathConfig
@@ -198,16 +199,21 @@ class ChampionshipRetrainer:
         """
         Упрощённая валидация без полного Championship.
 
-        Загружает последние данные, делает предсказания, считает метрики.
+        Загружает последние данные, создаёт признаки, делает предсказания, считает метрики.
         """
         if self.auto_trainer is None:
             return {"valid": False, "error": "auto_trainer not available"}
 
         try:
-            # Загружаем данные для валидации
-            df = self.auto_trainer.load_training_data(symbol, timeframe)
-            if df is None or len(df) < 200:
+            # Загружаем сырые данные для валидации
+            df_raw = self.auto_trainer.load_training_data(symbol, timeframe)
+            if df_raw is None or len(df_raw) < 200:
                 return {"valid": False, "error": "insufficient_data"}
+
+            # СОЗДАЁМ ПРИЗНАКИ через prepare_features
+            df = self.auto_trainer.prepare_features(df_raw)
+            if len(df) < 50:  # После dropna может остаться мало данных
+                return {"valid": False, "error": "insufficient_data_after_feature_engineering"}
 
             # Разделяем: последние 20% для валидации
             split = int(len(df) * 0.8)
@@ -232,10 +238,29 @@ class ChampionshipRetrainer:
                     "trend",
                 ]
 
-            X_val = df_val[feature_columns].values
+            # ПРОВЕРКА: убеждаемся что все признаки присутствуют
+            missing_cols = [col for col in feature_columns if col not in df_val.columns]
+            if missing_cols:
+                logger.warning(
+                    f"[{symbol}] Отсутствуют признаки: {missing_cols}. " f"Пропуск валидации или генерация дефолтных значений."
+                )
+                # Создаём缺失ющие колонки с дефолтными значениями
+                for col in missing_cols:
+                    df_val[col] = 0.0
+                    logger.debug(f"[{symbol}] Создан дефолтный признак: {col}")
+
+            # Используем DataFrame с именами колонок (не numpy array) для LightGBM
+            X_val = df_val[feature_columns]  # DataFrame, не .values!
             y_val = df_val["target"].values if "target" in df_val.columns else np.zeros(len(df_val))
 
-            X_val_scaled = scaler.transform(X_val)
+            # Скалирование — сохраняем имена колонок
+            if hasattr(scaler, "feature_names_in_"):
+                X_val_scaled = scaler.transform(X_val)
+                # Восстанавливаем DataFrame после трансформации
+                X_val_scaled = pd.DataFrame(X_val_scaled, columns=feature_columns, index=X_val.index)
+            else:
+                X_val_scaled = scaler.transform(X_val.values)
+                X_val_scaled = pd.DataFrame(X_val_scaled, columns=feature_columns, index=X_val.index)
 
             # Предсказания
             predictions = model.predict(X_val_scaled)

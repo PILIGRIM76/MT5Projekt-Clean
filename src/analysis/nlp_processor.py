@@ -66,55 +66,93 @@ class CausalNLPProcessor:
             default_cache_path = os.path.join(home_dir, ".cache", "huggingface", "hub")
             logger.info(f"Используется стандартная директория для кэша Hugging Face: {default_cache_path}")
 
-        # --- Этап 1: Загрузка основных моделей для генерации связей ---
-        for model_name in self.model_names:
-            try:
-                logger.info(f"Загрузка NLP-модели: '{model_name}'... (Это может занять время при первом запуске!)")
+        # ИСПРАВЛЕНИЕ: НЕ загружаем модели сразу - делаем ленивую загрузку
+        logger.info(
+            f"Causal NLP Processor инициализирован (ленивая загрузка моделей: {self.model_names}). "
+            f"Модели будут загружены при первом использовании."
+        )
 
-                # Загружаем токенизатор и модель
-                tokenizer = AutoTokenizer.from_pretrained(model_name)
+        # VectorDB embedding модель загружаем сразу (если включена)
+        self._load_embedding_model_if_needed()
 
-                # --- ИСПРАВЛЕНИЕ: Принудительная загрузка на CPU для стабильности ---
-                model = T5ForConditionalGeneration.from_pretrained(model_name)
+        # Финальная проверка - NLP Processor готов даже без загруженных моделей
+        self.is_ready = True
+        logger.info("NLP Processor готов к работе (модели загружаются лениво).")
 
-                # Принудительно переносим на CPU
-                model.to(torch.device("cpu"))
-
-                self.models[model_name] = {"tokenizer": tokenizer, "model": model}
-                logger.info(f"Модель '{model_name}' успешно загружена.")
-            except Exception as e:
-                logger.error(f"Не удалось загрузить модель '{model_name}': {e}", exc_info=True)
-
-        # --- Этап 2: Загрузка модели для эмбеддингов (для векторной БД) ---
+    def _load_embedding_model_if_needed(self):
+        """Загружает embedding модель если VectorDB включен."""
         if self.config.vector_db.enabled:
             if self.embedding_model is None:
-                # Модель ещё не загружена, пробуем загрузить
                 try:
-                    embedding_model_name = self.config.vector_db.embedding_model  # all-MiniLM-L6-v2 по умолчанию
+                    embedding_model_name = self.config.vector_db.embedding_model
                     logger.info(f"Загрузка embedding модели: '{embedding_model_name}'...")
-
-                    # Загружаем модель для эмбеддингов
                     self.embedding_model = SentenceTransformer(embedding_model_name)
                     self.embedding_model.to(torch.device("cpu"))
-
+                    self.embedding_model.eval()
                     logger.info(f"Embedding модель '{embedding_model_name}' успешно загружена.")
+                except KeyboardInterrupt:
+                    logger.warning("⚠️ Загрузка embedding модели прервана пользователем")
+                    raise
                 except Exception as e:
-                    logger.error(f"Не удалось загрузить embedding модель '{embedding_model_name}': {e}", exc_info=True)
-                    logger.warning("VectorDB будет отключен из-за отсутствия embedding модели.")
+                    logger.error(
+                        f"❌ Не удалось загрузить embedding модель '{embedding_model_name}': {e}\n"
+                        f"   VectorDB будет отключен.",
+                        exc_info=True,
+                    )
                     self.config.vector_db.enabled = False
             else:
-                # Модель уже загружена (из TradingSystem)
-                logger.info(f"Embedding модель уже загружена (передана из TradingSystem).")
+                logger.info("Embedding модель уже загружена (передана из TradingSystem).")
         else:
             logger.info("VectorDB отключен в конфигурации.")
 
-        # --- Этап 3: Финальная проверка готовности ---
+    def _ensure_models_loaded(self):
+        """
+        Ленивая загрузка основных NLP моделей при первом использовании.
+        Вызывается автоматически перед каждым методом требующим модели.
+        """
+        if self.models:
+            return  # Модели уже загружены
+
+        logger.info(f"🔄 Ленивая загрузка NLP моделей: {self.model_names}...")
+
+        for model_name in self.model_names:
+            try:
+                logger.info(f"Загрузка NLP-модели: '{model_name}'...")
+
+                tokenizer = AutoTokenizer.from_pretrained(
+                    model_name,
+                    local_files_only=False,
+                    trust_remote_code=False,
+                )
+
+                model = T5ForConditionalGeneration.from_pretrained(
+                    model_name,
+                    local_files_only=False,
+                    torch_dtype=torch.float32,
+                    device_map="cpu",
+                )
+
+                model.to(torch.device("cpu"))
+                model.eval()
+
+                self.models[model_name] = {"tokenizer": tokenizer, "model": model}
+                logger.info(f"✅ Модель '{model_name}' успешно загружена.")
+
+            except KeyboardInterrupt:
+                logger.warning(f"⚠️ Загрузка модели '{model_name}' прервана пользователем")
+                raise
+            except Exception as e:
+                logger.error(
+                    f"❌ Не удалось загрузить модель '{model_name}': {e}\n" f"   Система продолжит работу без NLP анализа.",
+                    exc_info=True,
+                )
+
         if self.models:
             self.is_ready = True
-            logger.info("NLP Processor готов к работе.")
+            logger.info("✅ NLP модели загружены.")
         else:
             self.is_ready = False
-            logger.error("Не удалось загрузить ни одну основную NLP-модель. Анализ текста будет невозможен.")
+            logger.error("❌ Не удалось загрузить NLP модели. Анализ текста невозможен.")
 
     def _parse_relations(self, generated_text: str) -> Optional[Dict[str, str]]:
         try:
@@ -137,8 +175,12 @@ class CausalNLPProcessor:
     def process_and_store_text(self, text: str, context: dict = None):
         """Обработка и сохранение текста с защитой от ошибок"""
         try:
-            if not self.is_ready:
-                logger.warning("[VectorDB] NLP-модель не загружена, обработка текста пропущена.")
+            # Ленивая загрузка моделей если нужно
+            if not self.models:
+                self._ensure_models_loaded()
+
+            if not self.is_ready or not self.models:
+                logger.warning("[VectorDB] NLP-модели не загружены, обработка текста пропущена.")
                 return
 
             # 1. Формируем промпт (Few-shot prompting)

@@ -425,6 +425,12 @@ class TradingSystem(QObject):
         self.account_manager = AccountManager()
         logger.info("Account Manager инициализирован")
 
+        # P0: Инициализация Account Monitor Thread (выделенный поток для метрик аккаунта)
+        from src.core.account_monitor import create_account_monitor
+
+        self.account_monitor = create_account_monitor(interval=1.0, emit_on_change_only=True)
+        logger.info("Account Monitor Thread инициализирован")
+
         # P0: Инициализация Auto Trainer (автоматическое переобучение моделей)
         from src.ml.auto_trainer import AutoTrainer
 
@@ -455,10 +461,13 @@ class TradingSystem(QObject):
         self.gui_dispatcher = GUIDispatcher(equity_interval_ms=3000, chart_interval_ms=10000)
         logger.info("GUIDispatcher инициализирован")
 
-        # 🔹 Подключаем AccountManager → Dispatcher → Bridge
-        # Канал 1: Эквити (высокий приоритет)
+        # 🔹 Подключаем AccountMonitorThread → AccountManager → Dispatcher → Bridge
+        # Канал 1: Эквити из выделенного потока (высокий приоритет, НЕ блокирует торговлю)
         if self.bridge:
             try:
+                # AccountMonitorThread → AccountManager (обновление кэша)
+                self.account_monitor.signals.metrics_updated.connect(self._on_account_metrics_received)
+
                 # AccountManager → Dispatcher
                 self.account_manager.equity_updated.connect(self.gui_dispatcher.push_equity_data)
 
@@ -466,7 +475,7 @@ class TradingSystem(QObject):
                 self.gui_dispatcher.equity_data_ready.connect(
                     lambda data: self.bridge.balance_updated.emit(data["balance"], data["equity"])
                 )
-                logger.info("✅ Канал 1: AccountManager → Dispatcher → Bridge (equity)")
+                logger.info("✅ Канал 1: AccountMonitorThread → AccountManager → Dispatcher → Bridge (equity)")
             except Exception as e:
                 logger.warning(f"Не удалось подключить канал 1 (equity): {e}")
         else:
@@ -774,13 +783,21 @@ class TradingSystem(QObject):
             "VectorDB Cleanup": self.vector_db_cleanup_thread,
             "Symbol Monitor": self.symbol_monitor_thread,
             "Training Status": self.training_status_thread,  # НОВЫЙ
+            "Account Monitor": self.account_monitor,  # НОВЫЙ: Выделенный поток для метрик аккаунта
         }
 
-        for name, thread in threads_to_start.items():
-            if thread:
-                thread.start()
-                logger.info(f"[TradingSystem] Поток '{name}' запущен: {thread.name}, daemon={thread.daemon}")
-                self.thread_status_updated.emit(name, "RUNNING")
+        for name, thread_obj in threads_to_start.items():
+            if thread_obj:
+                # AccountMonitorThread — это threading.Thread, у него есть метод start()
+                if hasattr(thread_obj, "start"):
+                    thread_obj.start()
+                    thread_name = getattr(thread_obj, "name", name)
+                    logger.info(
+                        f"[TradingSystem] Поток '{name}' запущен: {thread_name}, daemon={getattr(thread_obj, 'daemon', True)}"
+                    )
+                    self.thread_status_updated.emit(name, "RUNNING")
+                else:
+                    logger.error(f"[TradingSystem] Объект '{name}' не имеет метода start()!")
             else:
                 logger.error(f"[TradingSystem] Поток '{name}' = None, не могу запустить!")
 
@@ -2690,14 +2707,9 @@ class TradingSystem(QObject):
                 last_health_check = current_time
             # =================================================
 
-            # Обновляем информацию о счете каждые 5 секунд
-            if current_time - last_account_update > 5:
-                self.account_manager.update_info()
-                last_account_update = current_time
-                logger.info(
-                    f"[AccountManager] Тип: {self.account_manager.account_type} | "
-                    f"Баланс: {self.account_manager.balance} | Эквити: {self.account_manager.equity}"
-                )
+            # УДАЛЕНО: Обновление информации о счете теперь выполняет AccountMonitorThread
+            # в отдельном потоке (каждую 1 секунду). Это не блокирует торговый цикл.
+            # Метрики автоматически кэшируются в AccountManager через _on_account_metrics_received()
 
             lock_acquired = False
             if self.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION and (
@@ -3830,6 +3842,35 @@ class TradingSystem(QObject):
             self.db_manager.promote_challenger_to_champion(challenger_id=best_challenger_id, report=final_report)
         else:
             logger.error("Не удалось определить победителя в конкурсе моделей.")
+
+    def _on_account_metrics_received(self, metrics: dict):
+        """
+        Слот вызывается из AccountMonitorThread когда получены новые метрики.
+
+        Обновляет кэш в AccountManager и запускает Qt-сигнал в GUI.
+        Выполняется в потоке AccountMonitorThread (НЕ в торговом цикле).
+
+        Args:
+            metrics: Dict с balance, equity, margin, profit, и т.д.
+        """
+        try:
+            # Обновляем кэш в AccountManager (без вызова mt5.account_info!)
+            self.account_manager.balance = metrics["balance"]
+            self.account_manager.equity = metrics["equity"]
+            self.account_manager.margin_free = metrics.get("margin_free", 0.0)
+            self.account_manager.currency = metrics.get("currency", "USD")
+            self.account_manager.leverage = metrics.get("leverage", 0)
+
+            # Запускаем сигнал AccountManager (который подключен к GUI Dispatcher)
+            self.account_manager.update_info()  # Отправит equity_updated сигнал
+
+            logger.debug(
+                f"[AccountMonitor->TradingSystem] Метрики обновлены: "
+                f"Balance={metrics['balance']:.2f}, Equity={metrics['equity']:.2f}"
+            )
+
+        except Exception as e:
+            logger.error(f"[AccountMonitor->TradingSystem] Ошибка обновления метрик: {e}")
 
     def _update_pnl_kpis(self):
         now = datetime.now()
@@ -5238,13 +5279,17 @@ class TradingSystem(QObject):
             if hasattr(self, "auto_trainer") and self.auto_trainer:
                 progress_info = self.auto_trainer.get_retrain_progress()
 
+                # DEBUG: Логируем реальные данные перед отправкой
+                logger.info(
+                    f"📊 Отправка прогресса переобучения: "
+                    f"{progress_info['count_needing_retrain']}/{progress_info['total_symbols']} "
+                    f"({progress_info['progress_percent']:.1%})"
+                )
+                if progress_info.get("symbols_needing_retrain"):
+                    logger.info(f"📊 Символы требующие переобучения: {progress_info['symbols_needing_retrain'][:10]}...")
+
                 # Отправляем расширенный прогресс в GUI через сигнал
                 if self.bridge:
-                    logger.debug(
-                        f"📊 Отправка прогресса переобучения: "
-                        f"{progress_info['count_needing_retrain']}/{progress_info['total_symbols']} "
-                        f"({progress_info['progress_percent']:.1%})"
-                    )
                     # ИСПРАВЛЕНИЕ: Используем сигнал вместо прямого вызова bridge
                     self.retrain_progress_updated.emit(progress_info)
 
