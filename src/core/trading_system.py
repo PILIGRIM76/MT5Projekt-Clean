@@ -1891,12 +1891,35 @@ class TradingSystem(QObject):
             logger.info(f"[R&D] Прямая загрузка данных из MT5 для {symbol_to_train}...")
 
             df_full = None
-            max_retries = 5  # Увеличено с 3 до 5 для надёжности
+            max_retries = 7  # Увеличено с 5 до 7 для надёжности
             for attempt in range(max_retries):
-                lock_acquired = self.mt5_lock.acquire(timeout=10.0)  # Увеличено с 5.0 до 10.0
+                # Экспоненциальная задержка: 3с, 6с, 12с, 24с, 48с, 96с, 192с
+                wait_time = 3.0 * (2**attempt)
+
+                # Проверяем состояние MT5 перед попыткой
+                try:
+                    account_info = mt5.account_info()
+                    if account_info is None:
+                        logger.warning(f"[R&D] MT5 не отвечает (попытка {attempt+1}). Переподключение...")
+                        mt5_shutdown()
+                        if not mt5_ensure_connected(path=self.config.MT5_PATH):
+                            logger.error(f"[R&D] Не удалось переподключиться к MT5")
+                            self.stop_event.wait(wait_time)
+                            continue
+                except Exception as mt5_check_error:
+                    logger.warning(f"[R&D] Ошибка проверки MT5: {mt5_check_error}")
+                    mt5_shutdown()
+                    if not mt5_ensure_connected(path=self.config.MT5_PATH):
+                        logger.error(f"[R&D] Не удалось переподключиться к MT5 после ошибки")
+                        self.stop_event.wait(wait_time)
+                        continue
+
+                lock_acquired = self.mt5_lock.acquire(timeout=15.0)  # Увеличено до 15 сек
                 if not lock_acquired:
-                    wait_time = 2.0 * (attempt + 1)  # Экспоненциальная задержка: 2с, 4с, 6с, 8с, 10с
-                    logger.warning(f"[R&D] MT5 Lock занят (попытка {attempt+1}/{max_retries}), ждём {wait_time}с...")
+                    logger.warning(
+                        f"[R&D] MT5 Lock занят (попытка {attempt+1}/{max_retries}), "
+                        f"ждём {wait_time:.0f}с (exponential backoff)..."
+                    )
                     self.stop_event.wait(wait_time)
                     continue
 

@@ -488,10 +488,14 @@ class DataProvider:
         logger.info(f"[DATA] Загрузка {symbol} {timeframe}...")
 
         try:
-            # Пытаемся захватить mt5_lock с увеличенным таймаутом для обучения (60 сек)
-            acquired = self.mt5_lock.acquire(timeout=60)  # Ждем максимум 60 сек для обучения
+            # Пытаемся захватить mt5_lock с УВЕЛИЧЕННЫМ таймаутом для обучения (180 сек)
+            # Обучение моделей - долгая операция, требует стабильного доступа к MT5
+            acquired = self.mt5_lock.acquire(timeout=180)  # 3 минуты для обучения
             if not acquired:
-                logger.error(f"[DATA] Таймаут захвата mt5_lock для {symbol} (60 сек). Пропуск.")
+                logger.error(
+                    f"[DATA] ТАЙМАУТ захвата mt5_lock для {symbol} (180 сек). "
+                    f"Возможно торговый цикл выполняет длительную операцию. Пропуск."
+                )
                 return None
 
             try:
