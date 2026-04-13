@@ -5013,7 +5013,12 @@ class TradingSystem(QObject):
             from smart_retrain import smart_retrain_models
 
             logger.info(f"📢 Запуск smart_retrain_models для {len(symbols_to_retrain)} символов...")
-            result = smart_retrain_models(max_symbols=len(symbols_to_retrain), max_workers=max_workers)
+            # ПЕРЕДАЕМ trading_system чтобы smart_retrain мог установить callback
+            result = smart_retrain_models(
+                max_symbols=len(symbols_to_retrain),
+                max_workers=max_workers,
+                trading_system=self,  # НОВОЕ: передаем ссылку на TradingSystem
+            )
             logger.info(f"✅ Результат переобучения: {result}")
 
             logger.info("✅ Автоматическое переобучение завершено")

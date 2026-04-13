@@ -61,12 +61,13 @@ def get_symbols_for_retraining(max_symbols: int = 30) -> List[str]:
         return ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BITCOIN"]
 
 
-def train_symbol_model(symbol: str) -> dict:
+def train_symbol_model(symbol: str, trading_system=None) -> dict:
     """
     Обучить модель для конкретного символа.
 
     Args:
         symbol: Название символа (например, EURUSD)
+        trading_system: Ссылка на TradingSystem для установки callback (НОВОЕ)
 
     Returns:
         Словарь с результатами обучения
@@ -108,9 +109,14 @@ def train_symbol_model(symbol: str) -> dict:
 
             # УСТАНОВКА CALLBACK ДЛЯ ПРОГРЕССА ОБУЧЕНИЯ
             try:
-                from src.core.container import get_trading_system
+                # НОВОЕ: Используем переданный trading_system если он есть
+                ts = trading_system
+                if ts is None:
+                    # Fallback: пробуем получить из контейнера
+                    from src.core.container import get_trading_system
 
-                ts = get_trading_system()
+                    ts = get_trading_system()
+
                 logger.info(
                     f"[{symbol}] 📡 Проверка TradingSystem: ts={ts is not None}, "
                     f"has_bridge={hasattr(ts, 'bridge') if ts else False}"
@@ -173,12 +179,13 @@ def train_symbol_model(symbol: str) -> dict:
     return result
 
 
-def train_lightgbm_model(symbol: str) -> dict:
+def train_lightgbm_model(symbol: str, trading_system=None) -> dict:
     """
     Обучить LightGBM модель для конкретного символа.
 
     Args:
         symbol: Название символа
+        trading_system: Ссылка на TradingSystem для установки callback (НОВОЕ)
 
     Returns:
         Словарь с результатами обучения
@@ -201,9 +208,14 @@ def train_lightgbm_model(symbol: str) -> dict:
 
         # УСТАНОВКА CALLBACK ДЛЯ ПРОГРЕССА ОБУЧЕНИЯ
         try:
-            from src.core.container import get_trading_system
+            # НОВОЕ: Используем переданный trading_system если он есть
+            ts = trading_system
+            if ts is None:
+                # Fallback: пробуем получить из контейнера
+                from src.core.container import get_trading_system
 
-            ts = get_trading_system()
+                ts = get_trading_system()
+
             logger.info(
                 f"[{symbol}] 📡 [LightGBM] Проверка TradingSystem: ts={ts is not None}, "
                 f"has_bridge={hasattr(ts, 'bridge') if ts else False}"
@@ -259,7 +271,9 @@ def train_lightgbm_model(symbol: str) -> dict:
     return result
 
 
-def smart_retrain_models(max_symbols: int = 30, max_workers: int = 3, model_types: Optional[List[str]] = None) -> dict:
+def smart_retrain_models(
+    max_symbols: int = 30, max_workers: int = 3, model_types: Optional[List[str]] = None, trading_system=None
+) -> dict:
     """
     Основная функция умного переобучения моделей.
 
@@ -267,6 +281,7 @@ def smart_retrain_models(max_symbols: int = 30, max_workers: int = 3, model_type
         max_symbols: Максимальное количество символов для обучения
         max_workers: Максимальное количество параллельных потоков
         model_types: Типы моделей для обучения ['lstm', 'lightgbm']
+        trading_system: Ссылка на TradingSystem для установки callback (НОВОЕ)
 
     Returns:
         Словарь с общей статистикой переобучения
@@ -277,6 +292,7 @@ def smart_retrain_models(max_symbols: int = 30, max_workers: int = 3, model_type
     logger.info("ЗАПУСК УМНОГО ПЕРЕОБУЧЕНИЯ МОДЕЛЕЙ")
     logger.info(f"Время начала: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Макс. символов: {max_symbols}, Макс. потоков: {max_workers}")
+    logger.info(f"TradingSystem передан: {trading_system is not None}")  # НОВОЕ
     logger.info("=" * 80)
 
     if model_types is None:
@@ -306,9 +322,9 @@ def smart_retrain_models(max_symbols: int = 30, max_workers: int = 3, model_type
             # Для каждого символа обучаем оба типа моделей
             for model_type in model_types:
                 if model_type == "lstm":
-                    future = executor.submit(train_symbol_model, symbol)
+                    future = executor.submit(train_symbol_model, symbol, trading_system)
                 elif model_type == "lightgbm":
-                    future = executor.submit(train_lightgbm_model, symbol)
+                    future = executor.submit(train_lightgbm_model, symbol, trading_system)
                 else:
                     continue
 
