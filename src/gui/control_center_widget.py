@@ -24,6 +24,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.gui.ai_training_widget import AITrainingWidget
+from src.gui.risk_management_widget import RiskManagementWidget
+
+# Импортируем новые виджеты
+from src.gui.trading_settings_widget import TradingSettingsWidget
+
 logger = logging.getLogger(__name__)
 
 
@@ -150,18 +156,30 @@ class ControlCenterWidget(QWidget):
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
-        self.tabs = QTabWidget()
+        main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Вкладка 1: Дашборд
+        # Создаем главный TabWidget для боковых вкладок
+        self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.North)
+
+        # Вкладка 1: Дашборд (сканер рынка)
         self.dashboard_tab = QWidget()
         self._init_dashboard_tab(self.dashboard_tab)
-        self.tabs.addTab(self.dashboard_tab, "Дашборд")
+        self.tabs.addTab(self.dashboard_tab, "📊 Дашборд")
 
-        # Вкладка 2: Управление
+        # Вкладка 2: Настройки Торговли (если есть конфиг)
         if self.config:
-            self.controls_tab = QWidget()
-            self._init_controls_tab(self.controls_tab)
-            self.tabs.addTab(self.controls_tab, "Управление Рисками")
+            self.trading_settings_tab = TradingSettingsWidget(self)
+            self.tabs.addTab(self.trading_settings_tab, "⚙️ Настройки Торговли")
+
+            # Вкладка 3: Обучение AI-моделей
+            self.ai_training_tab = AITrainingWidget(self.bridge, self)
+            self.ai_training_tab.force_training_requested.connect(self._force_training_requested)
+            self.tabs.addTab(self.ai_training_tab, "🤖 Обучение AI")
+
+            # Вкладка 4: Управление Рисками (прокручиваемая)
+            self.risk_management_tab = RiskManagementWidget(self)
+            self.tabs.addTab(self.risk_management_tab, "🛡️ Управление Рисками")
 
         main_layout.addWidget(self.tabs)
 
@@ -784,6 +802,11 @@ class ControlCenterWidget(QWidget):
 
     def update_retrain_progress_chart(self, progress_data: dict):
         """Обновляет график прогресса переобучения."""
+        # Делегируем обновление к AITrainingWidget если он существует
+        if hasattr(self, "ai_training_tab") and self.ai_training_tab:
+            self.ai_training_tab.update_retrain_progress_chart(progress_data)
+
+        # Также обновляем старый виджет если он существует (для обратной совместимости)
         try:
             if not hasattr(self, "retrain_progress_bars"):
                 return
