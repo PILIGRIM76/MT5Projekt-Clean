@@ -632,26 +632,45 @@ class ControlCenterWidget(QWidget):
         if not self.config:
             return
 
-        # Обновляем метки текущих параметров
-        self.current_risk_label.setText(f"{self.config.RISK_PERCENTAGE:.2f}%")
-        self.current_positions_label.setText(str(self.config.MAX_OPEN_POSITIONS))
-        self.current_drawdown_label.setText(f"{self.config.MAX_DAILY_DRAWDOWN_PERCENT:.2f}%")
+        # ОБНОВЛЕНИЕ: Делегируем к TradingSettingsWidget если он существует
+        if hasattr(self, "trading_settings_tab") and self.trading_settings_tab:
+            risk = getattr(self.config, "RISK_PERCENTAGE", 0.5)
+            max_positions = getattr(self.config, "MAX_OPEN_POSITIONS", 5)
+            max_drawdown = getattr(self.config, "MAX_DAILY_DRAWDOWN_PERCENT", 5.0)
 
-        # Загрузка режима торговли
-        if hasattr(self.config, "trading_mode"):
-            trading_mode = self.config.trading_mode
-            current_mode = trading_mode.get("current_mode", "standard")
-            modes_enabled = trading_mode.get("enabled", False)
+            # Определяем режим торговли
+            mode = "standard"
+            if hasattr(self.config, "trading_mode"):
+                trading_mode = self.config.trading_mode
+                mode = trading_mode.get("current_mode", "standard")
 
-            if modes_enabled and current_mode in TRADING_MODES:
-                mode_data = TRADING_MODES[current_mode]
-                self.current_mode_label.setText(f"{mode_data['icon']} {mode_data['name']}")
-                self.current_mode_label.setStyleSheet(f"color: {mode_data['color']}; font-weight: bold; font-size: 14px;")
+            self.trading_settings_tab.update_current_params(risk, max_positions, max_drawdown, mode)
+            logger.info(f"[ControlCenter] Параметры загружены в TradingSettingsWidget: risk={risk}%, mode={mode}")
+
+        # Также обновляем старые метки если они существуют (обратная совместимость)
+        if hasattr(self, "current_risk_label"):
+            self.current_risk_label.setText(f"{self.config.RISK_PERCENTAGE:.2f}%")
+        if hasattr(self, "current_positions_label"):
+            self.current_positions_label.setText(str(self.config.MAX_OPEN_POSITIONS))
+        if hasattr(self, "current_drawdown_label"):
+            self.current_drawdown_label.setText(f"{self.config.MAX_DAILY_DRAWDOWN_PERCENT:.2f}%")
+
+        # Загрузка режима торговли (для старых меток)
+        if hasattr(self, "current_mode_label"):
+            if hasattr(self.config, "trading_mode"):
+                trading_mode = self.config.trading_mode
+                current_mode = trading_mode.get("current_mode", "standard")
+                modes_enabled = trading_mode.get("enabled", False)
+
+                if modes_enabled and current_mode in TRADING_MODES:
+                    mode_data = TRADING_MODES[current_mode]
+                    self.current_mode_label.setText(f"{mode_data['icon']} {mode_data['name']}")
+                    self.current_mode_label.setStyleSheet(f"color: {mode_data['color']}; font-weight: bold; font-size: 14px;")
+                else:
+                    self.current_mode_label.setText("⚙️ Ручной режим")
+                    self.current_mode_label.setStyleSheet("color: #6272a4; font-weight: bold; font-size: 14px;")
             else:
-                self.current_mode_label.setText("⚙️ Ручной режим")
-                self.current_mode_label.setStyleSheet("color: #6272a4; font-weight: bold; font-size: 14px;")
-        else:
-            self.current_mode_label.setText("🟡 Стандартный")
+                self.current_mode_label.setText("🟡 Стандартный")
 
         # Загрузка конфигурации стратегий
         regime_mapping = self.config.STRATEGY_REGIME_MAPPING
@@ -694,11 +713,24 @@ class ControlCenterWidget(QWidget):
         Args:
             settings: Dict с настройками (RISK_PERCENTAGE, MAX_OPEN_POSITIONS, etc.)
         """
-        if "RISK_PERCENTAGE" in settings:
+        # ОБНОВЛЕНИЕ: Делегируем к TradingSettingsWidget если он существует
+        if hasattr(self, "trading_settings_tab") and self.trading_settings_tab:
+            risk = settings.get("RISK_PERCENTAGE", 0.5)
+            max_positions = settings.get("MAX_OPEN_POSITIONS", 5)
+            max_drawdown = settings.get("MAX_DAILY_DRAWDOWN_PERCENT", 5.0)
+            mode = settings.get("trading_mode", {}).get("current_mode", "standard")
+
+            self.trading_settings_tab.update_current_params(risk, max_positions, max_drawdown, mode)
+            logger.info(
+                f"[ControlCenter] Параметры обновлены через update_trading_settings_display: risk={risk}%, mode={mode}"
+            )
+
+        # Также обновляем старые метки если они существуют (обратная совместимость)
+        if hasattr(self, "current_risk_label") and "RISK_PERCENTAGE" in settings:
             self.current_risk_label.setText(f"{settings['RISK_PERCENTAGE']:.2f}%")
-        if "MAX_OPEN_POSITIONS" in settings:
+        if hasattr(self, "current_positions_label") and "MAX_OPEN_POSITIONS" in settings:
             self.current_positions_label.setText(str(settings["MAX_OPEN_POSITIONS"]))
-        if "MAX_DAILY_DRAWDOWN_PERCENT" in settings:
+        if hasattr(self, "current_drawdown_label") and "MAX_DAILY_DRAWDOWN_PERCENT" in settings:
             self.current_drawdown_label.setText(f"{settings['MAX_DAILY_DRAWDOWN_PERCENT']:.2f}%")
         if "trading_mode" in settings:
             mode = settings["trading_mode"]
