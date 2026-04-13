@@ -125,6 +125,7 @@ class TradingSystem(QObject):
     long_task_status_updated = Signal(str, str, bool)
     social_status_updated = Signal(str)  # НОВОЕ: Сигнал статуса социальной торговли
     drift_data_updated = Signal(float, str, float, bool)
+    retrain_progress_updated = Signal(dict)  # НОВОЕ: Прогресс переобучения
 
     def __init__(self, config: Settings, gui=None, sound_manager=None, bridge=None):
         super().__init__()
@@ -420,6 +421,12 @@ class TradingSystem(QObject):
         # P0: Инициализация Account Manager (Автоопределение типа счета и рисков)
         self.account_manager = AccountManager()
         logger.info("Account Manager инициализирован")
+
+        # P0: Инициализация Auto Trainer (автоматическое переобучение моделей)
+        from src.ml.auto_trainer import AutoTrainer
+
+        self.auto_trainer = AutoTrainer(self.config, self.db_manager)
+        logger.info("Auto Trainer инициализирован")
 
         # 🚦 Инициализация GUI Traffic Dispatcher (3 независимых канала)
         from src.gui.gui_dispatcher import GUIDispatcher
@@ -5185,9 +5192,15 @@ class TradingSystem(QObject):
             if hasattr(self, "auto_trainer") and self.auto_trainer:
                 progress_info = self.auto_trainer.get_retrain_progress()
 
-                # Отправляем расширенный прогресс в GUI
+                # Отправляем расширенный прогресс в GUI через сигнал
                 if self.bridge:
-                    self.bridge.retrain_progress_updated.emit(progress_info)
+                    logger.debug(
+                        f"📊 Отправка прогресса переобучения: "
+                        f"{progress_info['count_needing_retrain']}/{progress_info['total_symbols']} "
+                        f"({progress_info['progress_percent']:.1%})"
+                    )
+                    # ИСПРАВЛЕНИЕ: Используем сигнал вместо прямого вызова bridge
+                    self.retrain_progress_updated.emit(progress_info)
 
                 total = progress_info["total_symbols"]
                 needs_count = progress_info["count_needing_retrain"]
@@ -5207,6 +5220,7 @@ class TradingSystem(QObject):
                         f"⏰ Прогресс переобучения: {needs_count}/{total} ({needs_percent:.1%}) < {threshold:.0%} → {status}"
                     )
             else:
+                logger.warning("⚠️ AutoTrainer недоступен, используем fallback через metadata файлы")
                 # Fallback: старая логика через metadata файлы
                 progress_data = {}
                 models_path = (
@@ -5227,10 +5241,12 @@ class TradingSystem(QObject):
                         progress_data[symbol] = 999.0  # Модели нет - требует обучения
 
                 if progress_data and self.bridge:
-                    self.bridge.retrain_progress_updated.emit(progress_data)
+                    logger.debug(f"📊 Отправка fallback прогресса: {len(progress_data)} символов")
+                    # ИСПРАВЛЕНИЕ: Используем сигнал вместо прямого вызова bridge
+                    self.retrain_progress_updated.emit(progress_data)
 
         except Exception as e:
-            logger.error(f"Ошибка при отправке прогресса переобучения в GUI: {e}", exc_info=True)
+            logger.error(f"❌ Ошибка при отправке прогресса переобучения в GUI: {e}", exc_info=True)
 
     def _periodic_training_status_update_loop(self):
         """
@@ -5241,6 +5257,9 @@ class TradingSystem(QObject):
         """
         logger.info("⏰ Запуск цикла обновления статусов переобучения...")
         update_interval = 10  # FIX: 10 секунд вместо 300 (5 минут)
+
+        # Флаг чтобы не запускать переобучение повторно
+        retrain_already_triggered = False
 
         # Первая задержка 5 секунд для быстрого старта
         self.stop_event.wait(5)
@@ -5260,6 +5279,22 @@ class TradingSystem(QObject):
                 if self.bridge:
                     self._send_retrain_progress_to_gui()
                     self._send_model_accuracy_to_gui()
+
+                    # АВТО-ЗАПУСК ПЕРЕОБУЧЕНИЯ: Проверяем порог каждые 10 секунд
+                    if not retrain_already_triggered and hasattr(self, "auto_trainer") and self.auto_trainer:
+                        try:
+                            progress = self.auto_trainer.get_retrain_progress()
+                            if progress["can_start_retrain"]:
+                                logger.info(
+                                    f"🚀 АВТО-ЗАПУСК: Порог достигнут! {progress['count_needing_retrain']}/{progress['total_symbols']} ({progress['progress_percent']:.1%}) >= {progress['threshold_percent']:.0%}"
+                                )
+                                retrain_already_triggered = True
+                                self._auto_retrain_callback(
+                                    max_symbols=self.config.auto_retraining.max_symbols,
+                                    max_workers=self.config.auto_retraining.max_workers,
+                                )
+                        except Exception as check_error:
+                            logger.error(f"Ошибка проверки порога авто-переобучения: {check_error}")
 
                 # Ждём следующий интервал
                 self.stop_event.wait(update_interval)

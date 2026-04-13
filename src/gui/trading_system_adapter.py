@@ -48,6 +48,7 @@ class PySideTradingSystem(QObject):
         self.core_system.thread_status_updated.connect(self.bridge.thread_status_updated)
         self.core_system.long_task_status_updated.connect(self.bridge.long_task_status_updated)
         self.core_system.drift_data_updated.connect(self.bridge.drift_data_updated)
+        self.core_system.retrain_progress_updated.connect(self.bridge.retrain_progress_updated)  # НОВОЕ: Прогресс переобучения
 
     def _proxy_core_methods(self):
         """Создаёт прокси-методы для вызова из MainWindow."""
