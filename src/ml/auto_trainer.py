@@ -588,6 +588,7 @@ class AutoTrainer:
 
                 # ДОБАВЛЯЕМ CUSTOM CALLBACK ДЛЯ REAL-TIME ОТПРАВКИ LOSS
                 if self._training_progress_callback:
+                    logger.info(f"[AutoTrainer] ✅ Callback установлен для {symbol}, создаем RealTimeLossCallback")
 
                     class RealTimeLossCallback:
                         """Real-time callback для отправки loss после каждой итерации"""
