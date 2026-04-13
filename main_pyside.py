@@ -1940,6 +1940,14 @@ class MainWindow(QMainWindow):
         self.bridge.update_status_changed.connect(self.update_update_status)
         self.bridge.status_updated.connect(self.update_status)
         self.bridge.balance_updated.connect(self.update_balance)
+
+        # FIX: Подключаем сигнал AccountManager для обновления эквити/прибыли
+        if hasattr(self.trading_system, "account_manager") and self.trading_system.account_manager:
+            self.trading_system.account_manager.equity_updated.connect(
+                self._on_equity_updated, Qt.ConnectionType.QueuedConnection
+            )
+            logger.info("[GUI] Сигнал AccountManager.equity_updated подключён")
+
         self.bridge.log_message_added.connect(self.add_log_message, Qt.ConnectionType.QueuedConnection)
         self.bridge.positions_updated.connect(self.update_positions_table)
         self.bridge.history_updated.connect(self.update_history_table)
@@ -2631,6 +2639,57 @@ class MainWindow(QMainWindow):
         else:
             logger.warning("[GUI-Balance] open_pnl_label не найден!")
 
+    @Slot(dict)
+    def _on_equity_updated(self, data: dict):
+        """
+        Слот для приёма данных от AccountManager.equity_updated.
+        Вызывается в ГЛАВНОМ потоке через Qt сигнал.
+
+        Args:
+            data: {'balance': float, 'equity': float, 'profit': float, 'account_type': str, 'currency': str}
+        """
+        try:
+            balance = data.get("balance", 0.0)
+            equity = data.get("equity", 0.0)
+            profit = data.get("profit", 0.0)
+
+            logger.info(f"[GUI-Equity] Получены данные: balance={balance:.2f}, equity={equity:.2f}, profit={profit:.2f}")
+
+            # Проверяем что метки существуют
+            if not hasattr(self, "balance_label") or self.balance_label is None:
+                logger.warning("[GUI-Equity] balance_label не найдена!")
+                return
+
+            if not hasattr(self, "equity_label") or self.equity_label is None:
+                logger.warning("[GUI-Equity] equity_label не найдена!")
+                return
+
+            # Обновляем баланс и эквити
+            self.balance_label.setText(f"Баланс: {balance:.2f}")
+            self.equity_label.setText(f"Эквити: {equity:.2f}")
+            logger.info(
+                f"[GUI-Equity] Метки обновлены: balance_label='{self.balance_label.text()}', equity_label='{self.equity_label.text()}'"
+            )
+
+            # Обновляем PnL
+            if hasattr(self, "open_pnl_label") and self.open_pnl_label is not None:
+                pnl_pct = (profit / balance * 100) if balance > 0 else 0
+                color = "#50fa7b" if profit >= 0 else "#ff5555"
+                pnl_text = f"Прибыль: <span style='font-weight: bold; color:{color}'>{profit:+.2f} ({pnl_pct:+.2f}%)</span>"
+                self.open_pnl_label.setText(pnl_text)
+                logger.info(f"[GUI-Equity] open_pnl_label обновлён: {pnl_text}")
+
+            # Принудительное обновление
+            self.balance_label.update()
+            self.equity_label.update()
+            if hasattr(self, "open_pnl_label") and self.open_pnl_label is not None:
+                self.open_pnl_label.update()
+
+            logger.info(f"[GUI-Equity] ✅ Обновление завершено успешно")
+
+        except Exception as e:
+            logger.error(f"[GUI-Equity] Ошибка обновления: {e}", exc_info=True)
+
     def _toggle_debug_logs(self, state):
         """Включает или выключает режим отладки (DEBUG) для логирования."""
         if state == Qt.CheckState.Checked:
@@ -2863,7 +2922,7 @@ class MainWindow(QMainWindow):
             logger.error(f"[GUI-PnL] Ошибка при построении графика P&L: {e}", exc_info=True)
 
     def update_training_chart(self, history_object):
-        logger.info(f"[GUI-Training] Обновление графика обучения: type={type(history_object)}")
+        logger.info(f"[GUI-Training] ПОЛУЧЕН СИГНАЛ: type={type(history_object)}")
         try:
             # Проверяем, что виджет существует и виден
             if not hasattr(self, "loss_curve") or self.loss_curve is None:
@@ -2880,17 +2939,17 @@ class MainWindow(QMainWindow):
 
             if "loss" in history_dict and history_dict["loss"]:
                 loss_values = history_dict["loss"]
-                logger.info(f"[GUI-Training] Получено {len(loss_values)} значений loss")
+                logger.info(f"[GUI-Training] ✅ Получено {len(loss_values)} значений loss, последнее={loss_values[-1]:.4f}")
 
                 # Проверяем, что loss_values это список/массив с данными
                 if len(loss_values) > 0:
                     x_values = list(range(len(loss_values)))
                     # Преобразуем в float для совместимости с pyqtgraph
                     y_values = [float(v) for v in loss_values]
-                    logger.info(f"[GUI-Training] Обновление графика: {len(loss_values)} эпох, loss={loss_values[-1]:.4f}")
+                    logger.info(f"[GUI-Training] Обновление графика: {len(loss_values)} эпох")
                     self.loss_curve.setData(x=x_values, y=y_values)
                     self.loss_plot.setTitle(f"Прогресс обучения (Loss: {loss_values[-1]:.4f})")
-                    logger.info(f"[GUI-Training] График обновлен успешно")
+                    logger.info(f"[GUI-Training] ✅ График обновлен успешно")
                 else:
                     logger.warning("[GUI-Training] Список loss пуст")
                     self.loss_curve.setData(x=[], y=[])
@@ -2898,7 +2957,7 @@ class MainWindow(QMainWindow):
                 logger.warning("[GUI-Training] История обучения не содержит данных о loss")
                 self.loss_curve.setData(x=[], y=[])
         except Exception as e:
-            logger.error(f"[GUI-Training] Ошибка при обновлении графика обучения: {e}", exc_info=True)
+            logger.error(f"[GUI-Training] ❌ Ошибка при обновлении графика обучения: {e}", exc_info=True)
 
     def update_model_accuracy_chart(self, accuracy_data: dict):
         """
@@ -2964,34 +3023,61 @@ class MainWindow(QMainWindow):
                 self.retrain_progress_bars.setOpts(x=[], height=[])
                 return
 
-            # Преобразуем данные для графика
-            symbols = list(progress_data.keys())
-            hours = [progress_data[s] for s in symbols]
+            # Проверяем формат данных
+            if "total_symbols" in progress_data and "symbols_needing_retrain" in progress_data:
+                # НОВЫЙ ФОРМАТ от AutoTrainer.get_retrain_progress()
+                total = progress_data["total_symbols"]
+                needs_count = progress_data["count_needing_retrain"]
+                needs_percent = progress_data["progress_percent"]
+                threshold = progress_data["threshold_percent"]
+                can_retrain = progress_data["can_start_retrain"]
+                symbols_needing = progress_data["symbols_needing_retrain"]
 
-            # Цветовое кодирование: красный > 1ч (пора переобучать), жёлтый 0.5-1ч, зелёный < 0.5ч
-            colors = []
-            for h in hours:
-                if h >= 1.0:
-                    colors.append("#ff5555")  # Красный - пора переобучать!
-                elif h >= 0.5:
-                    colors.append("#ffb86c")  # Оранжевый - скоро пора
-                else:
-                    colors.append("#50fa7b")  # Зелёный - ещё рано
+                # Создаём данные для графика: 1.0 если требует переобучения, 0.0 если нет
+                all_symbols = symbols_needing.copy()
+                # Добавляем символы которые НЕ требуют переобучения (если известны)
+                # Для простоты показываем только требующие
+                symbols = symbols_needing
+                hours = [1.0] * len(symbols_needing)  # Все требуют
+
+                # Цветовое кодирование: все красные (требуют переобучения)
+                colors = ["#ff5555"] * len(symbols)
+
+                # Обновляем заголовок с порогом
+                status_icon = "⚠️" if can_retrain else "✅"
+                self.retrain_progress_widget.setTitle(
+                    f"{status_icon} Прогресс переобучения: {needs_count}/{total} ({needs_percent:.0%}) / {threshold:.0%} порог"
+                )
+            else:
+                # СТАРЫЙ ФОРМАТ: {symbol: hours_since_training}
+                symbols = list(progress_data.keys())
+                hours = [progress_data[s] for s in symbols]
+
+                # Проверяем что hours - это числа а не списки
+                hours = [float(h) if not isinstance(h, (int, float)) else h for h in hours]
+
+                # Цветовое кодирование: красный > 1ч (пора переобучать), жёлтый 0.5-1ч, зелёный < 0.5ч
+                colors = []
+                for h in hours:
+                    if h >= 1.0:
+                        colors.append("#ff5555")  # Красный - пора переобучать!
+                    elif h >= 0.5:
+                        colors.append("#ffb86c")  # Оранжевый - скоро пора
+                    else:
+                        colors.append("#50fa7b")  # Зелёный - ещё рано
+
+                # Обновляем заголовок
+                symbols_to_retrain = sum(1 for h in hours if h >= 1.0)
+                self.retrain_progress_widget.setTitle(f"⏰ Прогресс переобучения (требуют: {symbols_to_retrain})")
 
             # Обновляем график
             x_positions = list(range(len(symbols)))
             self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
 
-            # Обновляем заголовок
-            symbols_to_retrain = sum(1 for h in hours if h >= 1.0)
-            self.retrain_progress_widget.setTitle(f"⏰ Прогресс переобучения (требуют: {symbols_to_retrain})")
-
             # Сохраняем данные
             self.retrain_progress_data = progress_data
 
-            logger.info(
-                f"[GUI-RetrainProgress] График обновлён: {len(symbols)} символов, требуют переобучения: {symbols_to_retrain}"
-            )
+            logger.info(f"[GUI-RetrainProgress] График обновлён: {len(symbols)} символов")
 
         except Exception as e:
             logger.error(f"[GUI-RetrainProgress] Ошибка при обновлении графика: {e}", exc_info=True)

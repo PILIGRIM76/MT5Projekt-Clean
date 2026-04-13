@@ -428,6 +428,24 @@ class TradingSystem(QObject):
         self.auto_trainer = AutoTrainer(self.config, self.db_manager)
         logger.info("Auto Trainer инициализирован")
 
+        # УСТАНАВЛИВАЕМ CALLBACK для отправки прогресса обучения в GUI СРАЗУ
+        if self.bridge:
+            try:
+
+                def training_callback(history_obj):
+                    """Callback для отправки прогресса обучения в GUI"""
+                    try:
+                        if hasattr(self, "bridge") and self.bridge:
+                            logger.info(f"[AutoTrainerCallback] Отправка прогресса в GUI: {type(history_obj)}")
+                            self.bridge.training_history_updated.emit(history_obj)
+                    except Exception as e:
+                        logger.error(f"[AutoTrainerCallback] Ошибка: {e}")
+
+                self.auto_trainer.set_training_progress_callback(training_callback)
+                logger.info("✅ Callback прогресса обучения установлен")
+            except Exception as e:
+                logger.error(f"❌ Ошибка установки callback: {e}")
+
         # 🚦 Инициализация GUI Traffic Dispatcher (3 независимых канала)
         from src.gui.gui_dispatcher import GUIDispatcher
 
