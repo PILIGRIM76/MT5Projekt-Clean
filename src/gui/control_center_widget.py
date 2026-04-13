@@ -172,14 +172,10 @@ class ControlCenterWidget(QWidget):
             self.trading_settings_tab = TradingSettingsWidget(self)
             self.tabs.addTab(self.trading_settings_tab, "⚙️ Настройки Торговли")
 
-            # Вкладка 3: Обучение AI-моделей
-            self.ai_training_tab = AITrainingWidget(self.bridge, self)
-            self.ai_training_tab.force_training_requested.connect(self._force_training_requested)
-            self.tabs.addTab(self.ai_training_tab, "🤖 Обучение AI")
-
-            # Вкладка 4: Управление Рисками (прокручиваемая)
-            self.risk_management_tab = RiskManagementWidget(self)
-            self.tabs.addTab(self.risk_management_tab, "🛡️ Управление Рисками")
+            # Вкладка 3: Управление Рисками (старая вкладка с прокруткой)
+            self.controls_tab = QWidget()
+            self._init_controls_tab(self.controls_tab)
+            self.tabs.addTab(self.controls_tab, "🛡️ Управление Рисками")
 
         main_layout.addWidget(self.tabs)
 
@@ -218,12 +214,162 @@ class ControlCenterWidget(QWidget):
         self.market_radio.toggled.connect(self.on_display_mode_changed)
         self.signals_radio.toggled.connect(self.on_display_mode_changed)
 
-    # УДАЛЕНО: _init_controls_tab() больше не используется
-    # После реорганизации вкладок (13.04.2026) функциональность перенесена в:
-    # - TradingSettingsWidget (настройки торговли)
-    # - AITrainingWidget (обучение AI с графиком прогресса)
-    # - RiskManagementWidget (управление рисками)
-    # Этот метод создавал дубликаты компонентов
+    def _init_controls_tab(self, parent_widget):
+        layout = QVBoxLayout(parent_widget)
+        layout.setAlignment(Qt.AlignTop)
+
+        # === ИНФОРМАЦИОННОЕ СООБЩЕНИЕ ===
+        info_box = QGroupBox("ℹ️ Управление Настройками Торговли")
+        info_layout = QVBoxLayout(info_box)
+
+        info_label = QLabel(
+            "⚙️ <b>Настройки торговли и риск-менеджмента находятся в окне настроек.</b>\n\n"
+            "Для изменения параметров торговли:\n"
+            "1. Откройте <b>Настройки</b> (меню или кнопка на панели)\n"
+            "2. Перейдите на вкладку <b>'Торговля'</b>\n"
+            "3. Выберите режим торговли или настройте параметры вручную\n\n"
+            "📊 <b>Режимы торговли:</b>\n"
+            "• 🟢 Консервативный - минимальный риск\n"
+            "• 🟡 Стандартный - баланс риск/доходность\n"
+            "• 🔴 Агрессивный - высокий риск\n"
+            "• ⚫ YOLO - максимальный риск\n"
+            "• 🔧 Кастомный - ручная настройка"
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("""
+            QLabel {
+                color: #f8f8f2;
+                padding: 10px;
+                background-color: #282a36;
+                border-radius: 5px;
+            }
+        """)
+        info_layout.addWidget(info_label)
+
+        # Кнопка открытия настроек
+        open_settings_btn = QPushButton("⚙️ Открыть Настройки Торговли")
+        open_settings_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #bd93f9;
+                color: #282a36;
+                padding: 12px 24px;
+                border-radius: 5px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #a37df5;
+            }
+        """)
+        # Сигнал будет подключён в MainWindow
+        open_settings_btn.clicked.connect(self._open_settings_requested)
+        info_layout.addWidget(open_settings_btn)
+
+        layout.addWidget(info_box)
+
+        # === КНОПКА ПРИНУДИТЕЛЬНОГО ОБУЧЕНИЯ ===
+        training_box = QGroupBox("🧠 Обучение AI-моделей")
+        training_layout = QVBoxLayout(training_box)
+
+        training_label = QLabel(
+            "Запустите принудительный цикл переобучения AI-моделей.\n"
+            "Используйте после сбора новых данных или при ухудшении точности."
+        )
+        training_label.setWordWrap(True)
+        training_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
+        training_layout.addWidget(training_label)
+
+        self.force_train_btn = QPushButton("🚀 Запустить принудительное обучение")
+        self.force_train_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #50fa7b;
+                color: #282a36;
+                padding: 12px 24px;
+                border-radius: 5px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3dd66a;
+            }
+            QPushButton:disabled {
+                background-color: #6272a4;
+                color: #44475a;
+            }
+        """)
+        self.force_train_btn.clicked.connect(self._force_training_requested)
+        training_layout.addWidget(self.force_train_btn)
+
+        # === ГРАФИК ПРОГРЕССА ПЕРЕОБУЧЕНИЯ ===
+        self.retrain_progress_widget = pg.PlotWidget(title="⏰ До переобучения (ч)")
+        self.retrain_progress_widget.setMaximumHeight(120)
+        self.retrain_progress_widget.showGrid(x=True, y=True, alpha=0.3)
+        self.retrain_progress_widget.getAxis("bottom").setLabel("Символ")
+        self.retrain_progress_widget.getAxis("left").setLabel("Часов")
+        self.retrain_progress_widget.getAxis("left").setRange(0, 3)
+        self.retrain_progress_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="b")
+        self.retrain_progress_widget.addItem(self.retrain_progress_bars)
+        self.retrain_progress_data = {}
+        training_layout.addWidget(self.retrain_progress_widget)
+
+        # Таймер обратного отсчёта — ОТДЕЛЬНОЙ строкой НАД статусом
+        self.next_training_label = QLabel("⏳ Следующее обучение: --:--")
+        self.next_training_label.setStyleSheet("color: #f1fa8c; font-size: 13px; font-weight: bold; padding: 5px;")
+        self.next_training_label.setAlignment(Qt.AlignCenter)
+        training_layout.addWidget(self.next_training_label)
+
+        # Статус обучения — под таймером (с переносом слов)
+        self.training_status_label = QLabel("Статус: Ожидание...")
+        self.training_status_label.setStyleSheet("color: #8be9fd; font-size: 12px;")
+        self.training_status_label.setWordWrap(True)
+        training_layout.addWidget(self.training_status_label)
+
+        # Таймер обновления обратного отсчёта (каждую секунду)
+        self.countdown_timer = QTimer(self)
+        self.countdown_timer.timeout.connect(self._update_countdown)
+        self.countdown_timer.start(1000)  # Обновление каждую секунду
+
+        layout.addWidget(training_box)
+
+        # === ТЕКУЩИЕ ПАРАМЕТРЫ (только для просмотра) ===
+        summary_group = QGroupBox("📈 Текущие Параметры (только просмотр)")
+        summary_group.setToolTip("Эти параметры применяются из настроек. Для изменения откройте Настройки.")
+        summary_layout = QGridLayout(summary_group)
+
+        # Риск на сделку
+        summary_layout.addWidget(QLabel("🎯 Риск на сделку:"), 0, 0)
+        self.current_risk_label = QLabel("0.50%")
+        self.current_risk_label.setFont(self.font())
+        self.current_risk_label.setStyleSheet("color: #50fa7b; font-weight: bold; font-size: 14px;")
+        self.current_risk_label.setAlignment(Qt.AlignRight)
+        summary_layout.addWidget(self.current_risk_label, 0, 1)
+
+        # Max позиций
+        summary_layout.addWidget(QLabel("📊 Max позиций:"), 1, 0)
+        self.current_positions_label = QLabel("5")
+        self.current_positions_label.setStyleSheet("color: #8be9fd; font-weight: bold; font-size: 14px;")
+        self.current_positions_label.setAlignment(Qt.AlignRight)
+        summary_layout.addWidget(self.current_positions_label, 1, 1)
+
+        # Max дневная просадка
+        summary_layout.addWidget(QLabel("📉 Max дневная просадка:"), 2, 0)
+        self.current_drawdown_label = QLabel("5.00%")
+        self.current_drawdown_label.setStyleSheet("color: #ff5555; font-weight: bold; font-size: 14px;")
+        self.current_drawdown_label.setAlignment(Qt.AlignRight)
+        summary_layout.addWidget(self.current_drawdown_label, 2, 1)
+
+        # Режим торговли
+        summary_layout.addWidget(QLabel("🏷️ Активный режим:"), 3, 0)
+        self.current_mode_label = QLabel("🟡 Стандартный")
+        self.current_mode_label.setStyleSheet("color: #f1fa8c; font-weight: bold; font-size: 14px;")
+        self.current_mode_label.setAlignment(Qt.AlignRight)
+        summary_layout.addWidget(self.current_mode_label, 3, 1)
+
+        summary_layout.setColumnStretch(0, 1)
+        summary_layout.setColumnStretch(1, 1)
+        layout.addWidget(summary_group)
+
+        layout.addStretch()
 
     def _open_settings_requested(self):
         """Сигнал для открытия окна настроек."""
@@ -508,10 +654,6 @@ class ControlCenterWidget(QWidget):
             else:
                 self.current_mode_label.setText("🟡 Стандартный")
 
-        # Загрузка конфигурации стратегий
-        regime_mapping = self.config.STRATEGY_REGIME_MAPPING
-        available_strategies = ["AI_Model"]
-
         # --- ИСПРАВЛЕНИЕ: Безопасная загрузка стратегий ---
         if self.trading_system and hasattr(self.trading_system, "core_system"):
             core = self.trading_system.core_system
@@ -589,37 +731,25 @@ class ControlCenterWidget(QWidget):
 
     def _force_training_requested(self):
         """Запуск принудительного обучения AI-моделей."""
-        # ОБНОВЛЕНИЕ: Делегируем к AITrainingWidget если он существует
-        if hasattr(self, "ai_training_tab") and self.ai_training_tab:
-            # AITrainingWidget сам обработает нажатие через свой сигнал
-            logger.info("[ControlCenter] Запрос на обучение делегирован к AITrainingWidget")
-        else:
-            # Fallback для старого кода
-            if hasattr(self, "force_train_btn"):
-                self.force_train_btn.setEnabled(False)
-            if hasattr(self, "training_status_label"):
-                self.training_status_label.setText("⏳ Запуск цикла обучения...")
-                self.training_status_label.setStyleSheet("color: #f1fa8c; font-size: 12px;")
-
         if not self.trading_system:
-            if hasattr(self, "ai_training_tab") and self.ai_training_tab:
-                self.ai_training_tab.update_training_status("❌ Торговая система не подключена", is_error=True)
-            elif hasattr(self, "training_status_label"):
+            if hasattr(self, "training_status_label"):
                 self.training_status_label.setText("❌ Торговая система не подключена")
                 self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
             return
 
+        if hasattr(self, "force_train_btn"):
+            self.force_train_btn.setEnabled(False)
+        if hasattr(self, "training_status_label"):
+            self.training_status_label.setText("⏳ Запуск цикла обучения...")
+            self.training_status_label.setStyleSheet("color: #f1fa8c; font-size: 12px;")
+
         try:
             self.trading_system.force_training_cycle()
-            if hasattr(self, "ai_training_tab") and self.ai_training_tab:
-                self.ai_training_tab.update_training_status("✅ Цикл обучения запущен (следите за графиками)")
-            elif hasattr(self, "training_status_label"):
+            if hasattr(self, "training_status_label"):
                 self.training_status_label.setText("✅ Цикл обучения запущен (следите за графиками)")
                 self.training_status_label.setStyleSheet("color: #50fa7b; font-size: 12px;")
         except Exception as e:
-            if hasattr(self, "ai_training_tab") and self.ai_training_tab:
-                self.ai_training_tab.update_training_status(f"❌ Ошибка: {e}", is_error=True)
-            elif hasattr(self, "training_status_label"):
+            if hasattr(self, "training_status_label"):
                 self.training_status_label.setText(f"❌ Ошибка: {e}")
                 self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
         finally:
@@ -627,9 +757,7 @@ class ControlCenterWidget(QWidget):
             from PySide6.QtCore import QTimer
 
             def enable_button():
-                if hasattr(self, "ai_training_tab") and self.ai_training_tab:
-                    self.ai_training_tab.set_training_button_enabled(True)
-                elif hasattr(self, "force_train_btn"):
+                if hasattr(self, "force_train_btn"):
                     self.force_train_btn.setEnabled(True)
 
             QTimer.singleShot(5000, enable_button)
@@ -640,13 +768,6 @@ class ControlCenterWidget(QWidget):
             if not hasattr(self, "trading_system") or not self.trading_system:
                 return
 
-            # ОБНОВЛЕНИЕ: Делегируем к AITrainingWidget если он существует
-            if hasattr(self, "ai_training_tab") and self.ai_training_tab:
-                # AITrainingWidget сам обновляет свой таймер
-                # Здесь только логируем
-                return
-
-            # Fallback для старого кода
             if not hasattr(self, "next_training_label"):
                 return
 
@@ -710,11 +831,6 @@ class ControlCenterWidget(QWidget):
 
     def update_retrain_progress_chart(self, progress_data: dict):
         """Обновляет график прогресса переобучения."""
-        # Делегируем обновление к AITrainingWidget если он существует
-        if hasattr(self, "ai_training_tab") and self.ai_training_tab:
-            self.ai_training_tab.update_retrain_progress_chart(progress_data)
-
-        # Также обновляем старый виджет если он существует (для обратной совместимости)
         try:
             if not hasattr(self, "retrain_progress_bars"):
                 return
