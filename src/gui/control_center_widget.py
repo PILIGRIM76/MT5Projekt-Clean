@@ -267,6 +267,41 @@ class ControlCenterWidget(QWidget):
 
         layout.addWidget(info_box)
 
+        # === КНОПКА ПРИНУДИТЕЛЬНОГО ПЕРЕОБУЧЕНИЯ ===
+        retrain_box = QGroupBox("🔄 Принудительное переобучение AI-моделей")
+        retrain_layout = QVBoxLayout(retrain_box)
+
+        retrain_label = QLabel(
+            "Запустите полное переобучение всех AI-моделей для всех символов.\n"
+            "Используйте при первом запуске или после очистки старых моделей."
+        )
+        retrain_label.setWordWrap(True)
+        retrain_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
+        retrain_layout.addWidget(retrain_label)
+
+        self.force_retrain_btn = QPushButton("🔄 Запустить принудительное переобучение ВСЕХ моделей")
+        self.force_retrain_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff5555;
+                color: white;
+                padding: 15px 24px;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #ff6e6e;
+            }
+            QPushButton:disabled {
+                background-color: #6272a4;
+                color: #44475a;
+            }
+        """)
+        self.force_retrain_btn.clicked.connect(self._force_retrain_requested)
+        retrain_layout.addWidget(self.force_retrain_btn)
+
+        retrain_layout.addWidget(retrain_box)
+
         # === ТЕКУЩИЕ ПАРАМЕТРЫ (только для просмотра) ===
         summary_group = QGroupBox("📈 Текущие Параметры (только просмотр)")
         summary_group.setToolTip("Эти параметры применяются из настроек. Для изменения откройте Настройки.")
@@ -697,6 +732,44 @@ class ControlCenterWidget(QWidget):
                     self.force_train_btn.setEnabled(True)
 
             QTimer.singleShot(5000, enable_button)
+
+    def _force_retrain_requested(self):
+        """Запуск принудительного переобучения ВСЕХ AI-моделей."""
+        logger.info("[GUI-Action] Пользователь нажал кнопку 'Принудительное переобучение ВСЕХ моделей'")
+
+        if not self.trading_system:
+            logger.error("[Retrain] Торговая система не подключена")
+            return
+
+        if hasattr(self, "force_retrain_btn"):
+            self.force_retrain_btn.setEnabled(False)
+            self.force_retrain_btn.setText("⏳ Переобучение запущено...")
+
+        try:
+            # Вызываем метод принудительного переобучения всех моделей
+            if hasattr(self.trading_system, "force_retrain_all_models"):
+                self.trading_system.force_retrain_all_models()
+                logger.info("[Retrain] Запущено переобучение всех моделей")
+            elif hasattr(self.trading_system, "auto_trainer") and self.trading_system.auto_trainer:
+                # Запускаем smart_retrain для всех символов
+                from smart_retrain import smart_retrain_models
+
+                smart_retrain_models(self.trading_system)
+                logger.info("[Retrain] Запущен smart_retrain для всех символов")
+            else:
+                logger.warning("[Retrain] Метод переобучения не найден")
+        except Exception as e:
+            logger.error(f"[Retrain] Ошибка: {e}", exc_info=True)
+        finally:
+            # Разблокируем кнопку через 10 секунд
+            from PySide6.QtCore import QTimer
+
+            def enable_button():
+                if hasattr(self, "force_retrain_btn"):
+                    self.force_retrain_btn.setEnabled(True)
+                    self.force_retrain_btn.setText("🔄 Запустить принудительное переобучение ВСЕХ моделей")
+
+            QTimer.singleShot(10000, enable_button)
 
     def _update_countdown(self):
         """Обновляет таймер обратного отсчёта до следующего автообучения."""
