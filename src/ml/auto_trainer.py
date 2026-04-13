@@ -609,6 +609,10 @@ class AutoTrainer:
                                 progress_percent = int((self.iteration / self.total_estimators) * 100)
                                 status_text = f"Итерация {self.iteration}/{self.total_estimators}, Loss: {current_loss:.4f}"
 
+                                logger.info(
+                                    f"[AutoTrainer.Callback] ✅ Итерация {self.iteration}/{self.total_estimators}, loss={current_loss:.4f}"
+                                )
+
                                 # Создаём history object совместимый с GUI
                                 history_obj = type(
                                     "History",
@@ -626,8 +630,11 @@ class AutoTrainer:
 
                                 try:
                                     self.callback_func(history_obj)
+                                    logger.debug(f"[AutoTrainer.Callback] Callback вызван успешно")
                                 except Exception as e:
-                                    logger.warning(f"⚠️ Ошибка отправки real-time loss: {e}")
+                                    logger.error(
+                                        f"[AutoTrainer.Callback] ❌ Ошибка отправки real-time loss: {e}", exc_info=True
+                                    )
 
                     # Добавляем custom callback в список
                     real_time_callback = RealTimeLossCallback(self._training_progress_callback, total_estimators=100)
