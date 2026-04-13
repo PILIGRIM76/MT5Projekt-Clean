@@ -5284,6 +5284,24 @@ class TradingSystem(QObject):
         # Флаг чтобы не запускать переобучение повторно
         retrain_already_triggered = False
 
+        # УСТАНАВЛИВАЕМ CALLBACK для отправки loss в GUI во время обучения
+        if hasattr(self, "auto_trainer") and self.auto_trainer and self.bridge:
+            try:
+
+                def training_callback(history_obj):
+                    """Callback для отправки прогресса обучения в GUI"""
+                    try:
+                        if hasattr(self, "bridge") and self.bridge:
+                            self.bridge.training_history_updated.emit(history_obj)
+                            logger.debug(f"[TrainingCallback] Прогресс отправлен в GUI")
+                    except Exception as e:
+                        logger.error(f"[TrainingCallback] Ошибка отправки: {e}")
+
+                self.auto_trainer.set_training_progress_callback(training_callback)
+                logger.info("✅ Callback прогресса обучения установлен для auto_trainer")
+            except Exception as e:
+                logger.error(f"❌ Ошибка установки callback: {e}")
+
         # Первая задержка 5 секунд для быстрого старта
         self.stop_event.wait(5)
 
