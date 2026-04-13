@@ -753,32 +753,65 @@ class ControlCenterWidget(QWidget):
 
     def _force_training_requested(self):
         """Запуск принудительного обучения AI-моделей."""
-        if not self.trading_system:
-            self.training_status_label.setText("❌ Торговая система не подключена")
-            self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
-            return
+        # ОБНОВЛЕНИЕ: Делегируем к AITrainingWidget если он существует
+        if hasattr(self, "ai_training_tab") and self.ai_training_tab:
+            # AITrainingWidget сам обработает нажатие через свой сигнал
+            logger.info("[ControlCenter] Запрос на обучение делегирован к AITrainingWidget")
+        else:
+            # Fallback для старого кода
+            if hasattr(self, "force_train_btn"):
+                self.force_train_btn.setEnabled(False)
+            if hasattr(self, "training_status_label"):
+                self.training_status_label.setText("⏳ Запуск цикла обучения...")
+                self.training_status_label.setStyleSheet("color: #f1fa8c; font-size: 12px;")
 
-        self.force_train_btn.setEnabled(False)
-        self.training_status_label.setText("⏳ Запуск цикла обучения...")
-        self.training_status_label.setStyleSheet("color: #f1fa8c; font-size: 12px;")
+        if not self.trading_system:
+            if hasattr(self, "ai_training_tab") and self.ai_training_tab:
+                self.ai_training_tab.update_training_status("❌ Торговая система не подключена", is_error=True)
+            elif hasattr(self, "training_status_label"):
+                self.training_status_label.setText("❌ Торговая система не подключена")
+                self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
+            return
 
         try:
             self.trading_system.force_training_cycle()
-            self.training_status_label.setText("✅ Цикл обучения запущен (следите за графиками)")
-            self.training_status_label.setStyleSheet("color: #50fa7b; font-size: 12px;")
+            if hasattr(self, "ai_training_tab") and self.ai_training_tab:
+                self.ai_training_tab.update_training_status("✅ Цикл обучения запущен (следите за графиками)")
+            elif hasattr(self, "training_status_label"):
+                self.training_status_label.setText("✅ Цикл обучения запущен (следите за графиками)")
+                self.training_status_label.setStyleSheet("color: #50fa7b; font-size: 12px;")
         except Exception as e:
-            self.training_status_label.setText(f"❌ Ошибка: {e}")
-            self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
+            if hasattr(self, "ai_training_tab") and self.ai_training_tab:
+                self.ai_training_tab.update_training_status(f"❌ Ошибка: {e}", is_error=True)
+            elif hasattr(self, "training_status_label"):
+                self.training_status_label.setText(f"❌ Ошибка: {e}")
+                self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
         finally:
             # Разблокируем кнопку через 5 секунд
             from PySide6.QtCore import QTimer
 
-            QTimer.singleShot(5000, lambda: self.force_train_btn.setEnabled(True))
+            def enable_button():
+                if hasattr(self, "ai_training_tab") and self.ai_training_tab:
+                    self.ai_training_tab.set_training_button_enabled(True)
+                elif hasattr(self, "force_train_btn"):
+                    self.force_train_btn.setEnabled(True)
+
+            QTimer.singleShot(5000, enable_button)
 
     def _update_countdown(self):
         """Обновляет таймер обратного отсчёта до следующего автообучения."""
         try:
             if not hasattr(self, "trading_system") or not self.trading_system:
+                return
+
+            # ОБНОВЛЕНИЕ: Делегируем к AITrainingWidget если он существует
+            if hasattr(self, "ai_training_tab") and self.ai_training_tab:
+                # AITrainingWidget сам обновляет свой таймер
+                # Здесь только логируем
+                return
+
+            # Fallback для старого кода
+            if not hasattr(self, "next_training_label"):
                 return
 
             # Получаем TrainingScheduler через core_system (adapter -> core)
@@ -835,8 +868,9 @@ class ControlCenterWidget(QWidget):
                 self.next_training_label.setStyleSheet("color: #6272a4; font-size: 14px; font-weight: bold; padding: 5px;")
 
         except Exception as e:
-            self.next_training_label.setText(f"⚠️ Ошибка: {str(e)[:20]}")
-            self.next_training_label.setStyleSheet("color: #ff5555; font-size: 12px; padding: 5px;")
+            if hasattr(self, "next_training_label"):
+                self.next_training_label.setText(f"⚠️ Ошибка: {str(e)[:20]}")
+                self.next_training_label.setStyleSheet("color: #ff5555; font-size: 12px; padding: 5px;")
 
     def update_retrain_progress_chart(self, progress_data: dict):
         """Обновляет график прогресса переобучения."""
