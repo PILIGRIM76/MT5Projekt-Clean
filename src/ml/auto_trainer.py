@@ -640,6 +640,31 @@ class AutoTrainer:
                     # Добавляем custom callback в список
                     real_time_callback = RealTimeLossCallback(self._training_progress_callback, total_estimators=100)
                     callbacks_list.append(real_time_callback)
+                    logger.info(f"[AutoTrainer] ✅ RealTimeLossCallback добавлен в callbacks_list для {symbol}")
+
+                # ТЕСТИРУЕМ callback ПЕРЕД model.fit()
+                if self._training_progress_callback:
+                    logger.info(f"[AutoTrainer] 🧪 ТЕСТИРУЕМ callback для {symbol}...")
+                    try:
+                        test_history_obj = type(
+                            "TestHistory",
+                            (),
+                            {
+                                "history": {
+                                    "loss": [0.5],
+                                    "epoch": 0,
+                                    "total_epochs": 100,
+                                    "progress_percent": 0,
+                                    "status_text": "Тест",
+                                }
+                            },
+                        )()
+                        self._training_progress_callback(test_history_obj)
+                        logger.info(f"[AutoTrainer] ✅ Тест callback успешен для {symbol}")
+                    except Exception as e:
+                        logger.error(f"[AutoTrainer] ❌ Тест callback НЕУДАЧЕН для {symbol}: {e}")
+
+                logger.info(f"[AutoTrainer] 🚀 Запуск model.fit() для {symbol}...")
 
                 model.fit(
                     X_train_scaled,
