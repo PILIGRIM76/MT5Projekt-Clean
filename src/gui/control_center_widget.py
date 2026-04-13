@@ -689,15 +689,19 @@ class ControlCenterWidget(QWidget):
                     logger.warning(f"GUI Warning: Не удалось загрузить стратегии: {e}")
         # --------------------------------------------------
 
-        self.regime_table.setRowCount(len(regime_mapping))
-        for i, (regime, strategy) in enumerate(regime_mapping.items()):
-            self.regime_table.setItem(i, 0, QTableWidgetItem(regime))
-            combo = QComboBox()
-            combo.addItems(available_strategies)
-            if strategy in available_strategies:
-                combo.setCurrentText(strategy)
-            self.regime_table.setCellWidget(i, 1, combo)
-            self.regime_table.item(i, 0).setFlags(Qt.ItemIsEnabled)
+        # ОБНОВЛЕНИЕ: Загрузка таблицы стратегий только если она существует
+        if hasattr(self, "regime_table"):
+            self.regime_table.setRowCount(len(regime_mapping))
+            for i, (regime, strategy) in enumerate(regime_mapping.items()):
+                self.regime_table.setItem(i, 0, QTableWidgetItem(regime))
+                combo = QComboBox()
+                combo.addItems(available_strategies)
+                if strategy in available_strategies:
+                    combo.setCurrentText(strategy)
+                self.regime_table.setCellWidget(i, 1, combo)
+                self.regime_table.item(i, 0).setFlags(Qt.ItemIsEnabled)
+        else:
+            logger.debug("[ControlCenter] regime_table не существует (перенесен в другой виджет)")
 
     def refresh_strategies(self):
         """
