@@ -580,11 +580,64 @@ class AutoTrainer:
                 )
 
                 # ДОБАВЛЕНО: callbacks для отслеживания прогресса
+                # Early Stopping + Real-time Loss Tracking
+                callbacks_list = [
+                    lgb.record_evaluation(evals_result),
+                    lgb.early_stopping(stopping_rounds=15, verbose=False),  # Early stopping после 15 эпох без улучшений
+                ]
+
+                # ДОБАВЛЯЕМ CUSTOM CALLBACK ДЛЯ REAL-TIME ОТПРАВКИ LOSS
+                if self._training_progress_callback:
+
+                    class RealTimeLossCallback:
+                        """Real-time callback для отправки loss после каждой итерации"""
+
+                        def __init__(self, callback_func, total_estimators=100):
+                            self.callback_func = callback_func
+                            self.total_estimators = total_estimators
+                            self.iteration = 0
+                            self.loss_history = []
+
+                        def __call__(self, env):
+                            self.iteration += 1
+                            # Получаем loss из evals_result
+                            if "valid_0" in evals_result and "log_loss" in evals_result["valid_0"]:
+                                current_loss = evals_result["valid_0"]["log_loss"][-1]
+                                self.loss_history.append(current_loss)
+
+                                # Отправляем прогресс после каждой итерации
+                                progress_percent = int((self.iteration / self.total_estimators) * 100)
+                                status_text = f"Итерация {self.iteration}/{self.total_estimators}, Loss: {current_loss:.4f}"
+
+                                # Создаём history object совместимый с GUI
+                                history_obj = type(
+                                    "History",
+                                    (),
+                                    {
+                                        "history": {
+                                            "loss": self.loss_history.copy(),
+                                            "epoch": self.iteration,
+                                            "total_epochs": self.total_estimators,
+                                            "progress_percent": progress_percent,
+                                            "status_text": status_text,
+                                        }
+                                    },
+                                )()
+
+                                try:
+                                    self.callback_func(history_obj)
+                                except Exception as e:
+                                    logger.warning(f"⚠️ Ошибка отправки real-time loss: {e}")
+
+                    # Добавляем custom callback в список
+                    real_time_callback = RealTimeLossCallback(self._training_progress_callback, total_estimators=100)
+                    callbacks_list.append(real_time_callback)
+
                 model.fit(
                     X_train_scaled,
                     y_train,
                     eval_set=[(X_val_scaled, y_val)],
-                    callbacks=[lgb.record_evaluation(evals_result)],
+                    callbacks=callbacks_list,
                 )
 
                 # Валидация
@@ -596,15 +649,40 @@ class AutoTrainer:
 
                 logger.info(f"Модель обучена: Train Acc={train_acc:.3f}, Val Acc={val_acc:.3f}")
 
-                # ОТПРАВКА ПРОГРЕССА ОБУЧЕНИЯ В GUI (через callback)
+                # ФИНАЛЬНАЯ ОТПРАВКА ПРОГРЕССА ОБУЧЕНИЯ В GUI (через callback)
+                # Теперь это дублирует real-time отправку, но гарантирует доставку
                 if self._training_progress_callback:
                     try:
                         if "valid_0" in evals_result and "log_loss" in evals_result["valid_0"]:
                             loss_history = evals_result["valid_0"]["log_loss"]
-                            history_obj = type("History", (), {"history": {"loss": loss_history}})()
+                            final_loss = loss_history[-1] if loss_history else 0.0
+
+                            # Определяем было ли early stopping
+                            actual_iterations = len(loss_history)
+                            early_stopped = actual_iterations < 100  # Если меньше 100, было early stopping
+
+                            history_obj = type(
+                                "History",
+                                (),
+                                {
+                                    "history": {
+                                        "loss": loss_history,
+                                        "epoch": actual_iterations,
+                                        "total_epochs": 100,
+                                        "progress_percent": 100,
+                                        "status_text": f"Завершено: {actual_iterations}/100 итераций, Loss: {final_loss:.4f}",
+                                        "final_loss": final_loss,
+                                        "early_stopped": early_stopped,
+                                        "train_accuracy": train_acc,
+                                        "val_accuracy": val_acc,
+                                    }
+                                },
+                            )()
                             self._training_progress_callback(history_obj)
                             logger.info(
-                                f"📊 [AutoTrainer] Отправлен прогресс обучения: {len(loss_history)} эпох, loss={loss_history[-1]:.4f}"
+                                f"📊 [AutoTrainer] Отправлен финальный прогресс: {actual_iterations} итераций, "
+                                f"loss={final_loss:.4f}, val_acc={val_acc:.3f}"
+                                + (" (Early Stopping)" if early_stopped else "")
                             )
                     except Exception as progress_error:
                         logger.warning(f"⚠️ Не удалось отправить прогресс обучения: {progress_error}")
@@ -632,6 +710,20 @@ class AutoTrainer:
                 "validation_samples": len(X_val),
                 "features": feature_columns,
             }
+
+            # ДОБАВЛЕНО: Сохраняем loss history для анализа
+            if "valid_0" in evals_result and "log_loss" in evals_result["valid_0"]:
+                loss_history = evals_result["valid_0"]["log_loss"]
+                save_metadata["loss_history"] = loss_history
+                save_metadata["final_loss"] = loss_history[-1] if loss_history else None
+                save_metadata["training_iterations"] = len(loss_history)
+                save_metadata["early_stopped"] = len(loss_history) < 100  # Было ли early stopping
+
+                logger.info(
+                    f"📈 Loss history: {len(loss_history)} итераций, "
+                    f"final={loss_history[-1]:.4f}, "
+                    f"initial={loss_history[0]:.4f if loss_history else 'N/A'}"
+                )
             self._save_model(
                 symbol,
                 model,
