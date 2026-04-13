@@ -673,6 +673,34 @@ class AutoTrainer:
                     callbacks=callbacks_list,
                 )
 
+                # ОТПРАВКА РЕАЛЬНЫХ ДАННЫХ LOSS ПОСЛЕ ОБУЧЕНИЯ
+                if self._training_progress_callback and "valid_0" in evals_result and "log_loss" in evals_result["valid_0"]:
+                    loss_history = evals_result["valid_0"]["log_loss"]
+                    logger.info(
+                        f"[AutoTrainer] 📊 Реальный loss history после обучения: {len(loss_history)} итераций, final={loss_history[-1]:.4f}"
+                    )
+
+                    # Создаем history object с реальными данными
+                    final_history_obj = type(
+                        "FinalHistory",
+                        (),
+                        {
+                            "history": {
+                                "loss": loss_history,
+                                "epoch": len(loss_history),
+                                "total_epochs": len(loss_history),
+                                "progress_percent": 100,
+                                "status_text": f"Завершено: {len(loss_history)} итераций, Loss: {loss_history[-1]:.4f}",
+                            }
+                        },
+                    )()
+
+                    try:
+                        self._training_progress_callback(final_history_obj)
+                        logger.info(f"[AutoTrainer] ✅ Реальный loss отправлен в GUI")
+                    except Exception as e:
+                        logger.error(f"[AutoTrainer] ❌ Ошибка отправки реального loss: {e}")
+
                 # Валидация
                 train_pred = model.predict(X_train_scaled)
                 val_pred = model.predict(X_val_scaled)
