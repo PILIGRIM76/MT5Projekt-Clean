@@ -736,7 +736,9 @@ class ControlCenterWidget(QWidget):
             self.current_positions_label.setText(str(settings["MAX_OPEN_POSITIONS"]))
         if hasattr(self, "current_drawdown_label") and "MAX_DAILY_DRAWDOWN_PERCENT" in settings:
             self.current_drawdown_label.setText(f"{settings['MAX_DAILY_DRAWDOWN_PERCENT']:.2f}%")
-        if "trading_mode" in settings:
+
+        # ОБНОВЛЕНИЕ: Обновляем current_mode_label только если существует
+        if hasattr(self, "current_mode_label") and "trading_mode" in settings:
             mode = settings["trading_mode"]
             current_mode = mode.get("current_mode", "standard")
             modes_enabled = mode.get("enabled", False)
