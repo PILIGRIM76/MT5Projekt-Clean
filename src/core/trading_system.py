@@ -140,7 +140,10 @@ class TradingSystem(QObject):
         # --- Инициализация переменных ---
         self.stop_event = threading.Event()
         self.running = False
-        self.mt5_lock = threading.Lock()
+        self.mt5_lock = threading.Lock()  # BACKWARD COMPATIBILITY
+        self.data_lock = threading.Lock()  # Для get_history, get_ticks, copy_rates
+        self.order_lock = threading.Lock()  # Для order_send, position_close
+        self.account_lock = threading.Lock()  # Для account_info, positions_get
         self.training_lock = threading.Lock()
         self.analysis_lock = threading.Lock()
         self.trade_execution_lock = asyncio.Lock()
@@ -1000,10 +1003,10 @@ class TradingSystem(QObject):
             def get_account_and_positions_sync(_mt5=mt5):
                 """Синхронное получение данных аккаунта и позиций."""
                 try:
-                    logger.info("[run_cycle] Попытка захвата mt5_lock...")
-                    lock_acquired = self.mt5_lock.acquire(timeout=1)
+                    logger.info("[run_cycle] Попытка захвата account_lock...")
+                    lock_acquired = self.account_lock.acquire(timeout=1)
                     if not lock_acquired:
-                        logger.debug("[run_cycle] MT5 Lock занят. Пропуск этого цикла (таймаут 1с)...")
+                        logger.debug("[run_cycle] Account Lock занят. Пропуск этого цикла (таймаут 1с)...")
                         return None, []
 
                     try:
@@ -1036,8 +1039,8 @@ class TradingSystem(QObject):
                         finally:
                             mt5_shutdown()
                     finally:
-                        logger.info("[run_cycle] MT5 Lock освобождается")
-                        self.mt5_lock.release()
+                        logger.info("[run_cycle] Account Lock освобождается")
+                        self.account_lock.release()
                 except Exception as e:
                     logger.error(f"[run_cycle] Ошибка получения данных аккаунта: {e}")
                     return None, []
@@ -1932,12 +1935,9 @@ class TradingSystem(QObject):
                         self.stop_event.wait(wait_time)
                         continue
 
-                lock_acquired = self.mt5_lock.acquire(timeout=15.0)  # Увеличено до 15 сек
+                lock_acquired = self.data_lock.acquire(timeout=15.0)  # R&D использует data_lock
                 if not lock_acquired:
-                    logger.warning(
-                        f"[R&D] MT5 Lock занят (попытка {attempt+1}/{max_retries}), "
-                        f"ждём {wait_time:.0f}с (exponential backoff)..."
-                    )
+                    logger.warning(f"[R&D] Data Lock занят (попытка {attempt+1}/{max_retries}), " f"ждём {wait_time:.0f}с...")
                     self.stop_event.wait(wait_time)
                     continue
 
@@ -1945,7 +1945,7 @@ class TradingSystem(QObject):
                     # Инициализируем отдельное подключение для обучения
                     if not mt5_ensure_connected(path=self.config.MT5_PATH):
                         logger.error(f"[R&D] Не удалось подключиться к MT5 для загрузки данных")
-                        self.mt5_lock.release()
+                        self.data_lock.release()
                         break
 
                     # Загружаем данные
@@ -1960,13 +1960,13 @@ class TradingSystem(QObject):
                         logger.warning(f"[R&D] MT5 вернул пустые данные")
 
                     mt5_shutdown()
-                    self.mt5_lock.release()
+                    self.data_lock.release()
                     break  # Успех — выходим из цикла
 
                 except Exception as e:
                     logger.error(f"[R&D] Ошибка загрузки данных (попытка {attempt+1}): {e}")
-                    if self.mt5_lock.locked():
-                        self.mt5_lock.release()
+                    if self.data_lock.locked():
+                        self.data_lock.release()
                     if attempt < max_retries - 1:
                         self.stop_event.wait(1.0 * (attempt + 1))
 
