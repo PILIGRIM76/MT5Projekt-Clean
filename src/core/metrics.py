@@ -114,3 +114,66 @@ class SystemMetrics:
 
 # Глобальный экземпляр
 metrics = SystemMetrics()
+
+
+# === Prometheus Exporter ===
+try:
+    from prometheus_client import Counter, Histogram, Gauge, start_http_server
+
+    # Определение метрик
+    TICKS_RECEIVED = Counter(
+        "ticks_received_total",
+        "Total market ticks received",
+        ["symbol"],
+    )
+    PREDICTIONS_MADE = Counter(
+        "predictions_made_total",
+        "Total predictions generated",
+        ["symbol"],
+    )
+    ORDERS_EXECUTED = Counter(
+        "orders_executed_total",
+        "Total orders successfully executed",
+        ["symbol", "action"],
+    )
+    ORDERS_FAILED = Counter(
+        "orders_failed_total",
+        "Total orders that failed",
+        ["symbol", "reason"],
+    )
+
+    PIPELINE_LATENCY = Histogram(
+        "pipeline_latency_ms",
+        "End-to-end pipeline latency",
+        ["symbol"],
+        buckets=[10, 25, 50, 100, 200, 500],
+    )
+    INFERENCE_LATENCY = Histogram(
+        "inference_latency_ms",
+        "ML inference latency",
+        ["symbol"],
+        buckets=[5, 10, 25, 50, 100],
+    )
+
+    COMPONENT_HEALTH = Gauge(
+        "component_health_status",
+        "Health status of components (0=critical,1=degraded,2=healthy)",
+        ["component"],
+    )
+    RESOURCE_USAGE = Gauge(
+        "resource_usage_percent",
+        "Resource usage percentage",
+        ["resource"],
+    )
+
+    def start_prometheus_exporter(port: int = 9118):
+        """Запуск HTTP-сервера для сбора метрик Prometheus"""
+        start_http_server(port)
+        logger.info(f"Prometheus exporter started on port {port}")
+
+except ImportError:
+
+    def start_prometheus_exporter(port: int = 9118):
+        logger.warning(
+            "prometheus_client not installed — metrics export disabled"
+        )
