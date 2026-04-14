@@ -1,0 +1,25 @@
+[Unit]
+Description=MT5Projekt-Clean Trading System
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trader
+WorkingDirectory=/home/trader/MT5Projekt-Clean
+ExecStart=/home/trader/MT5Projekt-Clean/venv/bin/python main_pyside.py --headless
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+Environment=MT5PROJECT_ENV=production
+
+# Безопасность
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/trader/MT5Projekt-Clean/data
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
