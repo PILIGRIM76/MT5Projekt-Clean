@@ -1,0 +1,38 @@
+system:
+  name: "MT5Projekt-Clean"
+  environment: "production"
+  log_level: "INFO"
+  enable_metrics: true
+
+trading:
+  symbols: ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
+  timeframe: "M15"
+  magic_number: 760414
+  max_deviation: 20
+  slippage_tolerance: 0.0003
+
+strategy:
+  threshold_buy: 0.68
+  threshold_sell: 0.32
+  min_confidence: 0.55
+  base_volume: 0.01
+
+risk:
+  max_position_per_symbol: 1
+  max_total_exposure: 2.0
+  max_drawdown_percent: 3.0
+  min_volatility: 0.00015
+  check_correlation: false
+
+ml:
+  model_type: "random_forest"
+  min_accuracy: 0.48
+  retrain_interval_hours: 24
+  max_cpu_percent: 70
+  memory_limit_mb: 4096
+
+data:
+  sync_interval_sec: 10
+  cache_debounce_sec: 60
+  db_path: "data/genesis_prod.db"
+  journal_mode: "WAL"
