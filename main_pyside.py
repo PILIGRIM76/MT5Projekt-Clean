@@ -417,13 +417,13 @@ class MainWindow(QMainWindow):
 
         # !!! КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: УДАЛЯЕМ НИЖНЕЕ ПОДЧЕРКИВАНИЕ !!!
         # Проверка перед вызовом
-                _method = getattr(
-                    getattr(self.trading_system, "core_system", None),
-                    "initialize_heavy_components",
-                    None,
-                )
-                if _method:
-                    _method()
+        _method = getattr(
+            getattr(self.trading_system, "core_system", None),
+            "initialize_heavy_components",
+            None,
+        )
+        if _method:
+            _method()
 
         logger.info("Тяжелая инициализация завершена.")
 
@@ -2126,13 +2126,13 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
 
             # Проверка перед вызовом
-                _method = getattr(
-                    getattr(self.trading_system, "core_system", None),
-                    "restart_system",
-                    None,
-                )
-                if _method:
-                    _method()
+            _method = getattr(
+                getattr(self.trading_system, "core_system", None),
+                "restart_system",
+                None,
+            )
+            if _method:
+                _method()
 
     def update_times(self, pc_time_str: str, server_time_str: str):
         # Убрано избыточное логирование (каждые несколько секунд)
@@ -3415,13 +3415,13 @@ class MainWindow(QMainWindow):
         if getattr(getattr(self.trading_system, "core_system", None), "running", None):
             # Инициируем штатную остановку (отправляет сигнал stop_event)
             # Проверка перед вызовом
-                _method = getattr(
-                    getattr(self.trading_system, "core_system", None),
-                    "initiate_graceful_shutdown",
-                    None,
-                )
-                if _method:
-                    _method()
+            _method = getattr(
+                getattr(self.trading_system, "core_system", None),
+                "initiate_graceful_shutdown",
+                None,
+            )
+            if _method:
+                _method()
 
             # --- 2. Виджет ожидания ---
             msg = QMessageBox(self)
