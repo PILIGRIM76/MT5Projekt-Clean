@@ -330,7 +330,8 @@ class MainWindow(QMainWindow):
         self.config = config
         self.trading_system = trading_system_adapter
         self.bridge = self.trading_system.bridge
-        self.sound_manager = self.trading_system.core_system.sound_manager
+        # sound_manager берём из адаптера (новая архитектура)
+        self.sound_manager = getattr(self.trading_system, "sound_manager", None)
         self.chart_trade_history = []
         self.temp_html_file = None
 
