@@ -57,6 +57,29 @@ class PySideTradingSystem(QObject):
         self.start = self.core_system.start
         self.stop = self.core_system.stop
 
+    def start_all_threads(self, threadpool=None):
+        """
+        Запуск всех потоков (совместимость со старым GUI).
+        В новой архитектуре это делается через EventBus.
+        """
+        logger.info("start_all_threads called (compatibility mode)")
+        # В новой архитектуре компоненты запускаются через start()
+        # Этот метод оставлен для совместимости
+
+    def start_all_background_services(self, threadpool=None):
+        """
+        Запуск фоновых сервисов (совместимость со старым GUI).
+        """
+        logger.info("start_all_background_services called (compatibility mode)")
+        # Компоненты уже запущены через start()
+
+    def initialize_heavy_components(self):
+        """
+        Инициализация тяжёлых компонентов (совместимость).
+        """
+        logger.info("initialize_heavy_components called (compatibility mode)")
+        # В новой архитектуре это делается при старте компонентов
+
     def emergency_close_position(self, ticket: int):
         """Экстренное закрытие одной позиции."""
         # В новой архитектуре это делается через ExecutionEngine
