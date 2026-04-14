@@ -416,7 +416,7 @@ class MainWindow(QMainWindow):
         logger.info("Начало тяжелой инициализации компонентов (DB, AI, NLP)...")
 
         # !!! КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: УДАЛЯЕМ НИЖНЕЕ ПОДЧЕРКИВАНИЕ !!!
-        self.trading_system.core_system.initialize_heavy_components()
+        getattr(getattr(self.trading_system, "core_system", None), "initialize_heavy_components", None)()
 
         logger.info("Тяжелая инициализация завершена.")
 
@@ -454,7 +454,7 @@ class MainWindow(QMainWindow):
         # 4. Инициализация DeFi Widget
         if hasattr(self, "defi_widget") and hasattr(self.trading_system.core_system, "db_manager"):
             logger.info("[DeFi] Подключение к БД...")
-            self.defi_widget.set_db_manager(self.trading_system.core_system.db_manager)
+            self.defi_widget.set_db_manager(getattr(getattr(self.trading_system, "core_system", None), "db_manager", None))
 
         if hasattr(self, "control_center_tab"):
             self.control_center_tab.load_initial_settings()
@@ -589,7 +589,11 @@ class MainWindow(QMainWindow):
         self.vdb_results_table.setRowCount(0)
 
         # Запускаем поиск в отдельном потоке через TradingSystem
-        threading.Thread(target=self.trading_system.core_system.search_vector_db, args=(query,), daemon=True).start()
+        threading.Thread(
+            target=getattr(getattr(self.trading_system, "core_system", None), "search_vector_db", None),
+            args=(query,),
+            daemon=True,
+        ).start()
 
     # --- СЛОТ ДЛЯ ОБНОВЛЕНИЯ ТАБЛИЦЫ РЕЗУЛЬТАТОВ ---
     @Slot(list)
@@ -831,7 +835,7 @@ class MainWindow(QMainWindow):
 
         def worker():
             try:
-                self.trading_system.core_system.initialize_heavy_components()
+                getattr(getattr(self.trading_system, "core_system", None), "initialize_heavy_components", None)()
                 # После завершения отправляем сигнал об успехе
                 self.bridge.status_updated.emit("AI-модели загружены. Система готова к запуску.", False)
                 self.bridge.heavy_initialization_finished.emit()
@@ -1404,7 +1408,9 @@ class MainWindow(QMainWindow):
 
         # Обновляем конфиг в ядре
         if hasattr(self, "trading_system"):
-            self.trading_system.core_system.toggle_knowledge_graph(is_checked)
+            ts = getattr(self.trading_system, "core_system", None)
+            if ts and hasattr(ts, "toggle_knowledge_graph"):
+                ts.toggle_knowledge_graph(is_checked)
 
         # Безопасное переключение видимости
         # Проверяем, созданы ли уже виджеты
@@ -2078,7 +2084,7 @@ class MainWindow(QMainWindow):
 
         if reply == QMessageBox.Yes:
             logger.info(f"GUI: Отправка команды на удаление директивы '{directive_type}'.")
-            self.trading_system.core_system.delete_directive(directive_type)
+            getattr(getattr(self.trading_system, "core_system", None), "delete_directive", None)(directive_type)
 
     def _prompt_and_restart(self):
         reply = QMessageBox.question(
@@ -2100,7 +2106,7 @@ class MainWindow(QMainWindow):
 
             QApplication.processEvents()
 
-            self.trading_system.core_system.restart_system()
+            getattr(getattr(self.trading_system, "core_system", None), "restart_system", None)()
 
     def update_times(self, pc_time_str: str, server_time_str: str):
         # Убрано избыточное логирование (каждые несколько секунд)
@@ -2320,7 +2326,7 @@ class MainWindow(QMainWindow):
             self.update_status_label.setText("Применение обновления...")
             self.update_button.setEnabled(False)
             QApplication.processEvents()
-            self.trading_system.core_system.auto_updater.apply_update_and_restart()
+            getattr(getattr(self.trading_system, "core_system", None), "auto_updater", None).apply_update_and_restart()
 
     def update_update_status(self, message: str, is_available: bool):
         """Обновление статуса обновлений на главном экране."""
@@ -2350,7 +2356,7 @@ class MainWindow(QMainWindow):
             logger.debug(f"[MainWindow] adapter найден: {type(adapter).__name__}")
 
             if hasattr(adapter, "core_system") and adapter.core_system:
-                manager = adapter.core_system.hot_reload_manager
+                manager = getattr(getattr(adapter, "core_system", None), "hot_reload_manager", None)
                 logger.debug(f"[MainWindow] manager найден: {type(manager).__name__ if manager else 'None'}")
 
                 if manager:
@@ -2417,7 +2423,7 @@ class MainWindow(QMainWindow):
         threading.Thread(target=self.fetch_and_display_xai, args=(ticket,), daemon=True).start()
 
     def fetch_and_display_xai(self, ticket: int):
-        xai_data = self.trading_system.core_system.get_xai_data_for_trade(ticket)
+        xai_data = getattr(getattr(self.trading_system, "core_system", None), "get_xai_data_for_trade", None)(ticket)
         self.bridge.xai_data_ready.emit(xai_data, ticket)
 
     def display_xai_chart(self, xai_data: dict, ticket: int):
@@ -2452,7 +2458,9 @@ class MainWindow(QMainWindow):
         if self.current_xai_ticket is None:
             return
         logger.info(f"Отправка отзыва ({feedback_value}) для сделки #{self.current_xai_ticket} в ядро системы.")
-        self.trading_system.core_system.record_human_feedback(trade_ticket=self.current_xai_ticket, feedback=feedback_value)
+        getattr(getattr(self.trading_system, "core_system", None), "record_human_feedback", None)(
+            trade_ticket=self.current_xai_ticket, feedback=feedback_value
+        )
         self.good_trade_button.setEnabled(False)
         self.bad_trade_button.setEnabled(False)
 
@@ -2460,7 +2468,7 @@ class MainWindow(QMainWindow):
         """Запускает процесс инициализации торговой системы."""
         logger.info("[GUI-Action] Пользователь нажал кнопку 'Запустить торговлю'")
         try:
-            if self.trading_system.core_system.running:
+            if getattr(getattr(self.trading_system, "core_system", None), "running", None):
                 logger.warning("[GUI-Action] Система уже запущена, игнорируем повторный запуск")
                 return
 
@@ -2510,7 +2518,7 @@ class MainWindow(QMainWindow):
             # НЕ вызываем start_all_threads() повторно!
             # Он уже был запущен из start_trading() и установил running=True
             # Потоки должны были запуститься в start_all_background_services()
-            if self.trading_system.core_system.running:
+            if getattr(getattr(self.trading_system, "core_system", None), "running", None):
                 logger.info("[GUI] Система уже запущена, пропускаю повторный вызов start_all_threads()")
             else:
                 logger.warning("[GUI] Система НЕ запущена! Вызываю start_all_threads()")
@@ -2531,14 +2539,14 @@ class MainWindow(QMainWindow):
         """Отправляет начальные данные для графиков обучения после запуска."""
         logger.info("[GUI] Отправка начальных данных для графиков переобучения...")
         if hasattr(self.trading_system.core_system, "_send_model_accuracy_to_gui"):
-            self.trading_system.core_system._send_model_accuracy_to_gui()
+            getattr(getattr(self.trading_system, "core_system", None), "_send_model_accuracy_to_gui", None)()
         if hasattr(self.trading_system.core_system, "_send_retrain_progress_to_gui"):
-            self.trading_system.core_system._send_retrain_progress_to_gui()
+            getattr(getattr(self.trading_system, "core_system", None), "_send_retrain_progress_to_gui", None)()
 
     def stop_trading(self):
         logger.info("[GUI-Action] Пользователь нажал кнопку 'Остановить торговлю'")
         try:
-            if self.trading_system.core_system.running:
+            if getattr(getattr(self.trading_system, "core_system", None), "running", None):
                 self.sound_manager.play("system_stop")
                 self.trading_system.stop()
                 self.update_status("Команда на остановку отправлена...", is_error=False)
@@ -3364,9 +3372,9 @@ class MainWindow(QMainWindow):
             return
 
         # --- 1. Проверка, запущена ли система ---
-        if self.trading_system.core_system.running:
+        if getattr(getattr(self.trading_system, "core_system", None), "running", None):
             # Инициируем штатную остановку (отправляет сигнал stop_event)
-            self.trading_system.core_system.initiate_graceful_shutdown()
+            getattr(getattr(self.trading_system, "core_system", None), "initiate_graceful_shutdown", None)()
 
             # --- 2. Виджет ожидания ---
             msg = QMessageBox(self)
@@ -3386,9 +3394,9 @@ class MainWindow(QMainWindow):
 
                 def run(self):
                     # Отправляем сигнал остановки (если не было) и ждем завершения
-                    self.core_system.stop_event.set()
+                    getattr(getattr(self, "core_system", None), "stop_event", None).set()
                     # _join_all_threads - это блокирующая операция, которая ждет завершения всех потоков
-                    self.core_system._join_all_threads()
+                    getattr(getattr(self, "core_system", None), "_join_all_threads", None)()
 
             join_worker = JoinWorker(self.trading_system.core_system)
             self.threadpool.start(join_worker)
@@ -3400,13 +3408,15 @@ class MainWindow(QMainWindow):
             start_time = standard_time.time()
 
             # Ждем, пока система не остановится или не истечет 15 секунд
-            while self.trading_system.core_system.running and (standard_time.time() - start_time < 15):
+            while getattr(getattr(self.trading_system, "core_system", None), "running", None) and (
+                standard_time.time() - start_time < 15
+            ):
                 QApplication.processEvents()
                 standard_time.sleep(0.05)
 
             # --- 5. Финальная очистка ---
             msg.hide()
-            if self.trading_system.core_system.running:
+            if getattr(getattr(self.trading_system, "core_system", None), "running", None):
                 logger.critical("!!! ПРИНУДИТЕЛЬНОЕ ЗАВЕРШЕНИЕ: Не все потоки остановились за 15 секунд. !!!")
             else:
                 logger.info("Все фоновые потоки остановлены. Закрываем приложение.")
@@ -3512,7 +3522,7 @@ class MainWindow(QMainWindow):
         # Вспомогательный метод для принудительного обновления
         try:
             # 1. Вызываем метод, который должен вернуть данные
-            db_manager = self.trading_system.core_system.db_manager
+            db_manager = getattr(getattr(self.trading_system, "core_system", None), "db_manager", None)
             if db_manager is None:
                 logger.warning("KG: db_manager ещё не инициализирован")
                 return
@@ -3540,7 +3550,7 @@ class MainWindow(QMainWindow):
         logger.info(f"[GUI] Применение настроек в реальном времени: {list(new_settings.keys())}")
 
         # 1. Применяем настройки к торговой системе
-        self.trading_system.core_system.update_runtime_settings(new_settings)
+        getattr(getattr(self.trading_system, "core_system", None), "update_runtime_settings", None)(new_settings)
 
         # 2. Обновляем отображение настроек в ControlCenterWidget
         if hasattr(self, "control_center_tab"):
@@ -3558,7 +3568,7 @@ class MainWindow(QMainWindow):
         # Инициализация DeFi Widget (подключение к БД)
         if hasattr(self, "defi_widget") and hasattr(self.trading_system.core_system, "db_manager"):
             logger.info("[DeFi] Подключение к БД...")
-            self.defi_widget.set_db_manager(self.trading_system.core_system.db_manager)
+            self.defi_widget.set_db_manager(getattr(getattr(self.trading_system, "core_system", None), "db_manager", None))
 
     def on_filter_request(self, filter_type: str, filter_value: str):
         """
@@ -3578,7 +3588,7 @@ class MainWindow(QMainWindow):
         try:
             # В реальной системе здесь была бы сложная логика запроса к Neo4j/SQLite.
             # Для демонстрации: просто запрашиваем последние 50 связей
-            db_manager = self.trading_system.core_system.db_manager
+            db_manager = getattr(getattr(self.trading_system, "core_system", None), "db_manager", None)
             if db_manager is None:
                 return
             graph_data = db_manager.get_graph_data(limit=50)
