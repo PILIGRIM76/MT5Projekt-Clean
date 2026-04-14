@@ -46,9 +46,9 @@ class ControlCenterWidget(QWidget):
         self.config = config
         self.trading_system = trading_system_adapter
 
-        # --- ИСПРАВЛЕНИЕ: Правильный доступ к стратегиям через core_system ---
-        if self.trading_system and hasattr(self.trading_system, "core_system"):
-            self.strategies = self.trading_system.core_system.strategies
+        # --- Доступ к стратегиям через адаптер (новая архитектура) ---
+        if self.trading_system:
+            self.strategies = getattr(self.trading_system, "strategies", {})
         else:
             self.strategies = {}
         # ---------------------------------------------------------------------
@@ -625,17 +625,18 @@ class ControlCenterWidget(QWidget):
             else:
                 self.current_mode_label.setText("🟡 Стандартный")
 
-        # --- ИСПРАВЛЕНИЕ: Безопасная загрузка стратегий ---
-        if self.trading_system and hasattr(self.trading_system, "core_system"):
-            core = self.trading_system.core_system
-            # Проверяем, что strategy_loader уже инициализирован
-            if hasattr(core, "strategy_loader") and core.strategy_loader is not None:
-                try:
-                    # Перезагружаем стратегии, чтобы получить актуальный список
-                    strategies = core.strategy_loader.load_strategies()
-                    available_strategies += [s.__class__.__name__ for s in strategies]
-                except Exception as e:
-                    logger.warning(f"GUI Warning: Не удалось загрузить стратегии: {e}")
+        # --- Безопасная загрузка стратегий ---
+        if self.trading_system:
+            core = getattr(self.trading_system, "core_system", None)
+            if core:
+                # Проверяем, что strategy_loader уже инициализирован
+                if hasattr(core, "strategy_loader") and core.strategy_loader is not None:
+                    try:
+                        # Перезагружаем стратегии, чтобы получить актуальный список
+                        strategies = core.strategy_loader.load_strategies()
+                        available_strategies += [s.__class__.__name__ for s in strategies]
+                    except Exception as e:
+                        logger.warning(f"GUI Warning: Не удалось загрузить стратегии: {e}")
         # --------------------------------------------------
 
         # ОБНОВЛЕНИЕ: Загрузка таблицы стратегий только если она существует
@@ -780,9 +781,8 @@ class ControlCenterWidget(QWidget):
             if not hasattr(self, "next_training_label"):
                 return
 
-            # Получаем TrainingScheduler через core_system (adapter -> core)
-            core = getattr(self.trading_system, "core_system", None)
-            scheduler = getattr(core, "training_scheduler", None) if core else None
+            # Получаем TrainingScheduler через адаптер
+            scheduler = getattr(self.trading_system, "training_scheduler", None)
             if not scheduler:
                 self.next_training_label.setText("⏸️ Автообучение не запущено")
                 self.next_training_label.setStyleSheet("color: #6272a4; font-size: 14px; font-weight: bold; padding: 5px;")
@@ -862,8 +862,9 @@ class ControlCenterWidget(QWidget):
                 # Получаем доступ к config через bridge
                 all_symbols = []
                 try:
-                    if hasattr(self.bridge, "core_system") and hasattr(self.bridge.core_system, "config"):
-                        all_symbols = self.bridge.core_system.config.SYMBOLS_WHITELIST
+                    cfg = getattr(self.bridge, "config", None)
+                    if cfg and hasattr(cfg, "SYMBOLS_WHITELIST"):
+                        all_symbols = cfg.SYMBOLS_WHITELIST
                 except Exception:
                     pass
 

@@ -77,7 +77,7 @@ class MainWindow(QMainWindow):
         self.config = config
         self.trading_system = trading_system_adapter
         self.bridge = self.trading_system.bridge
-        self.sound_manager = self.trading_system.core_system.sound_manager
+        self.sound_manager = getattr(self.trading_system, "sound_manager", None)
         self.chart_trade_history = []
         self.temp_html_file = None
 
@@ -226,10 +226,15 @@ class MainWindow(QMainWindow):
 
             def _do_work(self):
                 logger.info("Начало тяжелой инициализации компонентов (DB, AI, NLP)...")
-                self.callback.__self__.trading_system.core_system.initialize_heavy_components()
+                # Новая архитектура: heavy инициализация через адаптер
+                ts = self.callback.__self__.trading_system
+                if hasattr(ts, "initialize_heavy_components"):
+                    ts.initialize_heavy_components()
                 logger.info("Тяжелая инициализация завершена.")
                 logger.info("Начало запуска всех фоновых сервисов...")
-                self.callback.__self__.trading_system.start_all_background_services(self.callback.__self__.threadpool)
+                # Запуск через адаптер
+                if hasattr(ts, "start_all_background_services"):
+                    ts.start_all_background_services(self.callback.__self__.threadpool)
                 logger.info("Все фоновые сервисы запущены.")
                 return True
 
@@ -252,9 +257,11 @@ class MainWindow(QMainWindow):
         self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
         self.on_kg_toggle()
 
-        if hasattr(self, "defi_widget") and hasattr(self.core_system, "db_manager"):
+        if hasattr(self, "defi_widget"):
             logger.info("[DeFi] Подключение к БД...")
-            self.defi_widget.set_db_manager(self.core_system.db_manager)
+            db_mgr = getattr(self.trading_system, "db_manager", None)
+            if db_mgr:
+                self.defi_widget.set_db_manager(db_mgr)
 
         if hasattr(self, "control_center_tab"):
             self.control_center_tab.load_initial_settings()
