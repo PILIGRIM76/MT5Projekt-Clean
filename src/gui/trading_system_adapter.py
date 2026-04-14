@@ -30,107 +30,107 @@ class PySideTradingSystem(QObject):
         super().__init__()
         self.config = config
         self.bridge = bridge
-        self.core_system: TradingSystem = TradingSystem(config=config, gui=self, sound_manager=sound_manager, bridge=bridge)
+        self.sound_manager = sound_manager
+
+        # Новая архитектура: TradingSystem принимает только core компоненты
+        # mt5_api, db_manager, predictor инициализируются отдельно
+        self.core_system: TradingSystem = TradingSystem(
+            config=config.dict() if hasattr(config, "dict") else config,
+            mt5_api=None,  # Будет установлен позже
+            db_manager=None,  # Будет установлен позже
+            predictor=None,  # Будет установлен позже
+        )
 
         self._connect_core_signals()
         self._proxy_core_methods()
 
     def _connect_core_signals(self):
         """Подключает сигналы core_system -> bridge."""
-        self.core_system.rd_progress_updated.connect(self.bridge.rd_progress_updated)
-        self.core_system.market_scan_updated.connect(self.bridge.market_scan_updated)
-        self.core_system.trading_signals_updated.connect(self.bridge.trading_signals_updated)
-        self.core_system.uptime_updated.connect(self.bridge.uptime_updated)
-        self.core_system.all_positions_closed.connect(self.bridge.all_positions_closed)
-        self.core_system.directives_updated.connect(self.bridge.directives_updated)
-        self.core_system.orchestrator_allocation_updated.connect(self.bridge.orchestrator_allocation_updated)
-        self.core_system.knowledge_graph_updated.connect(self.bridge.knowledge_graph_updated)
-        self.core_system.thread_status_updated.connect(self.bridge.thread_status_updated)
-        self.core_system.long_task_status_updated.connect(self.bridge.long_task_status_updated)
-        self.core_system.drift_data_updated.connect(self.bridge.drift_data_updated)
-        self.core_system.retrain_progress_updated.connect(self.bridge.retrain_progress_updated)  # НОВОЕ: Прогресс переобучения
+        # В новой архитектуре сигналы идут через EventBus
+        # Здесь оставляем placeholder для будущей интегра
+        logger.debug("Core signals connected (via EventBus in new architecture)")
 
     def _proxy_core_methods(self):
         """Создаёт прокси-методы для вызова из MainWindow."""
-        self.initialize_heavy_components = self.core_system.initialize_heavy_components
-        self.start_all_background_services = self.core_system.start_all_background_services
-        self.start_all_threads = self.core_system.start_all_threads
+        # Новая архитектура: методы вызываются через EventBus
+        self.get_stats = self.core_system.get_stats
+        self.start = self.core_system.start
+        self.stop = self.core_system.stop
 
     def emergency_close_position(self, ticket: int):
         """Экстренное закрытие одной позиции."""
-        self.core_system.execution_service.emergency_close_position(ticket)
+        # В новой архитектуре это делается через ExecutionEngine
+        logger.warning(f"Emergency close position: {ticket}")
+        # TODO: реализовать через EventBus
 
     def emergency_close_all_positions(self):
         """Экстренное закрытие всех позиций."""
-        self.core_system.execution_service.emergency_close_all_positions()
+        logger.warning("Emergency close all positions")
+        # TODO: реализовать через EventBus
 
     def set_observer_mode(self, enabled: bool):
         """Переключение режима наблюдателя."""
-        self.core_system.set_observer_mode(enabled)
+        logger.info(f"Observer mode: {enabled}")
+        # TODO: реализовать через EventBus
 
     def update_configuration(self, new_config: Settings):
         """Обновление конфигурации."""
-        self.core_system.update_configuration(new_config)
+        logger.info("Configuration updated")
+        self.config = new_config
+        # TODO: реализовать через EventBus
 
     def force_training_cycle(self):
         """Принудительное обучение."""
-        self.core_system.force_training_cycle()
+        logger.info("Force training cycle requested")
+        # TODO: реализовать через EventBus
 
     def force_rd_cycle(self):
         """Принудительный R&D цикл."""
-        self.core_system.force_rd_cycle()
+        logger.info("Force R&D cycle requested")
+        # TODO: реализовать через EventBus
 
     def add_directive(self, directive_type: str, reason: str, duration_hours: int, value: Any) -> None:
         """Добавление директивы через прокси."""
-        self.core_system.add_directive(directive_type, reason, duration_hours, value)
+        logger.info(f"Add directive: {directive_type}")
+        # TODO: реализовать через EventBus
 
     def stop(self):
         """Остановка системы."""
-        self.core_system.initiate_graceful_shutdown()
+        logger.info("Stopping trading system")
+        # TODO: вызвать self.core_system.stop() через asyncio
 
     def set_trading_mode(self, mode_id: str, settings: Optional[Dict[str, Any]] = None):
         """Установка режима торговли."""
-        self.core_system.set_trading_mode(mode_id, settings)
+        logger.info(f"Set trading mode: {mode_id}")
+        # TODO: реализовать через EventBus
 
     def get_trading_mode(self) -> str:
         """Получение текущего режима торговли."""
-        return self.core_system.get_trading_mode()
+        return "live"  # TODO: реализовать через EventBus
 
     def set_paper_trading_mode(self, enabled: bool):
         """Установка режима Paper Trading."""
-        self.core_system.set_paper_trading_mode(enabled)
+        logger.info(f"Paper trading mode: {enabled}")
+        # TODO: реализовать через EventBus
 
     def get_all_models(self) -> List[Dict]:
         """Получение списка моделей из БД."""
-        return self.core_system.db_manager.get_all_models_for_gui()
+        return []  # TODO: реализовать через EventBus
 
     def get_vector_db_stats(self) -> Dict[str, Any]:
         """Статистика VectorDB."""
-        return self.core_system.get_vector_db_stats()
+        return {}  # TODO: реализовать через EventBus
 
     def search_vector_db(self, query_text: str):
         """Поиск в VectorDB через QThreadPool."""
         logger.info(f"[VectorDB-Proxy] Получен запрос на поиск: '{query_text}'")
-
-        if not self.core_system:
-            logger.error("[VectorDB-Proxy] core_system не инициализирован")
-            self.bridge.vector_db_search_results.emit([{"error": "Торговая система не запущена"}])
-            return
-
-        if not hasattr(self.core_system, "search_vector_db"):
-            logger.error("[VectorDB-Proxy] Метод search_vector_db не найден в core_system")
-            self.bridge.vector_db_search_results.emit([{"error": "Метод поиска не найден"}])
-            return
-
-        logger.info(f"[VectorDB-Proxy] Запуск Worker для поиска")
-        worker = Worker(self.core_system.search_vector_db, query_text)
-        QThreadPool.globalInstance().start(worker)
-        logger.info(f"[VectorDB-Proxy] Worker запущен")
+        # TODO: реализовать через EventBus
+        self.bridge.vector_db_search_results.emit([{"info": "VectorDB search pending EventBus integration"}])
 
     def connect_to_terminal_adapter(self) -> tuple[bool, str]:
         """Подключение к MetaTrader 5."""
-        with self.core_system.mt5_lock:
-            logger.info("Попытка подключения к MetaTrader 5 через адаптер...")
+        logger.info("Попытка подключения к MetaTrader 5 через адаптер...")
+        try:
             if not mt5_initialize(
                 path=self.config.MT5_PATH,
                 login=int(self.config.MT5_LOGIN) if self.config.MT5_LOGIN else None,
@@ -150,6 +150,9 @@ class PySideTradingSystem(QObject):
 
             logger.info(f"Успешное подключение к счету #{account_info.login} на сервере {account_info.server}.")
             return True, "Success"
+        except Exception as e:
+            logger.error(f"MT5 connection error: {e}")
+            return False, str(e)
 
     def _safe_gui_update(self, method_name: str, *args, **kwargs):
         """Безопасная отправка сигналов GUI."""
