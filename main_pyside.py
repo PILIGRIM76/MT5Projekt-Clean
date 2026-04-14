@@ -416,7 +416,14 @@ class MainWindow(QMainWindow):
         logger.info("Начало тяжелой инициализации компонентов (DB, AI, NLP)...")
 
         # !!! КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: УДАЛЯЕМ НИЖНЕЕ ПОДЧЕРКИВАНИЕ !!!
-        getattr(getattr(self.trading_system, "core_system", None), "initialize_heavy_components", None)()
+        # Проверка перед вызовом
+                _method = getattr(
+                    getattr(self.trading_system, "core_system", None),
+                    "initialize_heavy_components",
+                    None,
+                )
+                if _method:
+                    _method()
 
         logger.info("Тяжелая инициализация завершена.")
 
@@ -835,9 +842,21 @@ class MainWindow(QMainWindow):
 
         def worker():
             try:
-                getattr(getattr(self.trading_system, "core_system", None), "initialize_heavy_components", None)()
+                init_method = getattr(
+                    getattr(self.trading_system, "core_system", None),
+                    "initialize_heavy_components",
+                    None,
+                )
+                if init_method:
+                    init_method()
+                else:
+                    logger.info(
+                        "initialize_heavy_components не найден — пропускаем"
+                    )
                 # После завершения отправляем сигнал об успехе
-                self.bridge.status_updated.emit("AI-модели загружены. Система готова к запуску.", False)
+                self.bridge.status_updated.emit(
+                    "AI-модели загружены. Система готова к запуску.", False
+                )
                 self.bridge.heavy_initialization_finished.emit()
                 self.start_button.setEnabled(True)
             except Exception as e:
@@ -2106,7 +2125,14 @@ class MainWindow(QMainWindow):
 
             QApplication.processEvents()
 
-            getattr(getattr(self.trading_system, "core_system", None), "restart_system", None)()
+            # Проверка перед вызовом
+                _method = getattr(
+                    getattr(self.trading_system, "core_system", None),
+                    "restart_system",
+                    None,
+                )
+                if _method:
+                    _method()
 
     def update_times(self, pc_time_str: str, server_time_str: str):
         # Убрано избыточное логирование (каждые несколько секунд)
@@ -2539,9 +2565,23 @@ class MainWindow(QMainWindow):
         """Отправляет начальные данные для графиков обучения после запуска."""
         logger.info("[GUI] Отправка начальных данных для графиков переобучения...")
         if hasattr(self.trading_system.core_system, "_send_model_accuracy_to_gui"):
-            getattr(getattr(self.trading_system, "core_system", None), "_send_model_accuracy_to_gui", None)()
+            # Проверка перед вызовом
+                _method = getattr(
+                    getattr(self.trading_system, "core_system", None),
+                    "_send_model_accuracy_to_gui",
+                    None,
+                )
+                if _method:
+                    _method()
         if hasattr(self.trading_system.core_system, "_send_retrain_progress_to_gui"):
-            getattr(getattr(self.trading_system, "core_system", None), "_send_retrain_progress_to_gui", None)()
+            # Проверка перед вызовом
+                _method = getattr(
+                    getattr(self.trading_system, "core_system", None),
+                    "_send_retrain_progress_to_gui",
+                    None,
+                )
+                if _method:
+                    _method()
 
     def stop_trading(self):
         logger.info("[GUI-Action] Пользователь нажал кнопку 'Остановить торговлю'")
@@ -3374,7 +3414,14 @@ class MainWindow(QMainWindow):
         # --- 1. Проверка, запущена ли система ---
         if getattr(getattr(self.trading_system, "core_system", None), "running", None):
             # Инициируем штатную остановку (отправляет сигнал stop_event)
-            getattr(getattr(self.trading_system, "core_system", None), "initiate_graceful_shutdown", None)()
+            # Проверка перед вызовом
+                _method = getattr(
+                    getattr(self.trading_system, "core_system", None),
+                    "initiate_graceful_shutdown",
+                    None,
+                )
+                if _method:
+                    _method()
 
             # --- 2. Виджет ожидания ---
             msg = QMessageBox(self)
@@ -3394,9 +3441,19 @@ class MainWindow(QMainWindow):
 
                 def run(self):
                     # Отправляем сигнал остановки (если не было) и ждем завершения
-                    getattr(getattr(self, "core_system", None), "stop_event", None).set()
+                    stop_event = getattr(
+                        getattr(self, "core_system", None), "stop_event", None
+                    )
+                    if stop_event:
+                        stop_event.set()
                     # _join_all_threads - это блокирующая операция, которая ждет завершения всех потоков
-                    getattr(getattr(self, "core_system", None), "_join_all_threads", None)()
+                    join_method = getattr(
+                        getattr(self, "core_system", None),
+                        "_join_all_threads",
+                        None,
+                    )
+                    if join_method:
+                        join_method()
 
             join_worker = JoinWorker(self.trading_system.core_system)
             self.threadpool.start(join_worker)
