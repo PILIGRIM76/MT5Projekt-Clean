@@ -1,0 +1,317 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.2, pytest-9.0.2, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+PySide6 6.10.1 -- Qt runtime 6.10.1 -- Qt compiled 6.10.1
+rootdir: F:\MT5Qoder\MT5Projekt-Clean
+configfile: pytest.ini
+plugins: asyncio-1.3.0, cov-7.1.0, mock-3.15.1, anyio-4.12.1, qt-4.5.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 14 items
+
+tests/core/test_event_bus.py::TestAsyncEventBus::test_publish_subscribe
+-------------------------------- live log call --------------------------------
+13:23:48 - INFO - EventBus started
+13:23:48 - INFO - Subscribed handler to test_event in STRATEGY_ENGINE
+13:23:48 - INFO - EventBus stopped. Stats: {'published': 1, 'dispatched': 1, 'errors': 0, 'avg_dispatch_latency_ms': 0.1304149627685547}
+PASSED                                                                   [  7%]
+tests/core/test_event_bus.py::TestAsyncEventBus::test_priority_ordering
+-------------------------------- live log call --------------------------------
+13:23:48 - INFO - EventBus started
+13:23:48 - INFO - Subscribed tracking_handler to priority_test in STRATEGY_ENGINE
+13:23:48 - INFO - EventBus stopped. Stats: {'published': 3, 'dispatched': 3, 'errors': 0, 'avg_dispatch_latency_ms': 0.03886222839355469}
+PASSED                                                                   [ 14%]
+tests/core/test_event_bus.py::TestAsyncEventBus::test_queue_full_rejection
+-------------------------------- live log call --------------------------------
+13:23:48 - INFO - EventBus started
+13:23:48 - INFO - EventBus stopped. Stats: {'published': 3, 'dispatched': 0, 'errors': 0, 'avg_dispatch_latency_ms': 0.0}
+PASSED                                                                   [ 21%]
+tests/core/test_event_bus.py::TestAsyncEventBus::test_multiple_subscribers
+-------------------------------- live log call --------------------------------
+13:23:48 - INFO - EventBus started
+13:23:48 - INFO - Subscribed handler1 to multi_test in STRATEGY_ENGINE
+13:23:48 - INFO - Subscribed handler2 to multi_test in STRATEGY_ENGINE
+13:23:48 - INFO - EventBus stopped. Stats: {'published': 1, 'dispatched': 2, 'errors': 0, 'avg_dispatch_latency_ms': 0.07128715515136719}
+PASSED                                                                   [ 28%]
+tests/core/test_event_bus.py::TestAsyncEventBus::test_handler_error_handling
+-------------------------------- live log call --------------------------------
+13:23:48 - INFO - EventBus started
+13:23:48 - INFO - Subscribed error_handler to error_test in STRATEGY_ENGINE
+13:23:48 - INFO - Subscribed success_handler to error_test in STRATEGY_ENGINE
+13:23:48 - INFO - Created executor for ExecutorType.THREAD_POOL
+13:23:48 - ERROR - Handler error_handler failed for error_test: Test error
+Traceback (most recent call last):
+  File "F:\MT5Qoder\MT5Projekt-Clean\src\core\event_bus.py", line 301, in _dispatch_to_subscriber
+    return await run_handler()
+           ^^^^^^^^^^^^^^^^^^^
+  File "F:\MT5Qoder\MT5Projekt-Clean\src\core\event_bus.py", line 291, in run_handler
+    return await loop.run_in_executor(executor, lambda: handler(event))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\concurrent\futures\thread.py", line 86, in run
+    result = ctx.run(self.task)
+  File "C:\Python314\Lib\concurrent\futures\thread.py", line 73, in run
+    return fn(*args, **kwargs)
+  File "F:\MT5Qoder\MT5Projekt-Clean\src\core\event_bus.py", line 291, in <lambda>
+    return await loop.run_in_executor(executor, lambda: handler(event))
+                                                        ~~~~~~~^^^^^^^
+  File "F:\MT5Qoder\MT5Projekt-Clean\tests\core\test_event_bus.py", line 113, in error_handler
+    raise ValueError("Test error")
+ValueError: Test error
+13:23:48 - INFO - EventBus stopped. Stats: {'published': 1, 'dispatched': 2, 'errors': 1, 'avg_dispatch_latency_ms': 12.59469985961914}
+PASSED                                                                   [ 35%]
+tests/core/test_event_bus.py::TestAsyncEventBus::test_stats_tracking
+-------------------------------- live log call --------------------------------
+13:23:48 - INFO - EventBus started
+13:23:48 - INFO - Subscribed dummy_handler to stats_test in STRATEGY_ENGINE
+13:23:49 - INFO - EventBus stopped. Stats: {'published': 5, 'dispatched': 5, 'errors': 0, 'avg_dispatch_latency_ms': 0.03361701965332031}
+PASSED                                                                   [ 42%]
+tests/core/test_event_bus.py::TestAsyncEventBus::test_event_context_manager
+-------------------------------- live log call --------------------------------
+13:23:49 - INFO - EventBus started
+13:23:49 - INFO - Subscribed handler to context_test in STRATEGY_ENGINE
+13:23:49 - INFO - EventBus stopped. Stats: {'published': 1, 'dispatched': 1, 'errors': 0, 'avg_dispatch_latency_ms': 0.07987022399902344}
+PASSED                                                                   [ 50%]
+tests/core/test_event_bus.py::TestAsyncEventBus::test_sync_publish_from_async_context
+-------------------------------- live log call --------------------------------
+13:23:49 - INFO - EventBus started
+13:23:49 - INFO - Subscribed handler to sync_pub_test in STRATEGY_ENGINE
+13:23:49 - INFO - EventBus stopped. Stats: {'published': 1, 'dispatched': 1, 'errors': 0, 'avg_dispatch_latency_ms': 0.08678436279296875}
+PASSED                                                                   [ 57%]
+tests/core/test_event_bus.py::TestSystemEvent::test_event_creation PASSED [ 64%]
+tests/core/test_event_bus.py::TestSystemEvent::test_event_age PASSED     [ 71%]
+tests/core/test_event_bus.py::TestSystemEvent::test_event_priority_comparison PASSED [ 78%]
+tests/core/test_event_bus.py::TestEventPriority::test_all_priorities_defined PASSED [ 85%]
+tests/core/test_event_bus.py::TestEventPriority::test_priority_ordering PASSED [ 92%]
+tests/core/test_event_bus.py::TestGetEventBus::test_singleton_pattern PASSED [100%]
+ERROR: Coverage failure: total of 3 is less than fail-under=40
+
+
+=============================== tests coverage ================================
+_______________ coverage: platform win32, python 3.14.2-final-0 _______________
+
+Name                                          Stmts   Miss  Cover   Missing
+---------------------------------------------------------------------------
+src\__init__.py                                   0      0   100%
+src\_version.py                                   1      1     0%   1
+src\analysis\__init__.py                          0      0   100%
+src\analysis\anomaly_detector.py                 94     94     0%   2-162
+src\analysis\backtester.py                       73     73     0%   2-105
+src\analysis\defi_analyzer.py                   137    137     0%   11-300
+src\analysis\drift_detector.py                   73     73     0%   2-112
+src\analysis\event_driven_backtester.py         103    103     0%   2-191
+src\analysis\gp_rd_manager.py                    61     61     0%   2-103
+src\analysis\market_regime_manager.py            43     43     0%   2-75
+src\analysis\market_screener.py                  85     85     0%   2-130
+src\analysis\nlp_processor.py                   142    142     0%   2-284
+src\analysis\simulators.py                      190    190     0%   1-308
+src\analysis\strategy_incubator.py              160    160     0%   19-392
+src\analysis\strategy_optimizer.py               78     78     0%   2-105
+src\analysis\stress_tester.py                    49     49     0%   2-87
+src\analysis\synthetic_indices.py                54     54     0%   2-97
+src\analysis\system_backtester.py               197    197     0%   2-354
+src\core\__init__.py                              9      0   100%
+src\core\account_manager.py                     112    112     0%   14-227
+src\core\account_monitor.py                     107    107     0%   18-301
+src\core\auto_updater.py                        280    280     0%   3-437
+src\core\cache_manager.py                       125    125     0%   6-258
+src\core\circuit_breaker.py                     198    136    31%   63-65, 83-85, 89-91, 140-152, 157-159, 163, 167, 171, 175, 179-186, 190-199, 203-220, 232-251, 263-279, 283-285, 289-290, 311-316, 320-329, 333-337, 374-385, 389-390, 394-395, 399-400, 404-423, 427-430, 439, 448
+src\core\config_loader.py                       100    100     0%   11-229
+src\core\config_models.py                       272      0   100%
+src\core\config_validator.py                    117    117     0%   9-273
+src\core\config_writer.py                        21     21     0%   2-36
+src\core\container.py                           133    133     0%   15-340
+src\core\event_bus.py                           286     93    67%   125, 133, 139-141, 168-173, 185-188, 259, 268-274, 293, 299, 309-310, 320-325, 411, 424-425, 439-440, 444-445, 449-453, 457-458, 472-486, 491-507, 511-512, 526-537, 541-544, 548, 556-559, 569, 595-599, 612-616
+src\core\events.py                              104      4    96%   177, 195, 204, 213
+src\core\health_monitor.py                      207    207     0%   7-335
+src\core\hot_reload_manager.py                  457    457     0%   16-828
+src\core\interfaces.py                          132    132     0%   11-576
+src\core\lock_manager.py                        227    159    30%   84-86, 103-108, 112-115, 122-151, 230-341, 350-354, 358-363, 375-377, 381-383, 393-410, 436-447, 454-461, 465-469, 473-479, 492-493, 499-500, 514-522
+src\core\loop_manager.py                        241    241     0%   9-360
+src\core\memory_utils.py                        158    158     0%   10-344
+src\core\metrics.py                              97     97     0%   6-198
+src\core\model_loader.py                        181    181     0%   12-384
+src\core\mt5_connection_manager.py              178    178     0%   11-368
+src\core\mt5_symbol_helper.py                    89     89     0%   11-186
+src\core\online_learner.py                       54     54     0%   2-87
+src\core\orchestrator.py                        187    187     0%   2-338
+src\core\paper_trading_engine.py                300    300     0%   15-718
+src\core\profiler.py                            100    100     0%   7-206
+src\core\resource_governor.py                   244    189    23%   28-30, 36-38, 123-127, 130-145, 161-211, 220-230, 244-251, 260-294, 303-317, 326-332, 344-352, 356-358, 386-402, 417-438, 447-455, 459-473, 477-505, 518-528, 532-540, 551-555
+src\core\safety_monitor.py                      117    117     0%   9-213
+src\core\secrets_manager.py                     261    261     0%   17-583
+src\core\secure_config.py                        79     79     0%   11-241
+src\core\services\__init__.py                     5      5     0%   17-22
+src\core\services\base_service.py                53     53     0%   12-148
+src\core\services\data_service.py                93     93     0%   16-271
+src\core\services\execution_service.py          160    160     0%   16-417
+src\core\services\ml_service.py                 140    140     0%   16-377
+src\core\services\monitoring_service.py         204    204     0%   8-372
+src\core\services\orchestrator_service.py       101    101     0%   8-205
+src\core\services\portfolio_service.py          182    182     0%   2-329
+src\core\services\risk_service.py               119    119     0%   8-257
+src\core\services\signal_service.py             468    468     0%   2-872
+src\core\services\trade_executor.py             548    548     0%   2-1178
+src\core\services\trading_service.py             92     92     0%   9-189
+src\core\services_container.py                   76     76     0%   22-179
+src\core\session_manager.py                      38     38     0%   3-66
+src\core\system_service_manager.py               50     50     0%   8-180
+src\core\task_queue.py                          151    151     0%   11-335
+src\core\thread_domains.py                      100     36    64%   48, 50, 231-233, 243-246, 251-252, 257-259, 276-312
+src\core\trading\__init__.py                      8      8     0%   12-30
+src\core\trading\gui_coordinator.py              62     62     0%   14-137
+src\core\trading\health_check.py                147    147     0%   18-318
+src\core\trading\ml_coordinator.py               85     85     0%   14-229
+src\core\trading\model_fallback.py              117    117     0%   14-269
+src\core\trading\nlp_lazy_loader.py             117    117     0%   16-269
+src\core\trading\trading_engine.py               77     77     0%   13-180
+src\core\trading\utils.py                        45     45     0%   11-110
+src\core\trading_system.py                      192    192     0%   21-454
+src\core\trading_system_db_integration.py       168    168     0%   6-392
+src\core\training_scheduler.py                  224    224     0%   6-373
+src\data\__init__.py                              0      0   100%
+src\data\alternative_data_provider.py            29     29     0%   2-58
+src\data\async_data_provider.py                 226    226     0%   20-550
+src\data\base_market_data_provider.py           142    142     0%   8-467
+src\data\binance_data_stream.py                 144    144     0%   12-398
+src\data\blockchain_provider.py                  97     97     0%   2-194
+src\data\crypto_exchange_provider.py            331    331     0%   16-738
+src\data\data_collector.py                      218    218     0%   17-504
+src\data\data_provider.py                       412    412     0%   2-639
+src\data\data_provider_manager.py               219    219     0%   8-439
+src\data\data_sync_orchestrator.py              118    118     0%   18-302
+src\data\graph_db_manage.py                      44     44     0%   7-78
+src\data\kg_sync_pipeline.py                    143    143     0%   13-413
+src\data\knowledge_graph_querier.py              56     56     0%   3-189
+src\data\market_feed.py                          76     76     0%   16-241
+src\data\multi_source_aggregator.py             286    286     0%   1-533
+src\data\news_collector.py                      223    223     0%   18-614
+src\data\proactive_data_finder.py                17     17     0%   2-44
+src\data\realtime_updater.py                    198    198     0%   13-448
+src\data\unified_news_connector.py              212    212     0%   14-520
+src\data\web_scraper.py                          65     65     0%   2-114
+src\data_enrichment\__init__.py                   0      0   100%
+src\data_enrichment\defi_data_loader.py         125    125     0%   12-261
+src\data_enrichment\load_data.py                 60     60     0%   11-113
+src\data_enrichment\yahoo_finance_loader.py     127    127     0%   10-305
+src\data_models.py                               98     98     0%   11-190
+src\db\__init__.py                                3      3     0%   30-38
+src\db\adapters\__init__.py                       5      5     0%   7-12
+src\db\adapters\qdrant_adapter.py               150    150     0%   8-461
+src\db\adapters\questdb_adapter.py              167    167     0%   8-352
+src\db\adapters\redis_adapter.py                319    319     0%   8-527
+src\db\adapters\timescaledb_adapter.py          184    184     0%   7-479
+src\db\async_db_writer.py                       138    138     0%   16-371
+src\db\command_manager.py                       138    138     0%   9-434
+src\db\database_manager.py                     1095   1095     0%   2-2384
+src\db\models.py                                257    257     0%   7-391
+src\db\multi_database_manager.py                205    205     0%   13-418
+src\db\query_manager.py                          96     96     0%   9-400
+src\db\repositories\__init__.py                   4      4     0%   7-11
+src\db\repositories\candle_repository.py         51     51     0%   6-108
+src\db\repositories\model_repository.py         203    203     0%   7-384
+src\db\repositories\trade_repository.py          49     49     0%   6-113
+src\db\vector_db_manager.py                     215    215     0%   2-336
+src\gui\__init__.py                               4      4     0%   6-10
+src\gui\ai_training_widget.py                   126    126     0%   12-262
+src\gui\analytics_tab.py                        159    159     0%   12-331
+src\gui\animation_manager.py                    180    180     0%   15-413
+src\gui\api_tester.py                            47     47     0%   2-73
+src\gui\backtest_process.py                      98     98     0%   7-173
+src\gui\chart_theme_utils.py                     69     69     0%   6-142
+src\gui\components\__init__.py                    5      5     0%   12-17
+src\gui\components\backtest.py                  118    118     0%   10-214
+src\gui\components\bridges.py                    44     44     0%   10-99
+src\gui\components\charts.py                     69     69     0%   10-148
+src\gui\components\models.py                     61     61     0%   11-95
+src\gui\control_center_widget.py                523    523     0%   2-928
+src\gui\custom_title_bar.py                      93     93     0%   12-173
+src\gui\database_monitor_widget.py              348    348     0%   7-626
+src\gui\dialogs\__init__.py                       3      3     0%   4-7
+src\gui\dialogs\directive_dialog.py              43     43     0%   4-79
+src\gui\dialogs\documentation_dialog.py         164    164     0%   7-396
+src\gui\dialogs\symbol_selection_dialog.py       48     48     0%   2-63
+src\gui\event_bridge.py                         133    133     0%   16-298
+src\gui\gui_dispatcher.py                        55     55     0%   11-128
+src\gui\log_utils.py                            104    104     0%   3-200
+src\gui\main_window.py                          203    203     0%   16-386
+src\gui\main_window_parts\__init__.py             2      2     0%   6-8
+src\gui\models\__init__.py                        2      2     0%   4-6
+src\gui\models\table_models.py                   62     62     0%   4-104
+src\gui\risk_management_widget.py                55     55     0%   13-221
+src\gui\settings_window.py                     2410   2410     0%   3-4357
+src\gui\sound_manager.py                         64     64     0%   2-108
+src\gui\styles.py                                27     27     0%   3-219
+src\gui\trading_modes_widget.py                 250    250     0%   6-583
+src\gui\trading_settings_widget.py               51     51     0%   11-133
+src\gui\trading_system_adapter.py               159    159     0%   7-297
+src\gui\unified_trading_settings.py             413    413     0%   7-798
+src\gui\update_manager_widget.py                150    150     0%   7-335
+src\gui\widgets\__init__.py                       3      3     0%   4-7
+src\gui\widgets\bridges.py                       46     46     0%   4-64
+src\gui\widgets\defi_widget.py                   97     97     0%   6-199
+src\gui\widgets\graph_widgets.py                 85     85     0%   4-163
+src\ml\__init__.py                                0      0   100%
+src\ml\ab_testing.py                            253    253     0%   28-624
+src\ml\ai_backtester.py                         112    112     0%   3-166
+src\ml\architectures.py                          54     54     0%   2-117
+src\ml\auto_trainer.py                          126    126     0%   8-265
+src\ml\championship.py                          359    359     0%   12-714
+src\ml\championship_retraining.py               226    226     0%   15-520
+src\ml\consensus_engine.py                      148    148     0%   2-272
+src\ml\ensemble_predictor.py                    120    120     0%   6-292
+src\ml\feature_engineer.py                      188    188     0%   2-362
+src\ml\feature_importance.py                    180    180     0%   28-530
+src\ml\genetic_programming_core.py              218    218     0%   2-336
+src\ml\model_factory.py                          50     50     0%   2-113
+src\ml\model_paths.py                           113    113     0%   12-250
+src\ml\model_versioning.py                      190    190     0%   29-550
+src\ml\news_enrichment.py                       154    154     0%   11-324
+src\ml\orchestrator_env.py                      145    145     0%   2-245
+src\ml\predictive_engine.py                     132    132     0%   10-308
+src\ml\predictor.py                             171    171     0%   12-400
+src\ml\predictors\__init__.py                     5      5     0%   6-11
+src\ml\predictors\base.py                       139    139     0%   8-310
+src\ml\predictors\lightgbm_predictor.py         106    106     0%   8-232
+src\ml\predictors\lstm_predictor.py              80     80     0%   8-176
+src\ml\predictors\transformer_predictor.py       95     95     0%   8-185
+src\ml\retrain_scheduler.py                      67     67     0%   11-190
+src\ml\rl_trade_manager.py                      188    188     0%   2-340
+src\risk\__init__.py                              0      0   100%
+src\risk\auto_configurator.py                    43     43     0%   3-68
+src\risk\circuit_breaker.py                     266    266     0%   18-520
+src\risk\position_sizer.py                      169    169     0%   18-635
+src\risk\risk_engine.py                         621    621     0%   2-1130
+src\risk\volatility_forecaster.py                28     28     0%   2-62
+src\social\__init__.py                            0      0   100%
+src\social\bus.py                                35     35     0%   8-94
+src\social\models.py                             13     13     0%   6-43
+src\social\network_transport.py                 103    103     0%   7-151
+src\social\publisher.py                          60     60     0%   7-133
+src\social\subscriber.py                        130    130     0%   7-244
+src\strategies\StrategyInterface.py              23     23     0%   2-56
+src\strategies\__init__.py                        0      0   100%
+src\strategies\adaptive.py                       83     83     0%   16-253
+src\strategies\breakout.py                      322    322     0%   18-705
+src\strategies\features.py                      206    206     0%   7-407
+src\strategies\mean_reversion.py                 52     52     0%   2-97
+src\strategies\moving_average_crossover.py       55     55     0%   2-95
+src\strategies\strategy_loader.py                76     76     0%   2-110
+src\strategies\strategy_optimizer.py            261    261     0%   23-682
+src\utils\__init__.py                             0      0   100%
+src\utils\analysis_utils.py                      26     26     0%   3-41
+src\utils\cache_manager.py                      158    158     0%   24-444
+src\utils\device_manager.py                      68     68     0%   11-123
+src\utils\file_utils.py                          46     46     0%   10-108
+src\utils\gui_thread_safety.py                   68     68     0%   17-178
+src\utils\logger.py                              83     83     0%   12-253
+src\utils\retry_utils.py                         48     48     0%   9-127
+src\utils\scheduler_manager.py                   95     95     0%   3-192
+src\utils\torch_utils.py                         31     31     0%   9-90
+src\utils\worker.py                              25     25     0%   2-52
+src\web\__init__.py                               0      0   100%
+src\web\data_models.py                           11     11     0%   1-47
+src\web\server.py                               283    283     0%   11-486
+---------------------------------------------------------------------------
+TOTAL                                         31160  30337     3%
+Coverage HTML written to dir htmlcov
+FAIL Required test coverage of 40% not reached. Total coverage: 2.64%
+============================= 14 passed in 8.20s ==============================

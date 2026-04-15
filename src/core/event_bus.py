@@ -19,7 +19,7 @@ import logging
 import threading
 import time
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -114,7 +114,7 @@ class AsyncEventBus:
             "errors": 0,
             "avg_dispatch_latency_ms": 0.0,
         }
-        self._latency_samples: List[float] = []
+        self._latency_samples: deque = deque(maxlen=100)  # O(1) вместо O(n)
 
         # Callback для обработки ошибок (можно установить извне)
         self.error_handler: Optional[Callable[[SystemEvent, Exception], None]] = None
@@ -327,8 +327,7 @@ class AsyncEventBus:
     def _update_latency_stat(self, new_latency: float):
         """Обновление скользящего среднего латентности"""
         self._latency_samples.append(new_latency)
-        if len(self._latency_samples) > 100:
-            self._latency_samples.pop(0)
+        # deque(maxlen=100) автоматически удаляет старые записи — нет O(n) pop(0)
         if self._latency_samples:
             self._stats["avg_dispatch_latency_ms"] = sum(self._latency_samples) / len(self._latency_samples)
 
@@ -396,12 +395,15 @@ class EventBus:
     """
 
     _instance: Optional["EventBus"] = None
+    _instance_lock: threading.Lock = threading.Lock()  # Thread-safe singleton
 
     def __new__(cls) -> "EventBus":
-        """Singleton паттерн."""
+        """Singleton паттерн (thread-safe с double-checked locking)."""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
 
     def __init__(self):
@@ -411,7 +413,7 @@ class EventBus:
         self._initialized = True
         self._subscribers: Dict[EventType, List[Callable]] = defaultdict(list)
         self._async_subscribers: Dict[EventType, List[Callable]] = defaultdict(list)
-        self._event_history: List[Event] = []
+        self._event_history: deque = deque(maxlen=1000)  # O(1) вместо O(n) pop(0)
         self._max_history = 1000
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -468,8 +470,7 @@ class EventBus:
         """
         # Сохранение в историю
         self._event_history.append(event)
-        if len(self._event_history) > self._max_history:
-            self._event_history.pop(0)
+        # deque(maxlen=1000) автоматически удаляет старые записи — нет O(n) pop(0)
 
         logger.debug(f"Публикация события: {event.type.value}")
 

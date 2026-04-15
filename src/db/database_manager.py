@@ -13,8 +13,17 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn as nn
+
+# Ленивый импорт PyTorch — предотвращает падение при отсутствии torch
+try:
+    import torch
+    import torch.nn as nn
+
+    TORCH_AVAILABLE = True
+except ImportError:
+    # Не перезаписываем torch=None чтобы не ломать scipy/sklearn проверки
+    nn = None
+    TORCH_AVAILABLE = False
 from MetaTrader5 import ORDER_TYPE_BUY
 from sqlalchemy import (
     Boolean,
@@ -201,10 +210,14 @@ class DatabaseManager:
             model_types = [row[0] for row in model_types_query]
             champion_models = {}
 
-            device = torch.device("cpu")
+            device = torch.device("cpu") if TORCH_AVAILABLE else "cpu"
             logger.info(f"Загрузка моделей для {symbol} на устройство: {device}")
 
             for m_type in model_types:
+                # Пропускаем PyTorch модели если torch недоступен
+                if "PyTorch" in m_type and not TORCH_AVAILABLE:
+                    logger.warning(f"⚠️ PyTorch модель {m_type} пропущена (torch не установлен)")
+                    continue
                 model_record = (
                     session.query(TrainedModel)
                     .filter_by(symbol=symbol, timeframe=timeframe, model_type=m_type, is_champion=True)
@@ -1660,7 +1673,7 @@ class DatabaseManager:
         session = self.Session()
         try:
             model_bytes = None
-            if isinstance(model, nn.Module):
+            if TORCH_AVAILABLE and isinstance(model, nn.Module):
                 buffer = io.BytesIO()
                 torch.save(model.state_dict(), buffer)
                 model_bytes = buffer.getvalue()
@@ -2056,9 +2069,13 @@ class DatabaseManager:
 
             features = json.loads(model_record.features_json) if model_record.features_json else []
             model = None
-            device = torch.device("cpu")  # Загружаем на CPU для стабильности
 
             if "PyTorch" in model_record.model_type:
+                if not TORCH_AVAILABLE:
+                    logger.error(f"⚠️ PyTorch модель {model_record.model_type} не может быть загружена (torch не установлен)")
+                    return None
+
+                device = torch.device("cpu")  # Загружаем на CPU для стабильности
                 params = json.loads(model_record.hyperparameters_json) if model_record.hyperparameters_json else {}
                 input_dim = len(features)
 

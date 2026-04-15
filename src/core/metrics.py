@@ -55,6 +55,8 @@ class SystemMetrics:
             "inference_latency_ms": MetricHistogram("inference_latency_ms"),
         }
         self._pipeline_starts: Dict[str, float] = {}
+        self._pipeline_max_age = 300  # 5 минут TTL для предотвращения утечки
+        self._last_cleanup = time.time()
         self.event_bus = get_event_bus()
 
     async def start(self):
@@ -66,7 +68,25 @@ class SystemMetrics:
         await self.event_bus.subscribe("order_failed", self._on_order_failed)
         logger.info("SystemMetrics collector started")
 
+    def _cleanup_expired_pipelines(self):
+        """Очистка просроченных pipeline записей для предотвращения утечки"""
+        now = time.time()
+        if now - self._last_cleanup < self._pipeline_max_age:
+            return
+
+        expired = []
+        for corr_id, start_time in self._pipeline_starts.items():
+            if now - start_time > self._pipeline_max_age:
+                expired.append(corr_id)
+
+        for corr_id in expired:
+            del self._pipeline_starts[corr_id]
+            logger.warning(f"Cleaned up expired pipeline tracking: {corr_id}")
+
+        self._last_cleanup = now
+
     def track_pipeline_start(self, correlation_id: str):
+        self._cleanup_expired_pipelines()  # Проверка перед добавлением
         self._pipeline_starts[correlation_id] = time.perf_counter()
 
     def track_pipeline_end(self, correlation_id: str):
@@ -74,6 +94,7 @@ class SystemMetrics:
         if start:
             latency = (time.perf_counter() - start) * 1000
             self.histograms["pipeline_latency_ms"].observe(latency)
+        # Если start=None, значит pipeline tracking истёк или не был начат
 
     def _on_tick(self, event: SystemEvent):
         self.counters["ticks_received"].inc()
@@ -118,7 +139,7 @@ metrics = SystemMetrics()
 
 # === Prometheus Exporter ===
 try:
-    from prometheus_client import Counter, Histogram, Gauge, start_http_server
+    from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
     # Определение метрик
     TICKS_RECEIVED = Counter(
@@ -174,6 +195,4 @@ try:
 except ImportError:
 
     def start_prometheus_exporter(port: int = 9118):
-        logger.warning(
-            "prometheus_client not installed — metrics export disabled"
-        )
+        logger.warning("prometheus_client not installed — metrics export disabled")

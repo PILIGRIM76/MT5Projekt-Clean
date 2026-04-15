@@ -46,6 +46,7 @@ from PySide6.QtCore import (
     QRectF,
     QRunnable,
     Qt,
+    QThread,
     QThreadPool,
     QTimer,
     QUrl,
@@ -522,7 +523,8 @@ class MainWindow(QMainWindow):
 
         # --- Панель Поиска ---
         search_group = QGroupBox("Семантический Поиск (RAG)")
-        search_layout = QVBoxLayout(search_group)
+        search_layout = QVBoxLayout()
+        search_group.setLayout(search_layout)
 
         input_layout = QHBoxLayout()
         self.vdb_query_edit = QLineEdit()
@@ -557,20 +559,45 @@ class MainWindow(QMainWindow):
         return widget
 
     def _refresh_vector_db_stats(self):
-        """Запрашивает статистику у ядра."""
-        logger.info("[VectorDB-GUI] Запрос статистики VectorDB")
-        if hasattr(self.trading_system, "get_vector_db_stats"):
-            stats = self.trading_system.get_vector_db_stats()
-            count = stats.get("count", 0)
-            ready = stats.get("is_ready", False)
-            has_embedding = stats.get("has_embedding_model", False)
-            reason = stats.get("reason", "")
+        """Синхронный триггер (вызывается QTimer, не блокирует GUI)"""
+        import threading
 
-            logger.info(f"[VectorDB-GUI] Статистика получена: готов={ready}, документов={count}, embedding={has_embedding}")
+        def fetch_and_apply():
+            """Асинхронное получение данных из VectorDB"""
+            import asyncio
 
-            self.vdb_count_label.setText(f"Документов в индексе: {count}")
+            try:
+                if hasattr(self.trading_system, "get_vector_db_stats"):
+                    loop = asyncio.new_event_loop()
+                    stats = loop.run_until_complete(self.trading_system.get_vector_db_stats())
+                    loop.close()
 
-            if ready:
+                    if isinstance(stats, dict):
+                        count = stats.get("count", 0)
+                        ready = stats.get("is_ready", False)
+                        has_embedding = stats.get("has_embedding_model", False)
+                        reason = stats.get("reason", "")
+
+                        # Безопасное обновление UI в главном потоке через QTimer
+                        from PySide6.QtCore import QTimer
+
+                        QTimer.singleShot(0, lambda: self._apply_vdb_stats(count, ready, has_embedding, reason))
+                    else:
+                        logger.warning(f"[VectorDB-GUI] Неожиданный формат ответа: {type(stats)}")
+                else:
+                    logger.warning("[VectorDB-GUI] Метод get_vector_db_stats не найден")
+            except Exception as e:
+                logger.error(f"[VectorDB-GUI] Ошибка загрузки статистики: {e}", exc_info=True)
+
+        threading.Thread(target=fetch_and_apply, daemon=True).start()
+
+    def _apply_vdb_stats(self, count: int, is_ready: bool, has_embedding: bool, reason: str):
+        """Применение данных к виджетам (выполняется строго в Qt MainThread)"""
+        try:
+            if hasattr(self, "vdb_count_label"):
+                self.vdb_count_label.setText(f"Документов в индексе: {count}")
+
+            if is_ready:
                 status_text = "АКТИВНА"
                 color = "#50fa7b"
             elif reason:
@@ -583,8 +610,15 @@ class MainWindow(QMainWindow):
                 status_text = "НЕ ГОТОВА"
                 color = "#ff5555"
 
-            self.vdb_status_label.setText(f"Статус: {status_text}")
-            self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+            if hasattr(self, "vdb_status_label"):
+                self.vdb_status_label.setText(f"Статус: {status_text}")
+                self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+            logger.info(
+                f"[VectorDB-GUI] Статистика обновлена: документов={count}, готов={is_ready}, embedding={has_embedding}"
+            )
+        except Exception as e:
+            logger.error(f"[VectorDB-GUI] Ошибка обновления UI: {e}")
 
     def _on_vector_db_search(self):
         query = self.vdb_query_edit.text().strip()
@@ -850,13 +884,9 @@ class MainWindow(QMainWindow):
                 if init_method:
                     init_method()
                 else:
-                    logger.info(
-                        "initialize_heavy_components не найден — пропускаем"
-                    )
+                    logger.info("initialize_heavy_components не найден — пропускаем")
                 # После завершения отправляем сигнал об успехе
-                self.bridge.status_updated.emit(
-                    "AI-модели загружены. Система готова к запуску.", False
-                )
+                self.bridge.status_updated.emit("AI-модели загружены. Система готова к запуску.", False)
                 self.bridge.heavy_initialization_finished.emit()
                 self.start_button.setEnabled(True)
             except Exception as e:
@@ -924,7 +954,8 @@ class MainWindow(QMainWindow):
     def _create_thread_status_panel(self) -> QGroupBox:
         """Создает панель для отображения статуса фоновых потоков и задач."""
         group_box = QGroupBox("Статус Системы")
-        layout = QGridLayout(group_box)
+        layout = QGridLayout()
+        group_box.setLayout(layout)
         layout.setColumnStretch(1, 1)
 
         # Словарь для живых потоков
@@ -1204,7 +1235,8 @@ class MainWindow(QMainWindow):
     def _create_kpi_bar(self) -> QGroupBox:
         """Создает виджет для отображения ключевых метрик PnL за период."""
         group_box = QGroupBox("PnL по Периодам")
-        layout = QGridLayout(group_box)
+        layout = QGridLayout()
+        group_box.setLayout(layout)
 
         # Метки для PnL (закрытые сделки)
         self.pnl_day_label = QLabel("День: N/A")
@@ -2055,6 +2087,24 @@ class MainWindow(QMainWindow):
         if hasattr(self.bridge, "trading_signals_updated"):
             self.bridge.trading_signals_updated.connect(self.control_center_tab.update_trading_signals_table)
 
+        # Подключение сигналов запуска/остановки торговли
+        self.bridge.trading_started.connect(self._on_trading_started_success)
+        self.bridge.trading_stopped.connect(self._on_trading_stopped_success)
+
+    def _on_trading_started_success(self, status: bool):
+        """GUI получил подтверждение запуска."""
+        self.status_label.setText("✅ Торговая система запущена")
+        self.stop_button.setEnabled(True)
+        self.start_button.setEnabled(False)
+        logger.info("✅ GUI получил подтверждение запуска")
+
+    def _on_trading_stopped_success(self, status: bool):
+        """GUI получил подтверждение остановки."""
+        self.status_label.setText("🛑 Система остановлена")
+        self.stop_button.setEnabled(False)
+        self.start_button.setEnabled(True)
+        logger.info("🛑 GUI получил подтверждение остановки")
+
     @Slot()
     def on_observer_checkbox_clicked(self):
         """
@@ -2076,13 +2126,17 @@ class MainWindow(QMainWindow):
 
             if reply == QMessageBox.Yes:
                 # Пользователь подтвердил -> Выключаем
-                self.trading_system.set_observer_mode(False)
+                import asyncio
+
+                threading.Thread(target=lambda: asyncio.run(self.trading_system.set_observer_mode(False)), daemon=True).start()
             else:
                 # Пользователь отменил -> Возвращаем галочку обратно (Включено)
                 self.observer_checkbox.setChecked(True)
         else:
             # Пользователь ставит галочку -> Включаем без вопросов
-            self.trading_system.set_observer_mode(True)
+            import asyncio
+
+            threading.Thread(target=lambda: asyncio.run(self.trading_system.set_observer_mode(True)), daemon=True).start()
 
     def _delete_selected_directive(self):
         selected_indexes = self.directives_table.selectionModel().selectedRows()
@@ -2106,6 +2160,8 @@ class MainWindow(QMainWindow):
             getattr(getattr(self.trading_system, "core_system", None), "delete_directive", None)(directive_type)
 
     def _prompt_and_restart(self):
+        """Обработчик кнопки перезапуска"""
+        logger.info("🔘 Клик: Перезапуск системы")
         reply = QMessageBox.question(
             self,
             "Подтверждение перезапуска",
@@ -2114,25 +2170,37 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.Yes:
-            self.update_status("Перезапуск системы...", is_error=False)
-
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Icon.Information)
-            msg.setText("Перезапуск системы...")
-            msg.setInformativeText("Пожалуйста, подождите. Приложение будет перезапущено.")
-            msg.setStandardButtons(QMessageBox.StandardButton.NoButton)
-            msg.show()
-
+            self.status_label.setText("⏳ Остановка компонентов...")
             QApplication.processEvents()
 
-            # Проверка перед вызовом
-            _method = getattr(
-                getattr(self.trading_system, "core_system", None),
-                "restart_system",
-                None,
-            )
-            if _method:
-                _method()
+            # Отправляем запрос в ядро через asyncio поток
+            if hasattr(self, "asyncio_thread") and self.asyncio_thread.loop:
+                event_bridge = getattr(self, "_event_bridge", None)
+                if event_bridge and hasattr(event_bridge, "request_system_restart"):
+                    asyncio.run_coroutine_threadsafe(event_bridge.request_system_restart(), self.asyncio_thread.loop)
+                    logger.info("🚀 Запрос на перезапуск отправлен в ядро")
+
+                    # Подключаем временный обработчик для подтверждения
+                    def on_restart_done(success: bool):
+                        if success:
+                            self.status_label.setText("✅ Система перезапущена")
+                            logger.info("✅ Перезапуск завершён успешно")
+
+                            # Сброс GUI после перезапуска
+                            self._reset_gui_after_restart()
+                        else:
+                            self.status_label.setText("❌ Ошибка перезапуска")
+                            logger.error("❌ Перезапуск не удался")
+                        self.stop_button.setEnabled(True)
+                        self.start_button.setEnabled(True)
+
+                    self._event_bridge.system_restart_completed.connect(
+                        on_restart_done, type=Qt.ConnectionType.SingleShotConnection
+                    )
+                else:
+                    logger.warning("⚠️ request_system_restart недоступен")
+            else:
+                logger.warning("⚠️ Asyncio поток не готов")
 
     def update_times(self, pc_time_str: str, server_time_str: str):
         # Убрано избыточное логирование (каждые несколько секунд)
@@ -2416,7 +2484,8 @@ class MainWindow(QMainWindow):
                     else:
                         self.update_last_check_label.setText("⏰ Последняя проверка: Ещё не проверялось")
                 else:
-                    logger.warning("[MainWindow] hot_reload_manager = None")
+                    # hot_reload_manager может быть None — это нормально
+                    self.update_last_check_label.setText("⏰ Hot-reload не активен")
             else:
                 logger.warning("[MainWindow] adapter.core_system отсутствует")
         except Exception as e:
@@ -2491,26 +2560,31 @@ class MainWindow(QMainWindow):
         self.bad_trade_button.setEnabled(False)
 
     def start_trading(self):
-        """Запускает процесс инициализации торговой системы."""
-        logger.info("[GUI-Action] Пользователь нажал кнопку 'Запустить торговлю'")
-        try:
-            if getattr(getattr(self.trading_system, "core_system", None), "running", None):
-                logger.warning("[GUI-Action] Система уже запущена, игнорируем повторный запуск")
-                return
+        """Безопасная отправка команды в асинхронный поток."""
+        logger.info("🔘 Клик: Запустить торговлю")
+        self.status_label.setText("⏳ Инициализация ядра...")
+        QApplication.processEvents()
 
-            # Фоновые сервисы уже запущены при автоинициализации
-            # Нужно только подключить MT5 и запустить торговый цикл
-            logger.info("[GUI-Action] Запуск торгового цикла...")
-            self.start_button.setEnabled(False)
-            self.stop_button.setEnabled(False)
-            self.status_label.setText("Подключение к торговому терминалу и запуск системы...")
-            QApplication.processEvents()
-
-            # Запускаем start_all_threads в фоновом потоке, чтобы не блокировать GUI
+        # Проверяем, готов ли поток
+        if not hasattr(self, "asyncio_thread") or not self.asyncio_thread.loop:
+            logger.warning("⚠️ Asyncio поток ещё не готов, запускаю fallback")
             threading.Thread(target=self.trading_system.start_all_threads, daemon=True).start()
-            logger.info("[GUI-Action] Торговая система запускается в фоновом потоке")
-        except Exception as e:
-            logger.error(f"[GUI-Action] Ошибка при запуске торговли: {e}", exc_info=True)
+            return
+
+        # Отправляем задачу в нужный поток
+        event_bridge = getattr(self, "_event_bridge", None)
+        if event_bridge and hasattr(event_bridge, "publish_from_gui"):
+            asyncio.run_coroutine_threadsafe(
+                event_bridge.publish_from_gui(
+                    event_type="trading_start_requested",
+                    payload={"mode": "standard", "user_initiated": True},
+                ),
+                self.asyncio_thread.loop,
+            )
+            logger.info("🚀 Команда на запуск отправлена в ядро через EventBus")
+        else:
+            logger.warning("⚠️ publish_from_gui недоступен, запускаю напрямую")
+            threading.Thread(target=self.trading_system.start_all_threads, daemon=True).start()
 
     def on_initialization_successful(self, symbols: list):
         logger.info(f"Инициализация успешна. Получено {len(symbols)} символов для бэктестера.")
@@ -2548,7 +2622,7 @@ class MainWindow(QMainWindow):
                 logger.info("[GUI] Система уже запущена, пропускаю повторный вызов start_all_threads()")
             else:
                 logger.warning("[GUI] Система НЕ запущена! Вызываю start_all_threads()")
-                self.trading_system.start_all_threads()
+                asyncio.create_task(self.trading_system.start_all_threads())
 
             # ОТПРАВКА ДАННЫХ ДЛЯ ГРАФИКОВ ЧЕРЕЗ 5 СЕКУНД ПОСЛЕ ЗАПУСКА
             QTimer.singleShot(5000, self._send_initial_training_data)
@@ -2561,27 +2635,65 @@ class MainWindow(QMainWindow):
             self.stop_button.setEnabled(False)
             self.bridge.initialization_failed.emit()
 
+    def _reset_gui_after_restart(self):
+        """Сброс GUI состояния после перезапуска системы."""
+        logger.info("[GUI] Сброс состояния после перезапуска...")
+
+        try:
+            # Сброс статуса
+            self.status_label.setText("✅ Система перезапущена")
+
+            # Обновление стратегий и индикаторов
+            if hasattr(self, "control_center_tab") and self.control_center_tab:
+                if hasattr(self.control_center_tab, "refresh_strategies"):
+                    self.control_center_tab.refresh_strategies()
+                logger.info("[GUI] ControlCenter обновлён")
+
+            # Сброс графиков обучения
+            if hasattr(self, "training_progress_chart"):
+                if hasattr(self.training_progress_chart, "update_progress"):
+                    self.training_progress_chart.update_progress([])
+                    logger.info("[GUI] График прогресса сброшен")
+
+            # Обновление списка моделей
+            self._fetch_and_update_models()
+            logger.info("[GUI] Список моделей обновлён")
+
+            # Обновление статистики VectorDB
+            if hasattr(self, "_refresh_vector_db_stats"):
+                QTimer.singleShot(2000, self._refresh_vector_db_stats)  # Через 2 сек
+                logger.info("[GUI] Запрос обновления VectorDB отложен")
+
+            # Отправка начальных данных для графиков
+            QTimer.singleShot(3000, self._send_initial_training_data)  # Через 3 сек
+            logger.info("[GUI] Запрос начальных данных отложен")
+
+            logger.info("[GUI] ✅ Сброс GUI завершён")
+
+        except Exception as e:
+            logger.error(f"[GUI] Ошибка сброса после перезапуска: {e}", exc_info=True)
+
     def _send_initial_training_data(self):
         """Отправляет начальные данные для графиков обучения после запуска."""
         logger.info("[GUI] Отправка начальных данных для графиков переобучения...")
         if hasattr(self.trading_system.core_system, "_send_model_accuracy_to_gui"):
             # Проверка перед вызовом
-                _method = getattr(
-                    getattr(self.trading_system, "core_system", None),
-                    "_send_model_accuracy_to_gui",
-                    None,
-                )
-                if _method:
-                    _method()
+            _method = getattr(
+                getattr(self.trading_system, "core_system", None),
+                "_send_model_accuracy_to_gui",
+                None,
+            )
+            if _method:
+                _method()
         if hasattr(self.trading_system.core_system, "_send_retrain_progress_to_gui"):
             # Проверка перед вызовом
-                _method = getattr(
-                    getattr(self.trading_system, "core_system", None),
-                    "_send_retrain_progress_to_gui",
-                    None,
-                )
-                if _method:
-                    _method()
+            _method = getattr(
+                getattr(self.trading_system, "core_system", None),
+                "_send_retrain_progress_to_gui",
+                None,
+            )
+            if _method:
+                _method()
 
     def stop_trading(self):
         logger.info("[GUI-Action] Пользователь нажал кнопку 'Остановить торговлю'")
@@ -3441,9 +3553,7 @@ class MainWindow(QMainWindow):
 
                 def run(self):
                     # Отправляем сигнал остановки (если не было) и ждем завершения
-                    stop_event = getattr(
-                        getattr(self, "core_system", None), "stop_event", None
-                    )
+                    stop_event = getattr(getattr(self, "core_system", None), "stop_event", None)
                     if stop_event:
                         stop_event.set()
                     # _join_all_threads - это блокирующая операция, которая ждет завершения всех потоков
@@ -3715,6 +3825,24 @@ def qt_exception_hook(exctype, value, traceback_obj):
     # Не вызываем sys.exit, чтобы дать возможность Qt обработать
 
 
+class AsyncioThread(QThread):
+    """Поток, в котором крутится цикл событий asyncio"""
+
+    def __init__(self):
+        super().__init__()
+        self.loop = None
+
+    def run(self):
+        # Создаем новый цикл событий специально для этого потока
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        try:
+            # Запускаем цикл навсегда (пока не вызовут stop)
+            self.loop.run_forever()
+        finally:
+            self.loop.close()
+
+
 def main():
     """Основная функция для запуска приложения."""
     # Установка глобального обработчика исключений
@@ -3737,7 +3865,85 @@ def main():
         setup_qt_logging(bridge.log_message_added, app_config)
         trading_system_adapter = PySideTradingSystem(config=app_config, bridge=bridge, sound_manager=sound_manager)
 
+        # 3. Сначала создаём главное окно
         window = MainWindow(trading_system_adapter, app_config)
+
+        # 4. Создаём и подключаем GUIEventBridge для связи с EventBus
+        from src.core.event_bus import EventPriority, SystemEvent, get_event_bus
+        from src.core.thread_domains import ThreadDomain
+        from src.gui.event_bridge import GUIEventBridge
+
+        event_bridge = GUIEventBridge(parent=window)
+        event_bridge.set_event_bus(get_event_bus())  # КРИТИЧЕСКАЯ СТРОКА: привязка к EventBus
+        trading_system_adapter.set_event_bridge(event_bridge)
+        window._event_bridge = event_bridge  # Сохраняем ссылку для запуска
+
+        # --- НАЧАЛО ИЗМЕНЕНИЙ: Запуск asyncio в отдельном потоке ---
+
+        # 1. Создаем и запускаем поток для asyncio
+        asyncio_thread = AsyncioThread()
+        asyncio_thread.start()
+
+        # Ждем пару миллисекунд, пока поток инициализирует self.loop
+        import time
+
+        while asyncio_thread.loop is None:
+            time.sleep(0.01)
+
+        # 2. Функция инициализации асинхронной системы
+        async def init_async_system():
+            """Инициализация всех асинхронных компонентов ядра"""
+            logger.info("🔄 Запуск асинхронной подсистемы...")
+
+            event_bus = get_event_bus()
+
+            # 1. Запуск EventBus (диспетчеризация событий)
+            if hasattr(event_bus, "start"):
+                await event_bus.start()
+
+            # 2. Запуск GUI-моста (подписка на события для интерфейса)
+            await event_bridge.start_listening()
+
+            # 3. 🔥 КРИТИЧЕСКИ ВАЖНО: Подписка ядра на команду запуска из GUI
+            async def _on_start_requested(event):
+                logger.info("🧠 Ядро получило команду: trading_start_requested")
+                try:
+                    # Запуск компонентов через trading_system_adapter
+                    if hasattr(window, "trading_system") and window.trading_system:
+                        ts = window.trading_system
+                        if hasattr(ts, "start_all_threads"):
+                            await ts.start_all_threads()
+
+                    # Уведомляем GUI об успехе
+                    await event_bus.publish(
+                        SystemEvent(type="trading_started", payload={"status": True}, priority=EventPriority.HIGH)
+                    )
+                    logger.info("✅ Ядро запущено, все компоненты активны")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка запуска ядра: {e}", exc_info=True)
+                    await event_bus.publish(
+                        SystemEvent(
+                            type="system_alert", payload={"message": f"Сбой запуска: {e}"}, priority=EventPriority.CRITICAL
+                        )
+                    )
+
+            await event_bus.subscribe("trading_start_requested", _on_start_requested, domain=ThreadDomain.STRATEGY_ENGINE)
+            logger.info("✅ Ядро подписано на команду запуска")
+
+            # Подписка ядра на команду перезапуска
+            if hasattr(window, "trading_system") and window.trading_system:
+                await event_bus.subscribe(
+                    "system_restart_requested", window.trading_system._on_system_restart, domain=ThreadDomain.STRATEGY_ENGINE
+                )
+                logger.info("✅ Ядро подписано на команду перезапуска")
+
+        # 3. Отправляем инициализацию в поток asyncio
+        asyncio.run_coroutine_threadsafe(init_async_system(), asyncio_thread.loop)
+
+        # Сохраняем ссылку на поток в окне, чтобы кнопки могли туда обращаться
+        window.asyncio_thread = asyncio_thread
+
+        logger.info(f"✅ AsyncioThread запущен, event_bus привязан")
 
         # Добавляем обработчик aboutToQuit
         app.aboutToQuit.connect(lambda: logger.info("=== QApplication.aboutToQuit СИГНАЛ ПОЛУЧЕН ==="))

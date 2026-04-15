@@ -220,7 +220,8 @@ class ControlCenterWidget(QWidget):
 
         # === ИНФОРМАЦИОННОЕ СООБЩЕНИЕ ===
         info_box = QGroupBox("ℹ️ Управление Настройками Торговли")
-        info_layout = QVBoxLayout(info_box)
+        info_layout = QVBoxLayout()
+        info_box.setLayout(info_layout)
 
         info_label = QLabel(
             "⚙️ <b>Настройки торговли и риск-менеджмента находятся в окне настроек.</b>\n\n"
@@ -269,7 +270,8 @@ class ControlCenterWidget(QWidget):
 
         # === КНОПКА ПРИНУДИТЕЛЬНОГО ПЕРЕОБУЧЕНИЯ ===
         retrain_box = QGroupBox("🔄 Принудительное переобучение AI-моделей")
-        retrain_layout = QVBoxLayout(retrain_box)
+        retrain_layout = QVBoxLayout()
+        retrain_box.setLayout(retrain_layout)
 
         retrain_label = QLabel(
             "Запустите полное переобучение всех AI-моделей для всех символов.\n"

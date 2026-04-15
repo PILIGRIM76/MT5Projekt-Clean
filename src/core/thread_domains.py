@@ -14,6 +14,7 @@
 - DomainRegistry можно использовать постепенно
 """
 
+import copy
 import logging
 import threading
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -220,7 +221,9 @@ DEFAULT_DOMAIN_CONFIG: Dict[ThreadDomain, Dict[str, Any]] = {
 class DomainRegistry:
     """Реестр конфигураций доменов с возможностью переопределения"""
 
-    _config: Dict[ThreadDomain, Dict[str, Any]] = DEFAULT_DOMAIN_CONFIG.copy()
+    _config: Dict[ThreadDomain, Dict[str, Any]] = copy.deepcopy(
+        DEFAULT_DOMAIN_CONFIG
+    )  # deep copy для предотвращения shared state
     _executors: Dict[ExecutorType, Any] = {}
     _lock = threading.Lock()
 
@@ -267,16 +270,41 @@ def run_in_domain(domain: ThreadDomain):
         def predict_price(self, symbol: str) -> float:
             return self.model.predict(...)
 
-    Обратная совместимость:
-        В текущей реализации просто вызывает функцию напрямую.
-        В полной интеграции будет диспетчеризировать через EventBus.
+    Реальная реализация:
+        - Проверяет текущий поток
+        - Если поток не соответствует домену — выполняет через executor
+        - Если уже в правильном домене — вызывает напрямую
     """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
 
     def decorator(func: Callable):
         def wrapper(*args, **kwargs):
-            config = DomainRegistry.get_config(domain)
-            logger.debug(f"Executing {func.__name__} in domain {domain.name} " f"(priority={config['priority']})")
-            return func(*args, **kwargs)
+            # Проверяем, находимся ли мы уже в правильном домене
+            current_thread = threading.current_thread()
+            domain_config = DomainRegistry.get_config(domain)
+            expected_thread_prefix = f"EventBus-{domain.name}"
+
+            # Если уже в правильном потоке — вызываем напрямую
+            if expected_thread_prefix in current_thread.name:
+                logger.debug(f"Already in domain {domain.name}, executing directly")
+                return func(*args, **kwargs)
+
+            # Иначе выполняем через executor
+            logger.debug(f"Dispatching {func.__name__} to domain {domain.name} " f"(from thread: {current_thread.name})")
+
+            # Получаем executor для домена
+            exec_type = domain_config.get("executor_type")
+            executor = DomainRegistry.get_executor(exec_type)
+
+            if executor is None:
+                # Fallback: вызываем напрямую если нет executor
+                logger.warning(f"No executor for domain {domain.name}, executing in current thread")
+                return func(*args, **kwargs)
+
+            # Выполняем в executor
+            future = executor.submit(func, *args, **kwargs)
+            return future.result(timeout=domain_config.get("timeout", 30))
 
         wrapper.__domain__ = domain
         wrapper.__wrapped__ = func

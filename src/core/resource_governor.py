@@ -193,7 +193,7 @@ class ResourceGovernor:
 
             # 4. Проверка GPU
             gpu_limit = self._limits[rclass].get("gpu_mem_gb")
-            if gpu_limit is not None and HAS_TORCH and torch.cuda.is_available():
+            if gpu_limit is not None and HAS_TORCH and hasattr(torch, "cuda") and torch.cuda.is_available():
                 gpu_mem_gb = torch.cuda.memory_allocated(0) / (1024**3)
                 if gpu_mem_gb > gpu_limit:
                     self._rejected_count += 1
@@ -277,7 +277,7 @@ class ResourceGovernor:
             summary["swap_pct"] = swap.percent
             summary["swap_free_gb"] = swap.free / (1024**3)
 
-        if HAS_TORCH and torch.cuda.is_available():
+        if HAS_TORCH and hasattr(torch, "cuda") and torch.cuda.is_available():
             summary["gpu_mem_gb"] = torch.cuda.memory_allocated(0) / (1024**3)
             summary["gpu_total_gb"] = torch.cuda.get_device_properties(0).total_memory / (1024**3)
 
@@ -540,13 +540,16 @@ class AdaptiveResourceGovernor:
             return True
 
 
-# Глобальный singleton
+# Глобальный singleton с thread-safe блокировкой
 _governor_instance: Optional[ResourceGovernor] = None
+_governor_lock: threading.Lock = threading.Lock()
 
 
 def get_governor(limits: Optional[Dict[ResourceClass, Dict[str, Any]]] = None) -> ResourceGovernor:
-    """Получает глобальный экземпляр ResourceGovernor."""
+    """Получает глобальный экземпляр ResourceGovernor (thread-safe с double-checked locking)."""
     global _governor_instance
     if _governor_instance is None:
-        _governor_instance = ResourceGovernor(limits)
+        with _governor_lock:
+            if _governor_instance is None:
+                _governor_instance = ResourceGovernor(limits)
     return _governor_instance

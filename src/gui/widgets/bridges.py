@@ -51,6 +51,10 @@ class Bridge(QObject):
     model_accuracy_updated = Signal(dict)
     retrain_progress_updated = Signal(dict)
 
+    # Сигналы запуска/остановки торговли
+    trading_started = Signal(bool)
+    trading_stopped = Signal(bool)
+
 
 class GUIBridge(QObject):
     """

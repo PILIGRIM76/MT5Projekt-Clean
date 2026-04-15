@@ -63,7 +63,8 @@
       "Bash(sed *)",
       "Bash(@echo *)",
       "Bash(tree *)",
-      "Bash(tee *)"
+      "Bash(tee *)",
+      "Bash(f:\\mt5qoder\\mt5projekt-clean\\venv\\scripts\\pip.exe *)"
     ]
   },
   "env": {

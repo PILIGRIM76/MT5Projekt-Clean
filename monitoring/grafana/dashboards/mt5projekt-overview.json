@@ -1,12 +1,14 @@
-{
+﻿{
   "dashboard": {
     "id": null,
+    "uid": "mt5projekt-main",
     "title": "MT5Projekt-Clean Overview",
     "tags": ["trading", "mt5", "ai"],
     "timezone": "browser",
     "panels": [
       {
         "id": 1,
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
         "title": "Pipeline Latency (ms)",
         "type": "timeseries",
         "targets": [
@@ -30,11 +32,11 @@
               ]
             }
           }
-        },
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+        }
       },
       {
         "id": 2,
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
         "title": "Orders Executed vs Failed",
         "type": "timeseries",
         "targets": [
@@ -46,41 +48,12 @@
             "expr": "rate(orders_failed_total[5m])",
             "legendFormat": "Failed"
           }
-        ],
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+        ]
       },
       {
         "id": 3,
-        "title": "Component Health Status",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "component_health_status",
-            "legendFormat": "{{component}}"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "mappings": [
-              {"options": {"0": {"text": "Critical"}}, "type": "value"},
-              {"options": {"1": {"text": "Degraded"}}, "type": "value"},
-              {"options": {"2": {"text": "Healthy"}}, "type": "value"}
-            ],
-            "color": {"mode": "thresholds"},
-            "thresholds": {
-              "steps": [
-                {"color": "red", "value": 0},
-                {"color": "yellow", "value": 1},
-                {"color": "green", "value": 2}
-              ]
-            }
-          }
-        },
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
-      },
-      {
-        "id": 4,
-        "title": "Live Logs",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+        "title": "Live Logs (ERROR/CRITICAL)",
         "type": "logs",
         "targets": [
           {
@@ -92,8 +65,7 @@
           "showLabels": true,
           "showTime": true,
           "wrapLogMessage": true
-        },
-        "gridPos": {"h": 10, "w": 24, "x": 0, "y": 16}
+        }
       }
     ],
     "time": {"from": "now-1h", "to": "now"},

@@ -59,9 +59,12 @@ class AsyncDBWriter:
         self.flush_interval = flush_interval
         self.max_retries = max_retries
 
-        # Очередь событий
-        self.queue: deque = deque()
+        # Очередь событий (с ограничением размера для предотвращения утечки памяти)
+        self.queue: deque = deque(maxlen=10000)
         self._running = False
+
+        # EventBus (инициализируется при старте)
+        self.event_bus = None
 
         # Статистика
         self._total_written = 0
@@ -100,9 +103,10 @@ class AsyncDBWriter:
         """Запуск фонового писателя"""
         self._running = True
 
-        # Подписка на события
-        event_bus = get_event_bus()
+        # Инициализация EventBus
+        self.event_bus = get_event_bus()
 
+        # Подписка на события
         # События которые нужно сохранять
         events_to_subscribe = [
             "market_tick",
@@ -116,7 +120,7 @@ class AsyncDBWriter:
         ]
 
         for event_type in events_to_subscribe:
-            await event_bus.subscribe(
+            await self.event_bus.subscribe(
                 event_type,
                 self._enqueue,
                 domain=ThreadDomain.PERSISTENCE,

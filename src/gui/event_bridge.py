@@ -1,21 +1,13 @@
 # src/gui/event_bridge.py
 """
-Мост между asyncio EventBus и Qt сигналами для Genesis Trading System.
-
-Архитектурный сдвиг:
-- Было: Прямые вызовы mt5.* или db.* из слотов, блокировка UI
-- Стало: Только подписка на EventBus, реактивное обновление через сигналы
-
-Особенности:
-- Все обновления GUI в главном потоке Qt (через Signal)
-- Блокирующие операции в background потоках
-- Автоматический маршалинг между потоками
+Исправленный мост: безопасная доставка событий между Qt и EventBus.
 """
 
+import asyncio
 import logging
-from typing import Any, Dict
+import time
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, Slot
 
 from src.core.event_bus import EventPriority, SystemEvent, get_event_bus
 from src.core.thread_domains import ThreadDomain
@@ -24,135 +16,143 @@ logger = logging.getLogger(__name__)
 
 
 class GUIEventBridge(QObject):
-    """
-    Безопасный мост между asyncio EventBus и Qt сигналами.
+    """Исправленный мост: безопасная доставка событий между Qt и EventBus"""
 
-    Сигналы:
-    - market_tick_received: Новый тик рынка
-    - prediction_updated: Обновление предсказания
-    - trade_executed: Исполнение ордера
-    - system_status: Статус системы
-    - system_alert: Системный алерт
-
-    Использование:
-        bridge = GUIEventBridge()
-        bridge.market_tick_received.connect(on_tick)
-        bridge.prediction_updated.connect(on_prediction)
-
-        await bridge.start_listening()
-    """
-
-    # Signals для отправки в GUI
-    market_tick_received = Signal(dict)
-    prediction_updated = Signal(dict)
-    trade_executed = Signal(dict)
-    system_status = Signal(str)
+    # Сигналы в GUI-поток
+    prediction_received = Signal(dict)
+    signal_generated = Signal(dict)
+    order_executed = Signal(dict)
+    accuracy_updated = Signal(dict)
     system_alert = Signal(str)
-    feed_status = Signal(dict)
-    model_updated = Signal(dict)
+    trading_started = Signal(bool)
+    trading_stopped = Signal(bool)
+    system_restart_requested = Signal()  # НОВОЕ: запрос перезапуска
+    system_restart_completed = Signal(bool)  # НОВОЕ: подтверждение
 
-    def __init__(self):
-        super().__init__()
-        self.event_bus = get_event_bus()
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._event_bus = None
         self._subscribed = False
 
-        logger.info("GUIEventBridge initialized")
+    @property
+    def event_bus(self):
+        return self._event_bus
+
+    def set_event_bus(self, bus):
+        """Явная привязка к EventBus (вызывать до show())"""
+        self._event_bus = bus
+        logger.info("🔗 GUIEventBridge привязан к EventBus")
 
     async def start_listening(self):
-        """
-        Подписка на события для GUI.
-
-        Вызывать один раз при старте приложения.
-        """
-        if self._subscribed:
-            logger.warning("GUIEventBridge already subscribed")
+        """Безопасная подписка на события бэкенда"""
+        if not self._event_bus or self._subscribed:
             return
+        try:
+            await self._event_bus.subscribe("model_prediction", self._on_prediction, domain=ThreadDomain.GUI)
+            await self._event_bus.subscribe("trade_signal", self._on_signal, domain=ThreadDomain.GUI)
+            await self._event_bus.subscribe("order_executed", self._on_order, domain=ThreadDomain.GUI)
+            await self._event_bus.subscribe("system_health", self._on_health, domain=ThreadDomain.GUI)
+            await self._event_bus.subscribe("trading_started", self._on_trading_started, domain=ThreadDomain.GUI)
+            await self._event_bus.subscribe("trading_stopped", self._on_trading_stopped, domain=ThreadDomain.GUI)
+            await self._event_bus.subscribe("system_restart_completed", self._on_restart_completed, domain=ThreadDomain.GUI)
+            self._subscribed = True
+            logger.info("✅ GUIEventBridge активен")
+        except Exception as e:
+            logger.error(f"❌ Ошибка подписки GUIEventBridge: {e}", exc_info=True)
 
-        # Market ticks
-        await self.event_bus.subscribe(
-            "market_tick",
-            self._on_market_tick,
-            domain=ThreadDomain.GUI,
-            priority=EventPriority.MEDIUM,
+    async def publish_from_gui(self, event_type: str, payload: dict, priority=EventPriority.MEDIUM):
+        """Отправка событий ИЗ GUI в бэкенд (для кнопок)"""
+        if not self._event_bus:
+            logger.warning("⚠️ EventBus не привязан, событие отклонено")
+            return False
+        try:
+            await self._event_bus.publish(
+                SystemEvent(
+                    type=event_type,
+                    payload=payload,
+                    priority=priority,
+                    source_domain=ThreadDomain.GUI,
+                )
+            )
+            return True
+        except Exception as e:
+            logger.error(f"❌ Не удалось опубликовать событие из GUI: {e}")
+            return False
+
+    async def request_system_restart(self):
+        """Публикация запроса на перезапуск системы"""
+        return await self.publish_from_gui(
+            event_type="system_restart_requested",
+            payload={"timestamp": time.time(), "user_initiated": True},
+            priority=EventPriority.CRITICAL,
         )
 
-        # Predictions
-        await self.event_bus.subscribe(
-            "model_prediction",
-            self._on_prediction,
-            domain=ThreadDomain.GUI,
-            priority=EventPriority.MEDIUM,
-        )
+    # === Внутренние обработчики (вызываются в потоке EventBus) ===
 
-        # Trade executions
-        await self.event_bus.subscribe(
-            "trade_executed",
-            self._on_trade,
-            domain=ThreadDomain.GUI,
-            priority=EventPriority.HIGH,
-        )
+    def _safe_emit(self, signal, data):
+        try:
+            signal.emit(data)
+        except RuntimeError as e:
+            if "already deleted" in str(e) or "Internal C++ object" in str(e):
+                logger.debug(f"⚠️ Виджет удалён, сигнал пропущен")
+            else:
+                raise
 
-        # System status
-        await self.event_bus.subscribe(
-            "system_status",
-            self._on_status,
-            domain=ThreadDomain.GUI,
-            priority=EventPriority.LOW,
-        )
-
-        # Alerts
-        await self.event_bus.subscribe(
-            "feed_error",
-            self._on_alert,
-            domain=ThreadDomain.GUI,
-            priority=EventPriority.HIGH,
-        )
-
-        # Feed status
-        await self.event_bus.subscribe(
-            "feed_status",
-            self._on_feed_status,
-            domain=ThreadDomain.GUI,
-        )
-
-        # Model updates
-        await self.event_bus.subscribe(
-            "model_updated",
-            self._on_model_updated,
-            domain=ThreadDomain.GUI,
-        )
-
-        self._subscribed = True
-        logger.info("GUIEventBridge started listening")
-
-    def _on_market_tick(self, event: SystemEvent):
-        """Обработка тика рынка"""
-        self.market_tick_received.emit(event.payload)
-
+    @Slot(dict)
     def _on_prediction(self, event: SystemEvent):
-        """Обработка предсказания"""
-        self.prediction_updated.emit(event.payload)
+        self._safe_emit(
+            self.prediction_received,
+            {
+                "symbol": event.payload.get("symbol"),
+                "prediction": event.payload.get("prediction"),
+                "confidence": event.payload.get("confidence"),
+            },
+        )
 
-    def _on_trade(self, event: SystemEvent):
-        """Обработка исполнения ордера"""
-        self.trade_executed.emit(event.payload)
+    @Slot(dict)
+    def _on_signal(self, event: SystemEvent):
+        self._safe_emit(
+            self.signal_generated,
+            {
+                "symbol": event.payload.get("symbol"),
+                "action": event.payload.get("action"),
+                "volume": event.payload.get("volume"),
+            },
+        )
 
-    def _on_status(self, event: SystemEvent):
-        """Обработка статуса системы"""
-        message = event.payload.get("message", "Status updated")
-        self.system_status.emit(message)
+    @Slot(dict)
+    def _on_order(self, event: SystemEvent):
+        self._safe_emit(
+            self.order_executed,
+            {
+                "symbol": event.payload.get("signal", {}).get("symbol"),
+                "success": event.payload.get("execution", {}).get("success", False),
+                "message": event.payload.get("execution", {}).get("message", ""),
+            },
+        )
 
-    def _on_alert(self, event: SystemEvent):
-        """Обработка системного алерта"""
-        error = event.payload.get("error", "Unknown error")
-        error_count = event.payload.get("error_count", 0)
-        message = f"⚠️ {error} (count: {error_count})"
-        self.system_alert.emit(message)
+    @Slot(dict)
+    def _on_health(self, event: SystemEvent):
+        self._safe_emit(self.system_alert, event.payload.get("message", "System alert"))
 
-    def _on_feed_status(self, event: SystemEvent):
-        """Обработка статуса feed"""
-        self.feed_status.emit(event.payload)
+    @Slot(dict)
+    def _on_trading_started(self, event: SystemEvent):
+        self._safe_emit(self.trading_started, True)
 
-    def _on_model_updated(self, event: SystemEvent):
-        """Обработка обновления модели"""
-        self.model_updated.emit(event.payload)
+    @Slot(dict)
+    def _on_trading_stopped(self, event: SystemEvent):
+        self._safe_emit(self.trading_stopped, True)
+
+    @Slot(dict)
+    def _on_restart_completed(self, event: SystemEvent):
+        """Обработка подтверждения перезапуска от ядра"""
+        success = event.payload.get("success", False)
+        error = event.payload.get("error", "")
+
+        if success:
+            logger.info("✅ GUI получил подтверждение успешного перезапуска")
+        else:
+            logger.error(f"❌ Перезапуск не удался: {error}")
+
+        # Эмитим сигнал для обновления UI
+        self._safe_emit(self.system_restart_completed, success)
