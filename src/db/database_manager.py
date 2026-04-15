@@ -73,11 +73,20 @@ logger = logging.getLogger(__name__)
 _SCHEMA_LOCK = threading.Lock()
 
 # Импорт LightGBM (опционально)
+# === ЗАЩИТА ОТ КОНФЛИКТА ЗАВИСИМОСТЕЙ ===
 lgb = None
+LIGHTGBM_AVAILABLE = False
 try:
     import lightgbm as lgb
-except ImportError:
-    pass
+
+    LIGHTGBM_AVAILABLE = True
+except (ImportError, AttributeError) as e:
+    lgb = None
+    LIGHTGBM_AVAILABLE = False
+    import logging
+
+    logging.warning(f"⚠️ LightGBM не загружен: {e}. ML-функции отключены.")
+# =========================================
 
 
 # --- БЕЗОПАСНАЯ ДЕСЕРИАЛИЗАЦИЯ (Защита от RCE) ---
