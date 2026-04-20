@@ -125,6 +125,29 @@ class AsyncEventBus:
             return
         self._running = True
         self._dispatch_task = asyncio.create_task(self._dispatch_loop())
+
+        # 🔧 ПРЕДВАРИТЕЛЬНОЕ СОЗДАНИЕ EXECUTOR'ОВ
+        # Создаём executor'ы для всех доменов чтобы избежать warning
+        with self._executor_lock:
+            # THREAD_POOL для большинства доменов
+            if ExecutorType.THREAD_POOL not in self._executors:
+                self._executors[ExecutorType.THREAD_POOL] = ThreadPoolExecutor(
+                    max_workers=8, thread_name_prefix="EventBus-Worker"
+                )
+                logger.info("Created ThreadPoolExecutor for THREAD_POOL domains")
+
+            # PROCESS_POOL для ML_TRAINING
+            if ExecutorType.PROCESS_POOL not in self._executors:
+                try:
+                    import multiprocessing as mp
+
+                    self._executors[ExecutorType.PROCESS_POOL] = ProcessPoolExecutor(
+                        max_workers=2, mp_context=mp.get_context("spawn")
+                    )
+                    logger.info("Created ProcessPoolExecutor for ML_TRAINING")
+                except Exception as e:
+                    logger.warning(f"Failed to create ProcessPoolExecutor: {e}")
+
         logger.info("EventBus started")
 
     async def stop(self, timeout: float = 10.0):
@@ -288,6 +311,19 @@ class AsyncEventBus:
                     # Синхронный хендлер — запускаем в executor
                     loop = asyncio.get_event_loop()
                     executor = self._get_executor(exec_type)
+
+                    # 🔧 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Fallback если executor не создан
+                    if executor is None:
+                        logger.warning(
+                            f"No executor for {exec_type} (domain={domain.name}), "
+                            f"running handler {handler.__name__} in current loop"
+                        )
+                        # Запускаем в текущем loop чтобы не терять события
+                        if asyncio.iscoroutinefunction(handler):
+                            return await asyncio.wait_for(handler(event), timeout=timeout)
+                        else:
+                            return handler(event)
+
                     return await loop.run_in_executor(executor, lambda: handler(event))
             except asyncio.TimeoutError:
                 raise SubscriberTimeoutError(f"Handler {handler.__name__} timed out after {timeout}s")
@@ -307,7 +343,11 @@ class AsyncEventBus:
                 if exec_type == ExecutorType.THREAD_POOL:
                     self._executors[exec_type] = ThreadPoolExecutor(max_workers=8, thread_name_prefix="EventBus-Worker")
                 elif exec_type == ExecutorType.PROCESS_POOL:
-                    self._executors[exec_type] = ProcessPoolExecutor(max_workers=2, mp_context="spawn")  # Важно для Windows
+                    import multiprocessing
+
+                    self._executors[exec_type] = ProcessPoolExecutor(
+                        max_workers=2, mp_context=multiprocessing.get_context("spawn")
+                    )  # Важно для Windows
                 # SINGLE_THREAD и ASYNC_LOOP не требуют executor
                 logger.info(f"Created executor for {exec_type}")
             return self._executors.get(exec_type)
@@ -534,7 +574,9 @@ class EventBus:
         if end_time:
             filtered = [e for e in filtered if e.timestamp <= end_time]
 
-        return filtered[-limit:]
+        # Используем list() вместо slice для совместимости с type checkers
+        result = list(filtered)[-limit:]
+        return result
 
     def get_recent_events(self, event_type: EventType, minutes: int = 5) -> List[Event]:
         """Получение недавних событий за период."""

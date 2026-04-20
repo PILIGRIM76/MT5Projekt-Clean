@@ -39,6 +39,7 @@ _db_manager: Any = None
 _data_service: Any = None
 _ml_service: Any = None
 _execution_service: Any = None
+_news_service: Any = None
 
 # Очередь для записи в БД (общая для всех компонентов)
 _db_write_queue: Optional[queue.Queue] = None
@@ -123,6 +124,20 @@ def get_execution_service() -> Any:
     return _execution_service
 
 
+def get_news_service() -> Any:
+    """Получение сервиса новостей (Singleton)."""
+    global _news_service
+    if _news_service is None:
+        from src.core.services.news_service import NewsCollectorService
+
+        _news_service = NewsCollectorService(
+            config=get_config(),
+            db_manager=get_db_manager(),
+        )
+        logger.info("NewsCollectorService инициализирован (Singleton)")
+    return _news_service
+
+
 async def start_all_services() -> None:
     """Запуск всех сервисов."""
     logger.info("Запуск всех сервисов...")
@@ -131,6 +146,7 @@ async def start_all_services() -> None:
         ("DataService", get_data_service()),
         ("MLService", get_ml_service()),
         ("ExecutionService", get_execution_service()),
+        ("NewsCollectorService", get_news_service()),
     ]
 
     for name, service in services:
@@ -150,6 +166,7 @@ async def stop_all_services() -> None:
         ("DataService", get_data_service()),
         ("MLService", get_ml_service()),
         ("ExecutionService", get_execution_service()),
+        ("NewsCollectorService", get_news_service()),
     ]
 
     for name, service in services:
@@ -168,6 +185,7 @@ def get_all_health_checks() -> Dict[str, Any]:
         ("DataService", get_data_service()),
         ("MLService", get_ml_service()),
         ("ExecutionService", get_execution_service()),
+        ("NewsCollectorService", get_news_service()),
     ]
 
     for name, service in services:

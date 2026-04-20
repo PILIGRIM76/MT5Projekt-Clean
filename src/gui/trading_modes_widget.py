@@ -6,7 +6,7 @@
 import logging
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QCursor, QFont
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -100,16 +100,16 @@ class YoloConfirmationDialog(QDialog):
 
         # Заголовок
         title = QLabel("⚠️ ВЫ ВЫБИРАЕТЕ YOLO РЕЖИМ!")
-        title.setFont(QFont("Arial", 16, QFont.Bold))
+        title.setFont(QFont("Arial", 16, 70))  # 70 = QFont.Weight.Bold
         title.setStyleSheet("color: #e74c3c;")
-        title.setAlignment(Qt.AlignCenter)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
         # Предупреждение
         warning = QLabel("Вы готовы потерять весь депозит?\n" "Это деньги, которые не жалко?")
         warning.setFont(QFont("Arial", 12))
         warning.setStyleSheet("color: #c0392b; padding: 10px;")
-        warning.setAlignment(Qt.AlignCenter)
+        warning.setAlignment(Qt.AlignmentFlag.AlignCenter)
         warning.setWordWrap(True)
         layout.addWidget(warning)
 
@@ -183,8 +183,8 @@ class YoloConfirmationDialog(QDialog):
         """)
         self.confirm_btn.setEnabled(False)
 
-        button_box.addButton(self.cancel_btn, QDialogButtonBox.RejectRole)
-        button_box.addButton(self.confirm_btn, QDialogButtonBox.AcceptRole)
+        button_box.addButton(self.cancel_btn, QDialogButtonBox.ButtonRole.RejectRole)
+        button_box.addButton(self.confirm_btn, QDialogButtonBox.ButtonRole.AcceptRole)
 
         layout.addWidget(button_box)
 
@@ -212,10 +212,10 @@ class ModeCard(QFrame):
         self.setup_ui()
 
     def setup_ui(self):
-        self.setFrameStyle(QFrame.StyledPanel)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setFrameStyle(QFrame.Shape.StyledPanel)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         # Включаем обработку мышиных событий
-        self.setAttribute(Qt.WA_Hover)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
 
         # Основной layout
         layout = QVBoxLayout(self)
@@ -230,7 +230,7 @@ class ModeCard(QFrame):
         header_layout.addWidget(icon_label)
 
         name_label = QLabel(self.mode_data["name"])
-        name_label.setFont(QFont("Arial", 14, QFont.Bold))
+        name_label.setFont(QFont("Arial", 14, 70))
         name_label.setStyleSheet(f"color: {self.mode_data['color']};")
         header_layout.addWidget(name_label)
 
@@ -262,7 +262,7 @@ class ModeCard(QFrame):
             label_widget.setStyleSheet("color: #95a5a6;")
 
             value_widget = QLabel(value)
-            value_widget.setFont(QFont("Arial", 10, QFont.Bold))
+            value_widget.setFont(QFont("Arial", 10, 70))
             value_widget.setStyleSheet(f"color: {self.mode_data['color']};")
 
             params_layout.addWidget(label_widget, i // 2, i % 2 * 2)
@@ -273,7 +273,7 @@ class ModeCard(QFrame):
         # Индикатор выбора
         self.indicator = QLabel("●")
         self.indicator.setFont(QFont("Arial", 16))
-        self.indicator.setAlignment(Qt.AlignRight)
+        self.indicator.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.indicator.setStyleSheet("color: transparent;")
         layout.addWidget(self.indicator)
 
@@ -310,7 +310,7 @@ class ModeCard(QFrame):
 
     def mousePressEvent(self, event):
         """Обработка нажатия мыши."""
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             # Находим родительский TradingModesWidget и вызываем on_mode_selected
             parent = self.parent()
             while parent:
@@ -342,7 +342,7 @@ class TradingModesWidget(QWidget):
         self.enabled = False  # Флаг включения режимов (по умолчанию выключен)
 
         # Устанавливаем политику размеров для корректной прокрутки
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         self.setup_ui()
 
@@ -357,11 +357,11 @@ class TradingModesWidget(QWidget):
         modes_layout.setSpacing(10)
 
         # Устанавливаем политику размеров для контейнера
-        self.modes_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.modes_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         # Заголовок
         header = QLabel("📊 Режимы Торговли")
-        header.setFont(QFont("Arial", 16, QFont.Bold))
+        header.setFont(QFont("Arial", 16, 70))
         header.setStyleSheet("color: #2c3e50; padding: 10px;")
         modes_layout.addWidget(header)
 
@@ -374,9 +374,9 @@ class TradingModesWidget(QWidget):
         # Скролл для карточек
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setMinimumHeight(400)  # Минимальная высота для прокрутки
-        scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         scroll.setStyleSheet("""
             QScrollArea {
                 border: none;
@@ -409,7 +409,7 @@ class TradingModesWidget(QWidget):
         for mode_id, mode_data in TRADING_MODES.items():
             card = ModeCard(mode_id, mode_data)
             # Устанавливаем курсор
-            card.setCursor(Qt.PointingHandCursor)
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
             self.mode_cards[mode_id] = card
             grid_layout.addWidget(card, row, col)
 
@@ -434,7 +434,7 @@ class TradingModesWidget(QWidget):
         custom_layout.setContentsMargins(15, 15, 15, 15)
 
         custom_header = QLabel("🔧 Кастомный режим")
-        custom_header.setFont(QFont("Arial", 14, QFont.Bold))
+        custom_header.setFont(QFont("Arial", 14, 70))
         custom_layout.addWidget(custom_header)
 
         custom_desc = QLabel("Ручная настройка параметров риск-менеджмента.\n" "Прокрутите вниз для настройки параметров.")
@@ -477,7 +477,7 @@ class TradingModesWidget(QWidget):
             border-radius: 5px;
             font-weight: bold;
         """)
-        self.current_mode_label.setAlignment(Qt.AlignCenter)
+        self.current_mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.current_mode_label)
 
         # Установка режима по умолчанию
@@ -487,9 +487,9 @@ class TradingModesWidget(QWidget):
         """Обработка изменения состояния переключателя."""
         # Проверяем состояние (может быть int или Qt.CheckState)
         if isinstance(state, int):
-            self.enabled = state == 2  # Qt.Checked = 2
+            self.enabled = state == 2  # Qt.CheckState.Checked = 2
         else:
-            self.enabled = state == Qt.Checked
+            self.enabled = state == Qt.CheckState.Checked
 
         # Блокировка/разблокировка контейнера с карточками
         self.modes_container.setEnabled(self.enabled)
@@ -512,7 +512,7 @@ class TradingModesWidget(QWidget):
         # Проверка YOLO режима
         if mode_id == "yolo":
             dialog = YoloConfirmationDialog(self)
-            if dialog.exec() != QDialog.Accepted:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
 
         # Сброс выделения со всех карточек

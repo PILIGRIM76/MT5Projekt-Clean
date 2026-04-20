@@ -479,7 +479,7 @@ class SettingsWindow(QDialog):
         font = painter.font()
         font.setPixelSize(int(size * 0.75))
         painter.setFont(font)
-        painter.drawText(pixmap.rect(), Qt.AlignCenter, emoji)
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, emoji)
         painter.end()
 
         self._icon_pixmap_cache[emoji] = pixmap
@@ -991,26 +991,46 @@ class SettingsWindow(QDialog):
             self.news_status_label.setStyleSheet("color: orange; font-weight: bold;")
 
             try:
-                # Здесь будет вызов загрузчика новостей
                 logger.info("[NewsScheduler] Ручная загрузка новостей запущена")
 
-                # TODO: Вызов загрузчика новостей
-                # from src.news.news_loader import NewsLoader
-                # loader = NewsLoader(self.full_config)
-                # loader.load_all_news()
+                # Публикуем событие в EventBus для запроса немедленного сбора
+                from src.core.event_bus import EventPriority, SystemEvent, get_event_bus
+                from src.core.thread_domains import ThreadDomain
 
-                self.news_status_label.setText("Статус: Завершено ✓")
-                self.news_status_label.setStyleSheet("color: #50fa7b; font-weight: bold;")
-                self.news_last_load_label.setText(f"Последняя загрузка: {datetime.now().strftime('%H:%M:%S')}")
-                QMessageBox.information(self, "Готово", "Новости успешно загружены!")
+                async def request_news_collection():
+                    bus = get_event_bus()
+                    await bus.publish(
+                        SystemEvent(
+                            type="news_collection_requested",
+                            payload={"source": "GUI_manual", "timestamp": datetime.now().isoformat()},
+                            priority=EventPriority.HIGH,
+                            target_domains={ThreadDomain.STRATEGY_ENGINE},
+                        )
+                    )
+                    logger.info("[NewsScheduler] Запрос на сбор новостей отправлен в EventBus")
+
+                # Запуск асинхронного запроса через Qt
+                from PySide6.QtCore import QTimer
+
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                QTimer.singleShot(100, lambda: asyncio.create_task(request_news_collection()))
+
+                # Обновляем статус через таймер (сервис ответит событием news_batch_processed)
+                QTimer.singleShot(2000, lambda: self.news_status_label.setText("Статус: Ожидание ответа..."))
+                QTimer.singleShot(30000, lambda: self._reset_news_button_state())
 
             except Exception as e:
                 logger.error(f"[NewsScheduler] Ошибка загрузки: {e}")
                 self.news_status_label.setText("Статус: Ошибка ❌")
                 self.news_status_label.setStyleSheet("color: #ff5555; font-weight: bold;")
                 QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить новости:\n{e}")
-            finally:
                 self.news_load_now_button.setEnabled(True)
+
+    def _reset_news_button_state(self):
+        """Сброс состояния кнопки загрузки новостей."""
+        self.news_load_now_button.setEnabled(True)
+        self.news_last_load_label.setText(f"Последняя загрузка: {datetime.now().strftime('%H:%M:%S')}")
 
     def _trigger_manual_defi_load(self):
         """Ручной запуск загрузки DeFi данных."""
@@ -1302,7 +1322,7 @@ class SettingsWindow(QDialog):
 
         # Фрейм статуса
         status_frame = QFrame()
-        status_frame.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
+        status_frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Raised)
         status_frame.setStyleSheet("""
             QFrame {
                 background-color: #282a36;
@@ -3717,8 +3737,8 @@ class SettingsWindow(QDialog):
 
         # --- Разделитель ---
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(line, row, 0, 1, 2)
         row += 1
 
@@ -3953,7 +3973,7 @@ class SettingsWindow(QDialog):
         check_button.clicked.connect(lambda checked=False, row=row_position: self._test_api_key(row))
         self.api_table.setCellWidget(row_position, 2, check_button)
         status_label = QLabel("Не проверялся")
-        status_label.setAlignment(Qt.AlignCenter)
+        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.api_table.setCellWidget(row_position, 3, status_label)
 
     def _add_api_key(self):

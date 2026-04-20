@@ -22,6 +22,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -127,15 +128,15 @@ class StrategyEngine:
         else:
             return None
 
-        volume = self._calculate_volume(symbol, confidence)
+        volume = self._calculate_volume(symbol or "", confidence)
 
         signal = TradeSignal(
-            symbol=symbol,
+            symbol=symbol or "",
             action=action,
             volume=volume,
             confidence=confidence,
             model_version=payload.get("model_version", 0),
-            correlation_id=event.correlation_id,
+            correlation_id=event.correlation_id or "",
         )
 
         self._signal_count += 1
@@ -207,10 +208,10 @@ class RiskEngine:
     async def _get_symbol_positions(self, symbol: str) -> List[Dict]:
         """Получение открытых позиций по символу (с кэшированием)."""
         if time.time() - self._cache_timestamp < 5:
-            return self._positions_cache.get(symbol, [])
+            return self._positions_cache.get(symbol, [])  # type: ignore
 
         # Запрос к MT5 (в реальном коде)
-        positions = []
+        positions: List[Dict] = []
         self._positions_cache[symbol] = positions
         self._cache_timestamp = time.time()
         return positions
@@ -304,6 +305,7 @@ class TradingSystem:
         self.config = config
         self.mt5 = mt5_api
         self.db = db_manager
+        self.db_manager = db_manager  # alias для совместимости с GUI/adapter
         self.predictor = predictor
 
         self.event_bus = get_event_bus()
@@ -345,8 +347,46 @@ class TradingSystem:
             domain=ThreadDomain.PERSISTENCE,
             priority=EventPriority.MEDIUM,
         )
+        await self.event_bus.subscribe(
+            "news_batch_processed",
+            self._on_news_batch,
+            domain=ThreadDomain.STRATEGY_ENGINE,
+            priority=EventPriority.LOW,
+        )
 
         logger.info("TradingSystem started — pipeline active")
+
+        # === ОТПРАВКА ПОДТВЕРЖДЕНИЯ В GUI ===
+        await self.event_bus.publish(
+            SystemEvent(
+                type="trading_started",
+                payload={
+                    "status": True,
+                    "timestamp": datetime.now().isoformat(),
+                    "components": ["DataSync", "MLPredictor", "RiskManager", "Executor"],
+                },
+                priority=EventPriority.HIGH,
+            )
+        )
+        logger.info("📡 GUI notified: trading_started event published")
+        # =======================================
+
+        # 🔧 HEARTBEAT: Каждые 30 секунд логируем статус системы
+        asyncio.create_task(self._system_heartbeat())
+        logger.info("💓 System heartbeat started")
+
+    async def _system_heartbeat(self):
+        """Heartbeat для мониторинга жизненного цикла системы."""
+        import asyncio as aio
+
+        while getattr(self, "_running", True):
+            try:
+                task_count = len(aio.all_tasks()) if hasattr(aio, "all_tasks") else 0
+                logger.info(f"💓 System Heartbeat: OK | Tasks: {task_count} | Running: {self._running}")
+                await aio.sleep(30)
+            except Exception as e:
+                logger.error(f"💓 Heartbeat error: {e}")
+                break
 
     async def stop(self):
         """Корректная остановка"""
@@ -443,6 +483,24 @@ class TradingSystem:
         """Логирование результата исполнения в БД"""
         if hasattr(self.db, "log_trade_execution"):
             await self.db.log_trade_execution(event.payload)
+
+    @run_in_domain(ThreadDomain.STRATEGY_ENGINE)
+    async def _on_news_batch(self, event: SystemEvent):
+        """Обработка батча новостей — обновление сентимента для решений"""
+        payload = event.payload
+        avg_sentiment = payload.get("avg_sentiment", 0.0)
+        count = payload.get("count", 0)
+
+        logger.debug(f"📰 Новости: {count} шт, сентимент: {avg_sentiment:.2f}")
+
+        # Сохраняем сентимент для использования в стратегии
+        if not hasattr(self, "_market_sentiment"):
+            self._market_sentiment = 0.0
+        self._market_sentiment = avg_sentiment
+
+    def get_market_sentiment(self) -> float:
+        """Получение текущего рыночного сентимента из новостей."""
+        return getattr(self, "_market_sentiment", 0.0)
 
     def _get_tick_price(self, tick_payload: Dict) -> Optional[float]:
         """Извлечение цены из тика"""

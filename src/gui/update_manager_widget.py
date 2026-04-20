@@ -61,7 +61,7 @@ class UpdateManagerWidget(QWidget):
         # Заголовок
         title = QLabel("🔄 Управление обновлениями")
         title.setFont(QFont("Arial", 14, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title)
 
         # Фрейм статуса
