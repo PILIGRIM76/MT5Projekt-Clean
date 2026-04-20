@@ -1,0 +1,2092 @@
+﻿# -*- coding: utf-8 -*-
+# main_pyside.py
+# ============================================================================
+# РРЎРџР РђР’Р›Р•РќРР•: РћС‚РєР»СЋС‡Р°РµРј РёСЃРїРѕР»СЊР·РѕРІР°РЅРёРµ СЃРёСЃС‚РµРјРЅРѕРіРѕ РїСЂРѕРєСЃРё РґР»СЏ РІСЃРµС… HTTP-Р·Р°РїСЂРѕСЃРѕРІ
+# ============================================================================
+import os
+
+# РЈРґР°Р»СЏРµРј РїРµСЂРµРјРµРЅРЅС‹Рµ РѕРєСЂСѓР¶РµРЅРёСЏ РїСЂРѕРєСЃРё, РµСЃР»Рё РѕРЅРё РµСЃС‚СЊ
+for proxy_var in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
+    os.environ.pop(proxy_var, None)
+# РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј РїРµСЂРµРјРµРЅРЅСѓСЋ РґР»СЏ РёРіРЅРѕСЂРёСЂРѕРІР°РЅРёСЏ РїСЂРѕРєСЃРё РІ urllib3
+os.environ["NO_PROXY"] = "*"
+# ============================================================================
+
+import asyncio
+import json
+import logging
+import multiprocessing
+import os
+import queue
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import warnings
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import matplotlib
+import matplotlib.pyplot as plt
+import MetaTrader5 as mt5
+import numpy as np
+import pandas as pd
+import pyqtgraph as pg
+import requests
+import urllib3
+from pyqtgraph import BarGraphItem
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QDate,
+    QEvent,
+    QObject,
+    QPointF,
+    QRectF,
+    QRunnable,
+    Qt,
+    QThread,
+    QThreadPool,
+    QTimer,
+    QUrl,
+    Signal,
+    Slot,
+)
+from PySide6.QtGui import QAction, QColor, QIcon, QPainterPath, QTextCharFormat
+from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDateEdit,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QSplitter,
+    QTableView,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+from requests.exceptions import SSLError
+from urllib3.exceptions import InsecureRequestWarning
+
+from src._version import __version__
+from src.analysis.event_driven_backtester import EventDrivenBacktester
+from src.analysis.system_backtester import SystemBacktester
+from src.core.config_loader import load_config
+from src.core.config_models import Settings
+from src.core.mt5_connection_manager import mt5_ensure_connected, mt5_initialize
+from src.core.trading_system import TradingSystem
+from src.data.data_provider import DataProvider
+from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
+from src.gui.control_center_widget import ControlCenterWidget
+from src.gui.dashboard_widget import ModernDashboardWidget
+from src.gui.dialogs import DirectiveDialog
+from src.gui.log_utils import ColorFormatter, QtLogHandler, setup_qt_logging
+from src.gui.models import DictTableModel, GenericTableModel, RDTableModel
+from src.gui.settings_window import SettingsWindow
+from src.gui.sound_manager import SoundManager
+from src.gui.styles import DARK_STYLE, LIGHT_STYLE
+from src.gui.widgets import Bridge, CustomCandlestickItem, GraphBackend, GUIBridge
+from src.gui.widgets.defi_widget import DeFiWidget
+from src.strategies.strategy_loader import StrategyLoader
+
+# ===================================================================
+# === РќРђРЎРўР РћР™РљРђ Р›РћР“РР РћР’РђРќРРЇ (РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ СЃР°РјС‹Рј РїРµСЂРІС‹Рј) ===
+# ===================================================================
+from src.utils.logger import get_logger, setup_logger
+from src.utils.scheduler_manager import SchedulerManager
+from src.utils.worker import Worker
+
+# РЎРѕР·РґР°С‘Рј РіР»Р°РІРЅС‹Р№ Р»РѕРіРіРµСЂ РїСЂРёР»РѕР¶РµРЅРёСЏ
+logger = setup_logger(
+    name="genesis", level=logging.INFO, log_to_file=True, log_to_console=True, rotation="daily", backup_count=7
+)
+
+logger.info("=" * 60)
+logger.info("  Genesis Trading System - Р—Р°РїСѓСЃРє")
+logger.info("=" * 60)
+logger.info(f"Р’РµСЂСЃРёСЏ Python: {sys.version}")
+logger.info(f"РџСѓС‚СЊ Рє СЃРєСЂРёРїС‚Сѓ: {Path(__file__).resolve()}")
+# ===================================================================
+
+
+# ===================================================================
+# === РџР РћР’Р•Р РљРђ РљРћРќР¤РР“РЈР РђР¦РР РџР•Р Р•Р” Р—РђРџРЈРЎРљРћРњ ===
+# ===================================================================
+
+
+def check_and_run_setup():
+    """РџСЂРѕРІРµСЂРєР° РєРѕРЅС„РёРіСѓСЂР°С†РёРё Рё Р·Р°РїСѓСЃРє РјР°СЃС‚РµСЂР° РЅР°СЃС‚СЂРѕР№РєРё РїСЂРё РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё"""
+    # РћРїСЂРµРґРµР»СЏРµРј РїСѓС‚СЊ Рє РєРѕРЅС„РёРіСѓ
+    if getattr(sys, "frozen", False):
+        base_path = Path(sys.executable).parent
+    else:
+        base_path = Path(__file__).parent
+
+    config_path = base_path / "configs" / "settings.json"
+
+    needs_setup = False
+    reason = ""
+
+    # РџСЂРѕРІРµСЂРєР° СЃСѓС‰РµСЃС‚РІРѕРІР°РЅРёСЏ РєРѕРЅС„РёРіР°
+    if not config_path.exists():
+        needs_setup = True
+        reason = "Р¤Р°Р№Р» РєРѕРЅС„РёРіСѓСЂР°С†РёРё РЅРµ РЅР°Р№РґРµРЅ"
+    else:
+        # РџСЂРѕРІРµСЂРєР° РєСЂРёС‚РёС‡РµСЃРєРёС… РїР°СЂР°РјРµС‚СЂРѕРІ
+        try:
+            import json
+
+            with open(config_path, "r", encoding="utf-8") as f:
+                content = "".join(line for line in f if not line.strip().startswith("//"))
+                config = json.loads(content)
+
+            # РџСЂРѕРІРµСЂРєР° РѕР±СЏР·Р°С‚РµР»СЊРЅС‹С… РїРѕР»РµР№
+            required_fields = ["MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_PATH"]
+            missing_fields = []
+            for field in required_fields:
+                if field not in config or not config[field]:
+                    missing_fields.append(field)
+
+            if missing_fields:
+                needs_setup = True
+                reason = f"РћС‚СЃСѓС‚СЃС‚РІСѓСЋС‚ РѕР±СЏР·Р°С‚РµР»СЊРЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹: {', '.join(missing_fields)}"
+
+            # РџСЂРѕРІРµСЂРєР° РїСѓС‚РµР№
+            if "MT5_PATH" in config and config["MT5_PATH"]:
+                mt5_path = Path(config["MT5_PATH"])
+                if not mt5_path.exists():
+                    needs_setup = True
+                    reason = f"MT5 С‚РµСЂРјРёРЅР°Р» РЅРµ РЅР°Р№РґРµРЅ РїРѕ РїСѓС‚Рё: {config['MT5_PATH']}"
+
+        except Exception as e:
+            needs_setup = True
+            reason = f"РћС€РёР±РєР° С‡С‚РµРЅРёСЏ РєРѕРЅС„РёРіСѓСЂР°С†РёРё: {e}"
+
+    if needs_setup:
+        print("\n" + "=" * 60)
+        print("  [!] РўР Р•Р‘РЈР•РўРЎРЇ РќРђРЎРўР РћР™РљРђ РЎРРЎРўР•РњР«")
+        print("=" * 60)
+        print(f"\nРџСЂРёС‡РёРЅР°: {reason}")
+        print("\nР—Р°РїСѓСЃРє РјР°СЃС‚РµСЂР° РЅР°СЃС‚СЂРѕР№РєРё...\n")
+
+        # Р—Р°РїСѓСЃРє РјР°СЃС‚РµСЂР° РЅР°СЃС‚СЂРѕР№РєРё
+        setup_script = base_path / "setup_launcher.py"
+        if setup_script.exists():
+            if getattr(sys, "frozen", False):
+                # Р’ Р·Р°РјРѕСЂРѕР¶РµРЅРЅРѕРј РІРёРґРµ Р·Р°РїСѓСЃРєР°РµРј С‡РµСЂРµР· exec
+                os.execv(sys.executable, [sys.executable, str(setup_script)])
+            else:
+                os.execv(sys.executable, [sys.executable, str(setup_script)])
+        else:
+            print(f"[ERROR] Р¤Р°Р№Р» РјР°СЃС‚РµСЂР° РЅР°СЃС‚СЂРѕР№РєРё РЅРµ РЅР°Р№РґРµРЅ: {setup_script}")
+            print("Р—Р°РїСѓСЃС‚РёС‚Рµ setup_launcher.py РІСЂСѓС‡РЅСѓСЋ")
+            sys.exit(1)
+
+
+# Р—Р°РїСѓСЃРєР°РµРј РїСЂРѕРІРµСЂРєСѓ РїРµСЂРµРґ РІСЃРµРј РѕСЃС‚Р°Р»СЊРЅС‹Рј
+check_and_run_setup()
+# ===================================================================
+
+os.environ["CURL_CA_BUNDLE"] = ""
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+matplotlib.use("Agg")
+
+# ===================================================================
+# === РќРђРЎРўР РћР™РљРђ РљРћР›РР§Р•РЎРўР’Рђ РЇР”Р•Р  CPU ===
+# ===================================================================
+# РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј РєРѕР»РёС‡РµСЃС‚РІРѕ СЏРґРµСЂ РґР»СЏ РІСЃРµС… РјРЅРѕРіРѕРїРѕС‚РѕС‡РЅС‹С… Р±РёР±Р»РёРѕС‚РµРє.
+# Р­С‚Рѕ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ СЃРґРµР»Р°РЅРѕ Р”Рћ РёРјРїРѕСЂС‚Р° NumPy, PyTorch, LightGBM Рё С‚.Рґ.
+# Р•СЃР»Рё РїРµСЂРµРјРµРЅРЅР°СЏ СѓР¶Рµ СѓСЃС‚Р°РЅРѕРІР»РµРЅР° (РЅР°РїСЂРёРјРµСЂ, РІ .bat), РјС‹ РµРµ РЅРµ РїРµСЂРµР·Р°РїРёСЃС‹РІР°РµРј.
+#
+# Р Р•РљРћРњР•РќР”РђР¦РРЇ: Р’С‹РґРµР»РёС‚Рµ 4 СЏРґСЂР° РґР»СЏ СЃРёСЃС‚РµРјС‹, РѕСЃС‚Р°Р»СЊРЅС‹Рµ РѕСЃС‚Р°РІСЊС‚Рµ РћРЎ.
+# Р­С‚Рѕ РѕР±РµСЃРїРµС‡РёС‚ Р±Р°Р»Р°РЅСЃ РјРµР¶РґСѓ РїСЂРѕРёР·РІРѕРґРёС‚РµР»СЊРЅРѕСЃС‚СЊСЋ ML Рё РѕС‚Р·С‹РІС‡РёРІРѕСЃС‚СЊСЋ GUI.
+
+cpu_count = 4  # Р’С‹РґРµР»СЏРµРј 4 СЏРґСЂР° РґР»СЏ ML-Р·Р°РґР°С‡
+logger.info(f"РСЃРїРѕР»СЊР·СѓРµРј {cpu_count} СЏРґРµСЂ CPU РґР»СЏ РѕР±СѓС‡РµРЅРёСЏ РјРѕРґРµР»РµР№ (РёР· 12 РґРѕСЃС‚СѓРїРЅС‹С…)")
+
+if "OMP_NUM_THREADS" not in os.environ:
+    os.environ["OMP_NUM_THREADS"] = str(cpu_count)
+if "MKL_NUM_THREADS" not in os.environ:
+    os.environ["MKL_NUM_THREADS"] = str(cpu_count)
+if "NUMBA_NUM_THREADS" not in os.environ:
+    os.environ["NUMBA_NUM_THREADS"] = str(cpu_count)
+if "TORCH_NUM_THREADS" not in os.environ:
+    os.environ["TORCH_NUM_THREADS"] = str(cpu_count)
+
+# 1. Numba JIT РІРєР»СЋС‡С‘РЅ РґР»СЏ РїСЂРѕРёР·РІРѕРґРёС‚РµР»СЊРЅРѕСЃС‚Рё (РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ disabled=False)РїСЂРѕРґРѕР»Р¶РёС‚СЊ
+# Р•СЃР»Рё РІРѕР·РЅРёРєР°СЋС‚ СЃР±РѕРё, СѓСЃС‚Р°РЅРѕРІРёС‚Рµ РІ "1" РґР»СЏ РѕС‚Р»Р°РґРєРё
+os.environ["NUMBA_DISABLE_JIT"] = "0"
+
+# 2. РџР°С‚С‡ РґР»СЏ MKL/OpenMP (РїРѕРјРѕРіР°РµС‚ РїСЂРё РєРѕРЅС„Р»РёРєС‚Р°С… СЃ РїСѓР»Р°РјРё РїРѕС‚РѕРєРѕРІ)
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+# 3. РџСЂРёРЅСѓРґРёС‚РµР»СЊРЅРѕРµ РѕС‚РєР»СЋС‡РµРЅРёРµ CUDA (РґР»СЏ СѓСЃС‚СЂР°РЅРµРЅРёСЏ РєРѕРЅС„Р»РёРєС‚РѕРІ VRAM/РґСЂР°Р№РІРµСЂРѕРІ)
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+# РћСЃС‚Р°РІР»СЏРµРј РўРћР›Р¬РљРћ РѕРґРёРЅ, СЃР°РјС‹Р№ РЅР°РґРµР¶РЅС‹Р№ СЃРїРѕСЃРѕР± СѓСЃС‚Р°РЅРѕРІРёС‚СЊ РїРµСЂРµРјРµРЅРЅСѓСЋ РѕРєСЂСѓР¶РµРЅРёСЏ Р”Рћ РёРјРїРѕСЂС‚РѕРІ
+try:
+    project_root = Path(__file__).resolve().parent
+    settings_path = project_root / "configs" / "settings.json"
+
+    if settings_path.exists():
+        with open(settings_path, "r", encoding="utf-8") as f:
+            # РџСЂРѕСЃС‚РѕР№ РїР°СЂСЃРёРЅРі JSON Р±РµР· РїРѕР»РЅС‹С… Р·Р°РІРёСЃРёРјРѕСЃС‚РµР№ Pydantic
+            settings_data = json.load(f)
+
+        hf_cache_dir_str = settings_data.get("HF_MODELS_CACHE_DIR")
+
+        if hf_cache_dir_str:
+            # РџСЂРѕРІРµСЂСЏРµРј, С‡С‚Рѕ РїСѓС‚СЊ РЅРµ РїСѓСЃС‚РѕР№
+            try:
+                cache_path = Path(hf_cache_dir_str)
+                root_disk = cache_path.anchor
+                if not Path(root_disk).exists():
+                    logger.warning(f"[WARN] РљРѕСЂРЅРµРІРѕР№ РґРёСЃРє '{root_disk}' РґР»СЏ РєСЌС€Р° HF РЅРµ РЅР°Р№РґРµРЅ. РСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ СЃС‚Р°РЅРґР°СЂС‚РЅС‹Р№ РїСѓС‚СЊ.")
+                else:
+                    cache_path.mkdir(parents=True, exist_ok=True)
+                    os.environ["HF_HOME"] = str(cache_path.resolve())
+                    # РЎРѕРѕР±С‰РµРЅРёРµ Р±СѓРґРµС‚ РІС‹РІРµРґРµРЅРѕ РїРѕР·Р¶Рµ, С‡РµСЂРµР· СЃРёСЃС‚РµРјСѓ Р»РѕРіРёСЂРѕРІР°РЅРёСЏ
+            except Exception as e_mkdir:
+                logger.error(
+                    f"[ERROR] РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ/РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ РґРёСЂРµРєС‚РѕСЂРёСЋ РґР»СЏ РєСЌС€Р° '{hf_cache_dir_str}'. РџСЂРёС‡РёРЅР°: {e_mkdir}. РСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ СЃС‚Р°РЅРґР°СЂС‚РЅС‹Р№ РїСѓС‚СЊ."
+                )
+    else:
+        logger.warning("[WARN] Р¤Р°Р№Р» settings.json РЅРµ РЅР°Р№РґРµРЅ, РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ СЃС‚Р°РЅРґР°СЂС‚РЅС‹Р№ РїСѓС‚СЊ РґР»СЏ РєСЌС€Р° HF.")
+except Exception as e:
+    logger.error(f"[ERROR] РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРѕС‡РёС‚Р°С‚СЊ settings.json РґР»СЏ РЅР°СЃС‚СЂРѕР№РєРё HF_HOME: {e}")
+
+
+os.environ["QT_WEBENGINE_DISABLE_SANDBOX"] = "1"
+# os.environ['QTWEBENGINE_REMOTE_DEBUGGING'] = '9223'
+# os.environ['NUMBA_DISABLE_INTEL_SVML'] = '1'
+
+# Р¤Р»Р°Рі РґР»СЏ РІС‹Р±РѕСЂР° РёРЅС‚РµСЂС„РµР№СЃР°
+USE_MODERN_UI = True  # РЈСЃС‚Р°РЅРѕРІРёС‚Рµ РІ False РґР»СЏ РёСЃРїРѕР»СЊР·РѕРІР°РЅРёСЏ СЃС‚Р°СЂРѕРіРѕ РёРЅС‚РµСЂС„РµР№СЃР°
+
+
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    message="X does not have valid feature names, but LGBMRegressor was fitted with feature names",
+)
+
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    message="X does not have valid feature names, but MinMaxScaler was fitted with feature names",
+)
+
+
+SRC_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+
+if SRC_ROOT not in sys.path:
+    sys.path.insert(0, SRC_ROOT)
+
+
+app_config_for_path = load_config()
+
+# РЎРѕС…СЂР°РЅСЏРµРј РіР»Р°РІРЅС‹Р№ Р»РѕРіРіРµСЂ
+genesis_logger = logging.getLogger("genesis")
+
+logger = genesis_logger
+
+
+from src.gui.backtest_process import run_backtest_process
+
+# РљРѕРјРїРѕРЅРµРЅС‚С‹ РІС‹РЅРµСЃРµРЅС‹ РІ РѕС‚РґРµР»СЊРЅС‹Рµ РјРѕРґСѓР»Рё
+from src.gui.trading_system_adapter import PySideTradingSystem
+
+
+class MainWindow(QMainWindow):
+    def __init__(self, trading_system_adapter: PySideTradingSystem, config: Settings):
+        super().__init__()
+        self.setWindowTitle("Genesis v24.0: Reflexive Core")
+
+        logger.info("=== РќРђР§РђР›Рћ РРќРР¦РРђР›РР—РђР¦РР MainWindow ===")
+
+        # 1. РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ QThreadPool РґР»СЏ СѓРїСЂР°РІР»РµРЅРёСЏ С„РѕРЅРѕРІС‹РјРё Р·Р°РґР°С‡Р°РјРё
+        self.threadpool = QThreadPool()
+        # РћРіСЂР°РЅРёС‡РёРІР°РµРј РєРѕР»РёС‡РµСЃС‚РІРѕ РїРѕС‚РѕРєРѕРІ РґР»СЏ I/O-bound Р·Р°РґР°С‡
+        self.threadpool.setMaxThreadCount(10)
+        logger.info(f"QThreadPool РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ СЃ РјР°РєСЃ. {self.threadpool.maxThreadCount()} РїРѕС‚РѕРєР°РјРё.")
+
+        # РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РѕСЃРЅРѕРІРЅС‹С… РѕР±СЉРµРєС‚РѕРІ
+        self.config = config
+        self.trading_system = trading_system_adapter
+        self.bridge = self.trading_system.bridge
+        # sound_manager Р±РµСЂС‘Рј РёР· Р°РґР°РїС‚РµСЂР° (РЅРѕРІР°СЏ Р°СЂС…РёС‚РµРєС‚СѓСЂР°)
+        self.sound_manager = getattr(self.trading_system, "sound_manager", None)
+        self.chart_trade_history = []
+        self.temp_html_file = None
+
+        self.drift_data_points = []
+        self.drift_alert_points = []
+
+        # РРќРР¦РРђР›РР—РђР¦РРЇ Р РРЎРљ-РњР•РќР•Р”Р–Р•Р Рђ Р ML-РџР Р•Р”РРљРўРћР Рђ
+        logger.info("=== РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ RiskManager Рё MLPredictor ===")
+        try:
+            from src.core.risk_manager import RiskManager
+            self.risk_manager = RiskManager(config=config)
+            logger.info("вњ… RiskManager РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ")
+        except Exception as e:
+            logger.error(f"вќЊ РћС€РёР±РєР° РёРЅРёС†РёР°Р»РёР·Р°С†РёРё RiskManager: {e}", exc_info=True)
+            self.risk_manager = None
+
+        try:
+            from src.core.ml_predictor import MLPredictor
+            # MLPredictor С‚СЂРµР±СѓРµС‚ event_bus вЂ” РёСЃРїРѕР»СЊР·СѓРµРј bridge.event_bus РёР»Рё СЃРѕР·РґР°С‘Рј СЃРІРѕР№
+            event_bus = getattr(self.bridge, 'event_bus', None)
+            self.ml_predictor = MLPredictor(config=config, event_bus=event_bus)
+            logger.info("вњ… MLPredictor РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ")
+        except Exception as e:
+            logger.error(f"вќЊ РћС€РёР±РєР° РёРЅРёС†РёР°Р»РёР·Р°С†РёРё MLPredictor: {e}", exc_info=True)
+            self.ml_predictor = None
+
+        try:
+            from src.core.backtester import Backtester
+            self.backtester = Backtester(config=config)
+            logger.info("вњ… Backtester РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ")
+        except Exception as e:
+            logger.error(f"вќЊ РћС€РёР±РєР° РёРЅРёС†РёР°Р»РёР·Р°С†РёРё Backtester: {e}", exc_info=True)
+            self.backtester = None
+
+        # РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј СЃР»РѕРІР°СЂРё
+        self.thread_status_labels: Dict[str, QLabel] = {}
+        self.scheduler_status_labels: Dict[str, QLabel] = {}
+
+        # РќР°СЃС‚СЂРѕР№РєР° РёРєРѕРЅРєРё
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(project_root, "assets", "icon.ico.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            logger.warning(f"Р¤Р°Р№Р» РёРєРѕРЅРєРё РЅРµ РЅР°Р№РґРµРЅ РїРѕ РїСѓС‚Рё: {icon_path}")
+
+        # РќР°СЃС‚СЂРѕР№РєР° РїР°РЅРµР»Рё СѓРІРµРґРѕРјР»РµРЅРёР№
+        self.notification_bar = QFrame()
+        self.notification_bar.setObjectName("NotificationBar")
+        notification_layout = QHBoxLayout()
+        self.notification_bar.setLayout(notification_layout)
+        self.notification_label = QLabel("")
+        notification_layout.addWidget(self.notification_label)
+        self.notification_bar.setVisible(False)
+
+        self.notification_timer = QTimer(self)
+        self.notification_timer.setSingleShot(True)
+        self.notification_timer.timeout.connect(lambda: self.notification_bar.setVisible(False))
+
+        # РќР°СЃС‚СЂРѕР№РєР° GUI Рё СЃРёРіРЅР°Р»РѕРІ
+        self.is_graph_ready = False
+        self.graph_data_queue = []
+        self.scheduler_manager = SchedulerManager()
+        self.settings_window = SettingsWindow(self.scheduler_manager, self.config, self)
+        self.settings_window.scheduler_status_updated.connect(self.update_thread_status_widget)
+
+        self.setGeometry(100, 100, 1600, 900)
+
+        # --- Р’Р Р•РњР•РќРќР«Р™ Р’РР”Р–Р•Рў Р—РђР“Р РЈР—РљР ---
+        self.loading_label = QLabel("Р—Р°РіСЂСѓР·РєР° СЏРґСЂР° Genesis v24.0... РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕРґРѕР¶РґРёС‚Рµ (AI, DB, NLP).")
+        self.loading_widget = QWidget()
+        loading_layout = QVBoxLayout(self.loading_widget)
+        loading_layout.addWidget(self.loading_label)
+        self.setCentralWidget(self.loading_widget)
+
+        # --- РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ GUI (Р»РµРіРєР°СЏ С‡Р°СЃС‚СЊ) ---
+        self._init_widgets()  # РЎРѕР·РґР°РЅРёРµ РІСЃРµС… РІРёРґР¶РµС‚РѕРІ, РЅРѕ Р±РµР· РґР°РЅРЅС‹С…
+        self.connect_signals()
+        self.apply_style("РўРµРјРЅР°СЏ")
+
+        # РќР°СЃС‚СЂРѕР№РєР° С‚Р°Р№РјРµСЂР° СЃС‚Р°С‚СѓСЃР°
+        self.status_update_timer = QTimer(self)
+        self.status_update_timer.timeout.connect(self.update_scheduler_status_display)
+        self.status_update_timer.start(60 * 1000)
+
+        self.update_scheduler_status_display()
+
+        # РўР°Р№РјРµСЂ РѕР±РЅРѕРІР»РµРЅРёСЏ РёРЅС„РѕСЂРјР°С†РёРё РѕР± РѕР±РЅРѕРІР»РµРЅРёСЏС… (РєР°Р¶РґС‹Рµ 30 СЃРµРєСѓРЅРґ)
+        self.update_info_timer = QTimer(self)
+        self.update_info_timer.timeout.connect(self._update_version_and_monitoring_info)
+        self.update_info_timer.start(30 * 1000)
+
+        # РџСЂРµРґРїРѕР»Р°РіР°РµРј, С‡С‚Рѕ kg_enabled_checkbox СЃСѓС‰РµСЃС‚РІСѓРµС‚ РїРѕСЃР»Рµ _init_widgets
+        self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
+        self.on_kg_toggle()
+
+        # --- РљР РРўРР§Р•РЎРљРћР• РР—РњР•РќР•РќРР•: Р—Р°РїСѓСЃРє С‚СЏР¶РµР»РѕР№ РёРЅРёС†РёР°Р»РёР·Р°С†РёРё РІ QThreadPool ---
+        # Р—Р°РїСѓСЃРєР°РµРј СЃСЂР°Р·Сѓ, РЅРµ Р¶РґРµРј 100РјСЃ, РЅРѕ РІ С„РѕРЅРѕРІРѕРј РїРѕС‚РѕРєРµ
+        self.start_heavy_initialization()
+
+        # РџРѕРєР°Р·С‹РІР°РµРј СѓРІРµРґРѕРјР»РµРЅРёРµ Рѕ Р·Р°РіСЂСѓР·РєРµ
+        # self.show_notification("Р—Р°РїСѓСЃРє С„РѕРЅРѕРІС‹С… СЃРµСЂРІРёСЃРѕРІ\n(РћСЂРєРµСЃС‚СЂР°С‚РѕСЂ, R&D,\n Data Provider)...", 0)
+
+    def _initialize_and_start_blocking(self):
+        """
+        Р‘Р»РѕРєРёСЂСѓСЋС‰Р°СЏ С„СѓРЅРєС†РёСЏ, РєРѕС‚РѕСЂР°СЏ Р±СѓРґРµС‚ РІС‹РїРѕР»РЅСЏС‚СЊСЃСЏ РІ Worker.
+        РћР±СЉРµРґРёРЅСЏРµС‚ РѕР±Рµ С‚СЏР¶РµР»С‹Рµ С„Р°Р·С‹.
+        """
+        # Р¤Р°Р·Р° 1: РўСЏР¶РµР»Р°СЏ РёРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РєРѕРјРїРѕРЅРµРЅС‚РѕРІ (DB, AI, NLP)
+        logger.info("РќР°С‡Р°Р»Рѕ С‚СЏР¶РµР»РѕР№ РёРЅРёС†РёР°Р»РёР·Р°С†РёРё РєРѕРјРїРѕРЅРµРЅС‚РѕРІ (DB, AI, NLP)...")
+
+        # !!! РљР РРўРР§Р•РЎРљРћР• РРЎРџР РђР’Р›Р•РќРР•: РЈР”РђР›РЇР•Рњ РќРР–РќР•Р• РџРћР”Р§Р•Р РљРР’РђРќРР• !!!
+        # РџСЂРѕРІРµСЂРєР° РїРµСЂРµРґ РІС‹Р·РѕРІРѕРј
+        _method = getattr(
+            getattr(self.trading_system, "core_system", None),
+            "initialize_heavy_components",
+            None,
+        )
+        if _method:
+            _method()
+
+        logger.info("РўСЏР¶РµР»Р°СЏ РёРЅРёС†РёР°Р»РёР·Р°С†РёСЏ Р·Р°РІРµСЂС€РµРЅР°.")
+
+        # Р¤Р°Р·Р° 2: Р—Р°РїСѓСЃРє РїРѕСЃС‚РѕСЏРЅРЅС‹С… С„РѕРЅРѕРІС‹С… СЃРµСЂРІРёСЃРѕРІ (Data Provider, Orchestrator, R&D)
+        logger.info("РќР°С‡Р°Р»Рѕ Р·Р°РїСѓСЃРєР° РІСЃРµС… С„РѕРЅРѕРІС‹С… СЃРµСЂРІРёСЃРѕРІ...")
+        # Р—Р°РїСѓСЃРєР°РµРј С„РѕРЅРѕРІС‹Рµ СЃРµСЂРІРёСЃС‹ С‡РµСЂРµР· Р°РґР°РїС‚РµСЂ (СЃРёРЅС…СЂРѕРЅРЅРѕ РІ РѕС‚РґРµР»СЊРЅРѕРј РїРѕС‚РѕРєРµ)
+        import threading
+
+        def run_background_services():
+            try:
+                asyncio.run(self.trading_system.start_all_background_services())
+            except Exception as e:
+                logger.error(f"РћС€РёР±РєР° Р·Р°РїСѓСЃРєР° С„РѕРЅРѕРІС‹С… СЃРµСЂРІРёСЃРѕРІ: {e}", exc_info=True)
+
+        thread = threading.Thread(target=run_background_services, daemon=True, name="BackgroundServices")
+        thread.start()
+        logger.info("Р’СЃРµ С„РѕРЅРѕРІС‹Рµ СЃРµСЂРІРёСЃС‹ Р·Р°РїСѓС‰РµРЅС‹")
+        return True
+
+    @Slot(object)
+    def on_heavy_initialization_finished(self, result):
+        """
+        РЎР»РѕС‚, РІС‹Р·С‹РІР°РµРјС‹Р№ РїРѕСЃР»Рµ СѓСЃРїРµС€РЅРѕРіРѕ Р·Р°РїСѓСЃРєР° РІСЃРµС… С„РѕРЅРѕРІС‹С… СЃРµСЂРІРёСЃРѕРІ.
+        Р‘РµР·РѕРїР°СЃРЅРѕ РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ РІ РіР»Р°РІРЅРѕРј РїРѕС‚РѕРєРµ GUI.
+        """
+        logger.info("РЎРёСЃС‚РµРјР° Genesis v24.0 РїРѕР»РЅРѕСЃС‚СЊСЋ Р°РєС‚РёРІРЅР°. РџРµСЂРµРєР»СЋС‡РµРЅРёРµ РЅР° РѕСЃРЅРѕРІРЅРѕР№ GUI.")
+
+        # 1. GUI СѓР¶Рµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ РІ __init__, РїСЂРѕСЃС‚Рѕ РїРѕРєР°Р·С‹РІР°РµРј РѕСЃРЅРѕРІРЅРѕР№ РІРёРґР¶РµС‚
+        # self._init_widgets()  # РЈР”РђР›Р•РќРћ: РЅРµ РІС‹Р·С‹РІР°С‚СЊ РїРѕРІС‚РѕСЂРЅРѕ!
+        # self.connect_signals()  # РЈР”РђР›Р•РќРћ: РЅРµ РїРѕРґРєР»СЋС‡Р°С‚СЊ РїРѕРІС‚РѕСЂРЅРѕ!
+        # self.apply_style("РўРµРјРЅР°СЏ")  # РЈР”РђР›Р•РќРћ: СЃС‚РёР»СЊ СѓР¶Рµ РїСЂРёРјРµРЅС‘РЅ
+
+        # 2. Р—Р°РјРµРЅР° РІСЂРµРјРµРЅРЅРѕРіРѕ РІРёРґР¶РµС‚Р° РЅР° РѕСЃРЅРѕРІРЅРѕР№ GUI
+        self.setCentralWidget(self.main_central_widget)
+
+        # 3. Р—Р°РїСѓСЃРє С‚Р°Р№РјРµСЂРѕРІ Рё РЅР°С‡Р°Р»СЊРЅС‹С… РѕР±РЅРѕРІР»РµРЅРёР№
+        self.status_update_timer = QTimer(self)
+        self.status_update_timer.timeout.connect(self.update_scheduler_status_display)
+        self.status_update_timer.start(60 * 1000)
+        self.update_scheduler_status_display()
+        self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
+        self.on_kg_toggle()
+
+        # 4. РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ DeFi Widget
+        if hasattr(self, "defi_widget") and hasattr(self.trading_system.core_system, "db_manager"):
+            logger.info("[DeFi] РџРѕРґРєР»СЋС‡РµРЅРёРµ Рє Р‘Р”...")
+            self.defi_widget.set_db_manager(getattr(getattr(self.trading_system, "core_system", None), "db_manager", None))
+
+        if hasattr(self, "control_center_tab"):
+            self.control_center_tab.load_initial_settings()
+
+        self.show_notification("РЎРёСЃС‚РµРјР° Genesis v24.0 РїРѕР»РЅРѕСЃС‚СЊСЋ Р°РєС‚РёРІРЅР°.", 5000)
+
+    @Slot(tuple)
+    def on_heavy_initialization_error(self, error_info):
+        """
+        РЎР»РѕС‚ РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё РѕС€РёР±РѕРє РёРЅРёС†РёР°Р»РёР·Р°С†РёРё.
+        """
+        exctype, value, traceback_str = error_info
+        logger.critical(f"РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР° РїСЂРё Р·Р°РїСѓСЃРєРµ СЃРµСЂРІРёСЃРѕРІ: {value}\n{traceback_str}")
+        # РџРѕРєР°Р·Р°С‚СЊ Р±РµСЃСЃСЂРѕС‡РЅРѕ
+        self.show_notification(f"РљР РРўРР§Р•РЎРљРђРЇ РћРЁРР‘РљРђ: {value}", 0)
+        self.loading_label.setText(f"РљР РРўРР§Р•РЎРљРђРЇ РћРЁРР‘РљРђ: {value}. РЎРј. Р»РѕРіРё.")
+        self.loading_label.setStyleSheet("color: red;")
+
+    def on_left_tab_changed(self, index, tab_widget):
+        """РћР±СЂР°Р±РѕС‚С‡РёРє РїРµСЂРµРєР»СЋС‡РµРЅРёСЏ РІРєР»Р°РґРѕРє Р»РµРІРѕР№ РїР°РЅРµР»Рё"""
+        logger.debug(f"Left tab changed to index: {index}")
+
+    def _toggle_debug_logs(self, state):
+        """РџРµСЂРµРєР»СЋС‡РµРЅРёРµ РѕС‚Р»Р°РґРѕС‡РЅС‹С… Р»РѕРіРѕРІ"""
+        debug_enabled = (state == 2)  # Qt.CheckState.Checked
+        logger.info(f"Debug logs: {'Р’РєР»СЋС‡РµРЅС‹' if debug_enabled else 'РћС‚РєР»СЋС‡РµРЅС‹'}")
+
+    def show_scanner_context_menu(self, pos):
+        """РљРѕРЅС‚РµРєСЃС‚РЅРѕРµ РјРµРЅСЋ РґР»СЏ С‚Р°Р±Р»РёС†С‹ Scanner"""
+        menu = QMenu(self)
+        refresh_action = menu.addAction("РћР±РЅРѕРІРёС‚СЊ РґР°РЅРЅС‹Рµ")
+        refresh_action.triggered.connect(self.refresh_scanner_data)
+
+        export_action = menu.addAction("Р­РєСЃРїРѕСЂС‚ РІ CSV")
+        export_action.triggered.connect(self.export_scanner_to_csv)
+
+        menu.exec_(self.scanner_table.mapToGlobal(pos))
+
+    def refresh_scanner_data(self):
+        """РћР±РЅРѕРІР»РµРЅРёРµ РґР°РЅРЅС‹С… РІ С‚Р°Р±Р»РёС†Рµ Scanner"""
+        logger.info("РћР±РЅРѕРІР»РµРЅРёРµ РґР°РЅРЅС‹С… Scanner...")
+        # Р РµР°Р»РёР·Р°С†РёСЏ РѕР±РЅРѕРІР»РµРЅРёСЏ РґР°РЅРЅС‹С…
+
+    def export_scanner_to_csv(self):
+        """Р­РєСЃРїРѕСЂС‚ РґР°РЅРЅС‹С… Scanner РІ CSV"""
+        logger.info("Р­РєСЃРїРѕСЂС‚ Scanner РІ CSV...")
+        # Р РµР°Р»РёР·Р°С†РёСЏ СЌРєСЃРїРѕСЂС‚Р°
+
+    def show_notification(self, message: str, duration_ms: int = 3000):
+        """
+        РћС‚РѕР±СЂР°Р¶Р°РµС‚ СѓРІРµРґРѕРјР»РµРЅРёРµ РІ РЅРёР¶РЅРµР№ РїР°РЅРµР»Рё.
+        duration_ms = 0 РѕР·РЅР°С‡Р°РµС‚ Р±РµСЃСЃСЂРѕС‡РЅРѕ.
+        """
+        self.notification_label.setText(message)
+        self.notification_bar.setVisible(True)
+        if duration_ms > 0:
+            self.notification_timer.start(duration_ms)
+        else:
+            self.notification_timer.stop()
+
+    def _create_vector_db_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # --- Р’РµСЂС…РЅСЏСЏ РїР°РЅРµР»СЊ: РЎС‚Р°С‚РёСЃС‚РёРєР° Рё РЈРїСЂР°РІР»РµРЅРёРµ ---
+        top_frame = QFrame()
+        top_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        top_layout = QHBoxLayout(top_frame)
+
+        # РЎС‚Р°С‚РёСЃС‚РёРєР°
+        stats_layout = QVBoxLayout()
+        self.vdb_count_label = QLabel("Р”РѕРєСѓРјРµРЅС‚РѕРІ РІ РёРЅРґРµРєСЃРµ: --")
+        self.vdb_count_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: #50fa7b;")
+        self.vdb_status_label = QLabel("РЎС‚Р°С‚СѓСЃ: РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ...")
+        stats_layout.addWidget(self.vdb_count_label)
+        stats_layout.addWidget(self.vdb_status_label)
+
+        # РљРЅРѕРїРєРё
+        btn_layout = QVBoxLayout()
+        self.vdb_refresh_btn = QPushButton("РћР±РЅРѕРІРёС‚СЊ СЃС‚Р°С‚РёСЃС‚РёРєСѓ")
+        self.vdb_refresh_btn.clicked.connect(self._refresh_vector_db_stats)
+        btn_layout.addWidget(self.vdb_refresh_btn)
+
+        top_layout.addLayout(stats_layout)
+        top_layout.addStretch()
+        top_layout.addLayout(btn_layout)
+        layout.addWidget(top_frame)
+
+        # --- РџР°РЅРµР»СЊ РџРѕРёСЃРєР° ---
+        search_group = QGroupBox("РЎРµРјР°РЅС‚РёС‡РµСЃРєРёР№ РџРѕРёСЃРє (RAG)")
+        search_layout = QVBoxLayout()
+        search_group.setLayout(search_layout)
+
+        input_layout = QHBoxLayout()
+        self.vdb_query_edit = QLineEdit()
+        self.vdb_query_edit.setPlaceholderText("Р’РІРµРґРёС‚Рµ Р·Р°РїСЂРѕСЃ (РЅР°РїСЂ. 'Inflation impact on Gold' РёР»Рё 'Rate hike')...")
+        self.vdb_query_edit.returnPressed.connect(self._run_vector_db_search)
+
+        self.vdb_search_button = QPushButton("РќР°Р№С‚Рё РїРѕС…РѕР¶РёРµ РЅРѕРІРѕСЃС‚Рё")
+        self.vdb_search_button.clicked.connect(self._run_vector_db_search)
+        self.vdb_search_button.setStyleSheet("background-color: #bd93f9; color: #282a36; font-weight: bold;")
+
+        input_layout.addWidget(self.vdb_query_edit)
+        input_layout.addWidget(self.vdb_search_button)
+        search_layout.addLayout(input_layout)
+        layout.addWidget(search_group)
+
+        # --- РўР°Р±Р»РёС†Р° Р РµР·СѓР»СЊС‚Р°С‚РѕРІ ---
+        self.vdb_results_table = QTableWidget()
+        self.vdb_results_table.setColumnCount(4)
+        self.vdb_results_table.setHorizontalHeaderLabels(["РЎС…РѕРґСЃС‚РІРѕ", "РСЃС‚РѕС‡РЅРёРє", "Р”Р°С‚Р°", "Р¤СЂР°РіРјРµРЅС‚ С‚РµРєСЃС‚Р°"])
+        self.vdb_results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.vdb_results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.vdb_results_table.setAlternatingRowColors(True)
+        self.vdb_results_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        layout.addWidget(self.vdb_results_table)
+
+        # РџРѕРґРєР»СЋС‡РµРЅРёРµ СЃРёРіРЅР°Р»РѕРІ (РµСЃР»Рё bridge СѓР¶Рµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ)
+        if hasattr(self, 'bridge') and self.bridge is not None:
+            self.bridge.vector_db_search_results.connect(self._display_vector_db_results)
+        else:
+            logger.warning("[VectorDB-GUI] Bridge РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ, РїРѕРґРєР»СЋС‡РµРЅРёРµ СЃРёРіРЅР°Р»РѕРІ РѕС‚Р»РѕР¶РµРЅРѕ")
+
+        # РђРІС‚Рѕ-РѕР±РЅРѕРІР»РµРЅРёРµ СЃС‚Р°С‚РёСЃС‚РёРєРё С‡РµСЂРµР· 2 СЃРµРєСѓРЅРґС‹ РїРѕСЃР»Рµ СЃС‚Р°СЂС‚Р°
+        QTimer.singleShot(2000, self._refresh_vector_db_stats)
+
+        return widget
+
+    def _refresh_vector_db_stats(self):
+        """РЎРёРЅС…СЂРѕРЅРЅС‹Р№ С‚СЂРёРіРіРµСЂ (РІС‹Р·С‹РІР°РµС‚СЃСЏ QTimer, РЅРµ Р±Р»РѕРєРёСЂСѓРµС‚ GUI)"""
+        import threading
+
+        def fetch_and_apply():
+            """РђСЃРёРЅС…СЂРѕРЅРЅРѕРµ РїРѕР»СѓС‡РµРЅРёРµ РґР°РЅРЅС‹С… РёР· VectorDB"""
+            import asyncio
+
+            try:
+                if hasattr(self.trading_system, "get_vector_db_stats"):
+                    loop = asyncio.new_event_loop()
+                    stats = loop.run_until_complete(self.trading_system.get_vector_db_stats())
+                    loop.close()
+
+                    if isinstance(stats, dict):
+                        count = stats.get("count", 0)
+                        ready = stats.get("is_ready", False)
+                        has_embedding = stats.get("has_embedding_model", False)
+                        reason = stats.get("reason", "")
+
+                        # Р‘РµР·РѕРїР°СЃРЅРѕРµ РѕР±РЅРѕРІР»РµРЅРёРµ UI РІ РіР»Р°РІРЅРѕРј РїРѕС‚РѕРєРµ С‡РµСЂРµР· QTimer
+                        from PySide6.QtCore import QTimer
+
+                        QTimer.singleShot(0, lambda: self._apply_vdb_stats(count, ready, has_embedding, reason))
+                    else:
+                        logger.warning(f"[VectorDB-GUI] РќРµРѕР¶РёРґР°РЅРЅС‹Р№ С„РѕСЂРјР°С‚ РѕС‚РІРµС‚Р°: {type(stats)}")
+                else:
+                    logger.warning("[VectorDB-GUI] РњРµС‚РѕРґ get_vector_db_stats РЅРµ РЅР°Р№РґРµРЅ")
+            except Exception as e:
+                logger.error(f"[VectorDB-GUI] РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё СЃС‚Р°С‚РёСЃС‚РёРєРё: {e}", exc_info=True)
+
+        threading.Thread(target=fetch_and_apply, daemon=True).start()
+
+    def _apply_vdb_stats(self, count: int, is_ready: bool, has_embedding: bool, reason: str):
+        """РџСЂРёРјРµРЅРµРЅРёРµ РґР°РЅРЅС‹С… Рє РІРёРґР¶РµС‚Р°Рј (РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ СЃС‚СЂРѕРіРѕ РІ Qt MainThread)"""
+        try:
+            if hasattr(self, "vdb_count_label"):
+                self.vdb_count_label.setText(f"Р”РѕРєСѓРјРµРЅС‚РѕРІ РІ РёРЅРґРµРєСЃРµ: {count}")
+
+            if is_ready:
+                status_text = "РђРљРўРР’РќРђ"
+                color = "#50fa7b"
+            elif reason:
+                status_text = f"РћРЁРР‘РљРђ: {reason}"
+                color = "#ff5555"
+            elif not has_embedding:
+                status_text = "РќР•Рў EMBEDDING РњРћР”Р•Р›Р"
+                color = "#ff5555"
+            else:
+                status_text = "РќР• Р“РћРўРћР’Рђ"
+                color = "#ff5555"
+
+            if hasattr(self, "vdb_status_label"):
+                self.vdb_status_label.setText(f"РЎС‚Р°С‚СѓСЃ: {status_text}")
+                self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+            logger.info(
+                f"[VectorDB-GUI] РЎС‚Р°С‚РёСЃС‚РёРєР° РѕР±РЅРѕРІР»РµРЅР°: РґРѕРєСѓРјРµРЅС‚РѕРІ={count}, РіРѕС‚РѕРІ={is_ready}, embedding={has_embedding}"
+            )
+        except Exception as e:
+            logger.error(f"[VectorDB-GUI] РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ UI: {e}")
+
+    def _on_vector_db_search(self):
+        query = self.vdb_query_edit.text().strip()
+        if not query:
+            return
+
+        self.vdb_search_button.setEnabled(False)
+        self.vdb_search_button.setText("РџРѕРёСЃРє...")
+        self.vdb_results_table.setRowCount(0)
+
+        # Р—Р°РїСѓСЃРєР°РµРј РїРѕРёСЃРє РІ РѕС‚РґРµР»СЊРЅРѕРј РїРѕС‚РѕРєРµ С‡РµСЂРµР· TradingSystem
+        threading.Thread(
+            target=getattr(getattr(self.trading_system, "core_system", None), "search_vector_db", None),
+            args=(query,),
+            daemon=True,
+        ).start()
+
+    # --- РЎР›РћРў Р”Р›РЇ РћР‘РќРћР’Р›Р•РќРРЇ РўРђР‘Р›РР¦Р« Р Р•Р—РЈР›Р¬РўРђРўРћР’ ---
+    @Slot(list)
+    def update_vector_db_table(self, results: list):
+        self.vdb_search_button.setEnabled(True)
+        self.vdb_search_button.setText("РќР°Р№С‚Рё РІ Р‘Р°Р·Рµ Р—РЅР°РЅРёР№")
+
+        if not results:
+            QMessageBox.information(self, "РџРѕРёСЃРє", "РќРёС‡РµРіРѕ РЅРµ РЅР°Р№РґРµРЅРѕ.")
+            return
+
+        if "error" in results[0]:
+            QMessageBox.warning(self, "РћС€РёР±РєР°", results[0]["error"])
+            return
+
+        self.vdb_results_table.setRowCount(len(results))
+        for i, item in enumerate(results):
+            # РЎС…РѕРґСЃС‚РІРѕ (Distance)
+            dist_item = QTableWidgetItem(f"{float(item.get('distance', 0)):.4f}")
+            dist_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            # РСЃС‚РѕС‡РЅРёРє
+            source_item = QTableWidgetItem(str(item.get("source", "N/A")))
+
+            # Р”Р°С‚Р°
+            date_str = item.get("timestamp", "N/A")
+            if "T" in date_str:
+                date_str = date_str.split("T")[0]
+            date_item = QTableWidgetItem(date_str)
+
+            # РўРµРєСЃС‚
+            text_item = QTableWidgetItem(str(item.get("snippet", "")))
+            # РџРѕР»РЅС‹Р№ С‚РµРєСЃС‚ РІ РїРѕРґСЃРєР°Р·РєРµ
+            text_item.setToolTip(str(item.get("full_text", "")))
+
+            self.vdb_results_table.setItem(i, 0, dist_item)
+            self.vdb_results_table.setItem(i, 1, source_item)
+            self.vdb_results_table.setItem(i, 2, date_item)
+            self.vdb_results_table.setItem(i, 3, text_item)
+
+    def _run_vector_db_search(self):
+        query = self.vdb_query_edit.text().strip()
+        if not query:
+            QMessageBox.warning(self, "Р’РЅРёРјР°РЅРёРµ", "Р’РІРµРґРёС‚Рµ РїРѕРёСЃРєРѕРІС‹Р№ Р·Р°РїСЂРѕСЃ.")
+            # РЈР±РµРґРёРјСЃСЏ, С‡С‚Рѕ РєРЅРѕРїРєР° РІ РЅРѕСЂРјР°Р»СЊРЅРѕРј СЃРѕСЃС‚РѕСЏРЅРёРё
+            self.vdb_search_button.setEnabled(True)
+            self.vdb_search_button.setText("РќР°Р№С‚Рё РїРѕС…РѕР¶РёРµ РЅРѕРІРѕСЃС‚Рё")
+            return
+
+        logger.info(f"[VectorDB-GUI] Р—Р°РїСѓСЃРє РїРѕРёСЃРєР°: '{query}'")
+
+        # РџСЂРѕРІРµСЂСЏРµРј, С‡С‚Рѕ СЃРёСЃС‚РµРјР° РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅР°
+        if not hasattr(self.trading_system, "search_vector_db"):
+            logger.error("[VectorDB-GUI] РњРµС‚РѕРґ search_vector_db РЅРµ РЅР°Р№РґРµРЅ РІ trading_system")
+            QMessageBox.critical(self, "РћС€РёР±РєР°", "РЎРёСЃС‚РµРјР° VectorDB РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅР°")
+            return
+
+        if not hasattr(self.trading_system, "core_system"):
+            logger.error("[VectorDB-GUI] core_system РЅРµ РЅР°Р№РґРµРЅ РІ trading_system")
+            QMessageBox.critical(self, "РћС€РёР±РєР°", "РўРѕСЂРіРѕРІР°СЏ СЃРёСЃС‚РµРјР° РЅРµ Р·Р°РїСѓС‰РµРЅР°. РќР°Р¶РјРёС‚Рµ 'Р—Р°РїСѓСЃС‚РёС‚СЊ С‚РѕСЂРіРѕРІР»СЋ'")
+            return
+
+        self.vdb_search_button.setEnabled(False)
+        self.vdb_search_button.setText("РџРѕРёСЃРє...")
+        self.vdb_results_table.setRowCount(0)
+
+        # --- РРЎРџР РђР’Р›Р•РќРР•: Р’С‹Р·С‹РІР°РµРј РїСЂРѕРєСЃРё-РјРµС‚РѕРґ, РєРѕС‚РѕСЂС‹Р№ РёСЃРїРѕР»СЊР·СѓРµС‚ QThreadPool ---
+        try:
+            logger.info(f"[VectorDB-GUI] Р’С‹Р·РѕРІ trading_system.search_vector_db('{query}')")
+            self.trading_system.search_vector_db(query)
+            logger.info(f"[VectorDB-GUI] РњРµС‚РѕРґ search_vector_db РІС‹Р·РІР°РЅ СѓСЃРїРµС€РЅРѕ")
+        except Exception as e:
+            logger.error(f"[VectorDB-GUI] РћС€РёР±РєР° РїСЂРё РІС‹Р·РѕРІРµ search_vector_db: {e}", exc_info=True)
+            self.vdb_search_button.setEnabled(True)
+            self.vdb_search_button.setText("РќР°Р№С‚Рё РїРѕС…РѕР¶РёРµ РЅРѕРІРѕСЃС‚Рё")
+            QMessageBox.critical(self, "РћС€РёР±РєР°", f"РћС€РёР±РєР° РїСЂРё Р·Р°РїСѓСЃРєРµ РїРѕРёСЃРєР°: {e}")
+            return
+
+        # РўР°Р№РјР°СѓС‚ РЅР° СЃР»СѓС‡Р°Р№, РµСЃР»Рё СЂРµР·СѓР»СЊС‚Р°С‚С‹ РЅРµ РїСЂРёРґСѓС‚ (Р·Р°С‰РёС‚Р° РѕС‚ Р·Р°РІРёСЃР°РЅРёСЏ РєРЅРѕРїРєРё)
+        # 10 СЃРµРєСѓРЅРґ С‚Р°Р№РјР°СѓС‚
+        QTimer.singleShot(10000, self._restore_search_button)
+
+    def _restore_search_button(self):
+        """Р’РѕСЃСЃС‚Р°РЅР°РІР»РёРІР°РµС‚ РєРЅРѕРїРєСѓ РїРѕРёСЃРєР° (Р·Р°С‰РёС‚Р° РѕС‚ Р·Р°РІРёСЃР°РЅРёСЏ)"""
+        if not self.vdb_search_button.isEnabled():
+            logger.warning("[VectorDB-GUI] РўР°Р№РјР°СѓС‚ РїРѕРёСЃРєР° - РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёРµ РєРЅРѕРїРєРё")
+            self.vdb_search_button.setEnabled(True)
+            self.vdb_search_button.setText("РќР°Р№С‚Рё РїРѕС…РѕР¶РёРµ РЅРѕРІРѕСЃС‚Рё")
+
+    @Slot(list)
+    def _display_vector_db_results(self, results: list):
+        """РћС‚РѕР±СЂР°Р¶Р°РµС‚ СЂРµР·СѓР»СЊС‚Р°С‚С‹ РїРѕРёСЃРєР° РІ VectorDB"""
+        try:
+            logger.info(
+                f"[VectorDB-GUI] ===== _display_vector_db_results Р’Р«Р—Р’РђРќ СЃ {len(results) if results else 0} СЂРµР·СѓР»СЊС‚Р°С‚Р°РјРё ====="
+            )
+
+            # Р’СЃРµРіРґР° РІРѕСЃСЃС‚Р°РЅР°РІР»РёРІР°РµРј РєРЅРѕРїРєСѓ РІ РЅР°С‡Р°Р»Рµ
+            self.vdb_search_button.setEnabled(True)
+            self.vdb_search_button.setText("РќР°Р№С‚Рё РїРѕС…РѕР¶РёРµ РЅРѕРІРѕСЃС‚Рё")
+            logger.info(f"[VectorDB-GUI] РљРЅРѕРїРєР° РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅР°")
+
+            if not results:
+                logger.warning("[VectorDB-GUI] Р РµР·СѓР»СЊС‚Р°С‚С‹ РїСѓСЃС‚С‹Рµ")
+                QMessageBox.information(self, "Р РµР·СѓР»СЊС‚Р°С‚", "Р РµР·СѓР»СЊС‚Р°С‚С‹ РЅРµ РїРѕР»СѓС‡РµРЅС‹.")
+                return
+
+            if "error" in results[0]:
+                logger.error(f"[VectorDB-GUI] РџРѕР»СѓС‡РµРЅР° РѕС€РёР±РєР°: {results[0]['error']}")
+                QMessageBox.critical(self, "РћС€РёР±РєР° РїРѕРёСЃРєР°", results[0]["error"])
+                return
+
+            if "message" in results[0]:
+                logger.info(f"[VectorDB-GUI] РџРѕР»СѓС‡РµРЅРѕ СЃРѕРѕР±С‰РµРЅРёРµ: {results[0]['message']}")
+                QMessageBox.information(self, "Р РµР·СѓР»СЊС‚Р°С‚", results[0]["message"])
+                return
+
+            logger.info(f"[VectorDB-GUI] Р—Р°РїРѕР»РЅРµРЅРёРµ С‚Р°Р±Р»РёС†С‹ {len(results)} СЂРµР·СѓР»СЊС‚Р°С‚Р°РјРё")
+            self.vdb_results_table.setRowCount(len(results))
+            for i, res in enumerate(results):
+                # Р›РѕРіРёСЂСѓРµРј РїРµСЂРІС‹Р№ СЂРµР·СѓР»СЊС‚Р°С‚ РґР»СЏ РѕС‚Р»Р°РґРєРё
+                if i == 0:
+                    logger.info(f"[VectorDB-GUI] РџСЂРёРјРµСЂ СЂРµР·СѓР»СЊС‚Р°С‚Р°: {res}")
+
+                # РЎС…РѕРґСЃС‚РІРѕ (С‡РµРј РјРµРЅСЊС€Рµ РґРёСЃС‚Р°РЅС†РёСЏ, С‚РµРј Р»СѓС‡С€Рµ, РґР»СЏ L2)
+                # Р”Р»СЏ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ РјРѕР¶РЅРѕ РёРЅРІРµСЂС‚РёСЂРѕРІР°С‚СЊ РёР»Рё РїСЂРѕСЃС‚Рѕ РїРѕРєР°Р·Р°С‚СЊ РґРёСЃС‚Р°РЅС†РёСЋ
+                dist_val = float(res.get("distance", 0))
+                similarity_str = f"{dist_val:.4f}"
+
+                self.vdb_results_table.setItem(i, 0, QTableWidgetItem(similarity_str))
+                self.vdb_results_table.setItem(i, 1, QTableWidgetItem(res.get("source", "N/A")))
+
+                ts = res.get("timestamp", "N/A")
+                if "T" in ts:
+                    ts = ts.split("T")[0]
+                self.vdb_results_table.setItem(i, 2, QTableWidgetItem(ts))
+
+                snippet = res.get("snippet", "РќРµС‚ С‚РµРєСЃС‚Р°")
+                item_text = QTableWidgetItem(snippet)
+                # РџРѕР»РЅС‹Р№ С‚РµРєСЃС‚ РІ РїРѕРґСЃРєР°Р·РєРµ
+                item_text.setToolTip(res.get("full_text", snippet))
+                self.vdb_results_table.setItem(i, 3, item_text)
+
+            logger.info(f"[VectorDB-GUI] РўР°Р±Р»РёС†Р° СѓСЃРїРµС€РЅРѕ Р·Р°РїРѕР»РЅРµРЅР°")
+
+        except Exception as e:
+            logger.error(f"[VectorDB-GUI] РћС€РёР±РєР° РїСЂРё РѕС‚РѕР±СЂР°Р¶РµРЅРёРё СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ: {e}", exc_info=True)
+            # РЈР±РµРґРёРјСЃСЏ, С‡С‚Рѕ РєРЅРѕРїРєР° РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅР° РґР°Р¶Рµ РїСЂРё РѕС€РёР±РєРµ
+            self.vdb_search_button.setEnabled(True)
+            self.vdb_search_button.setText("РќР°Р№С‚Рё РїРѕС…РѕР¶РёРµ РЅРѕРІРѕСЃС‚Рё")
+            QMessageBox.critical(self, "РћС€РёР±РєР°", f"РћС€РёР±РєР° РїСЂРё РѕС‚РѕР±СЂР°Р¶РµРЅРёРё СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ: {e}")
+
+    def update_scheduler_status_display(self):
+        """РћР±РЅРѕРІР»СЏРµС‚ РёРЅС„РѕСЂРјР°С†РёСЋ Рѕ Р·Р°РїР»Р°РЅРёСЂРѕРІР°РЅРЅС‹С… Рё РІС‹РїРѕР»РЅРµРЅРЅС‹С… Р·Р°РґР°С‡Р°С… РІ GUI."""
+        try:
+            project_root = Path(os.path.dirname(os.path.abspath(__file__)))
+
+            # --- РћР±СЂР°Р±РѕС‚РєР° РґР»СЏ РћР±СЃР»СѓР¶РёРІР°РЅРёСЏ ---
+            maint_label = self.scheduler_status_labels.get("Maintenance")
+            if maint_label:
+                maint_time_str = self.scheduler_manager.get_task_trigger_time("GenesisMaintenance")
+                maint_status_file = project_root / "database" / "maintenance_status.json"
+
+                last_run_str = ""
+                if maint_status_file.exists():
+                    try:
+                        with open(maint_status_file, "r") as f:
+                            data = json.load(f)
+                            last_run_utc = datetime.fromisoformat(data["last_run_utc"])
+                            last_run_local = last_run_utc.astimezone()
+                            last_run_str = f" (Р’С‹РїРѕР»РЅРµРЅРѕ: {last_run_local.strftime('%d.%m %H:%M')})"
+                    except Exception as e:
+                        logger.error(f"РћС€РёР±РєР° С‡С‚РµРЅРёСЏ С„Р°Р№Р»Р° СЃС‚Р°С‚СѓСЃР° РѕР±СЃР»СѓР¶РёРІР°РЅРёСЏ: {e}")
+
+                display_text = f"Р•Р¶РµРґРЅРµРІРЅРѕ РІ {maint_time_str}" if maint_time_str else "РќРµ РЅР°СЃС‚СЂРѕРµРЅРѕ"
+                maint_label.setText(display_text + last_run_str)
+                maint_label.setStyleSheet("color: #8be9fd;" if maint_time_str else "color: #f1fa8c;")
+
+            # --- РћР±СЂР°Р±РѕС‚РєР° РґР»СЏ РћРїС‚РёРјРёР·Р°С†РёРё ---
+            opt_label = self.scheduler_status_labels.get("Optimization")
+            if opt_label:
+                opt_time_str = self.scheduler_manager.get_task_trigger_time("GenesisWeeklyOptimization")
+                opt_status_file = project_root / "database" / "optimization_status.json"
+
+                last_run_str = ""
+                if opt_status_file.exists():
+                    try:
+                        with open(opt_status_file, "r") as f:
+                            data = json.load(f)
+                            last_run_utc = datetime.fromisoformat(data["last_run_utc"])
+                            last_run_local = last_run_utc.astimezone()
+                            last_run_str = f" (Р’С‹РїРѕР»РЅРµРЅРѕ: {last_run_local.strftime('%d.%m %H:%M')})"
+                    except Exception as e:
+                        logger.error(f"РћС€РёР±РєР° С‡С‚РµРЅРёСЏ С„Р°Р№Р»Р° СЃС‚Р°С‚СѓСЃР° РѕРїС‚РёРјРёР·Р°С†РёРё: {e}")
+
+                display_text = f"Р•Р¶РµРЅРµРґРµР»СЊРЅРѕ (РЎР±) РІ {opt_time_str}" if opt_time_str else "РќРµ РЅР°СЃС‚СЂРѕРµРЅРѕ"
+                opt_label.setText(display_text + last_run_str)
+                opt_label.setStyleSheet("color: #8be9fd;" if opt_time_str else "color: #f1fa8c;")
+
+        except Exception as e:
+            logger.error(f"РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР° РІ update_scheduler_status_display: {e}", exc_info=True)
+
+    def update_thread_status_widget(self, scheduler_summary: dict):
+        """
+        РЎР»РѕС‚ РґР»СЏ РїСЂРёРµРјР° Рё РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ СЃС‚Р°С‚СѓСЃР° РїР»Р°РЅРёСЂРѕРІС‰РёРєР°.
+        """
+        # РџСЂРёРјРµСЂ: РћР±РЅРѕРІР»РµРЅРёРµ QLabel РёР»Рё QTableWidget СЂСЏРґРѕРј СЃРѕ СЃС‚Р°С‚СѓСЃРѕРј РїРѕС‚РѕРєРѕРІ
+
+        status_text = "РџР»Р°РЅРёСЂРѕРІС‰РёРє:\n"
+        for task_name, status in scheduler_summary.items():
+            # РЈР±РёСЂР°РµРј РїСЂРµС„РёРєСЃ "Genesis" РґР»СЏ РєСЂР°С‚РєРѕСЃС‚Рё
+            display_name = task_name.replace("Genesis", "")
+            status_text += f"  {display_name}: {status}\n"
+
+    def _handle_long_task_status(self, task_id: str, message: str, is_finished: bool):
+        """РџРѕРєР°Р·С‹РІР°РµС‚ РёР»Рё РѕР±РЅРѕРІР»СЏРµС‚ РїР°РЅРµР»СЊ СѓРІРµРґРѕРјР»РµРЅРёР№."""
+        self.notification_timer.stop()  # РћСЃС‚Р°РЅР°РІР»РёРІР°РµРј С‚Р°Р№РјРµСЂ, РµСЃР»Рё РѕРЅ Р±С‹Р» Р·Р°РїСѓС‰РµРЅ
+        self.notification_label.setText(message)
+
+        if is_finished:
+            # Р—Р°РґР°С‡Р° Р·Р°РІРµСЂС€РµРЅР° - Р·РµР»РµРЅС‹Р№ С†РІРµС‚ Рё Р·Р°РїСѓСЃРє С‚Р°Р№РјРµСЂР° РЅР° СЃРєСЂС‹С‚РёРµ
+            self.notification_bar.setStyleSheet("background-color: #50fa7b; color: #282a36; border-radius: 4px;")
+            self.notification_timer.start(7000)  # РЎРєСЂС‹С‚СЊ С‡РµСЂРµР· 7 СЃРµРєСѓРЅРґ
+        else:
+            # Р—Р°РґР°С‡Р° РІ РїСЂРѕС†РµСЃСЃРµ - Р¶РµР»С‚С‹Р№ С†РІРµС‚
+            self.notification_bar.setStyleSheet("background-color: #f1fa8c; color: #282a36; border-radius: 4px;")
+
+        self.notification_bar.setVisible(True)
+
+    def _hide_notification_bar(self):
+        """РЎРєСЂС‹РІР°РµС‚ РїР°РЅРµР»СЊ СѓРІРµРґРѕРјР»РµРЅРёР№."""
+        self.notification_bar.setVisible(False)
+
+    def start_heavy_initialization(self):
+        """Р—Р°РїСѓСЃРєР°РµС‚ Р·Р°РіСЂСѓР·РєСѓ С‚СЏР¶РµР»С‹С… AI-РєРѕРјРїРѕРЅРµРЅС‚РѕРІ РІ С„РѕРЅРѕРІРѕРј РїРѕС‚РѕРєРµ."""
+        self.update_status("Р—Р°РіСЂСѓР·РєР° AI-РјРѕРґРµР»РµР№ (РјРѕР¶РµС‚ Р·Р°РЅСЏС‚СЊ РЅРµСЃРєРѕР»СЊРєРѕ РјРёРЅСѓС‚)...", is_error=False)
+        # Р‘Р»РѕРєРёСЂСѓРµРј РєРЅРѕРїРєСѓ Р·Р°РїСѓСЃРєР° РЅР° РІСЂРµРјСЏ Р·Р°РіСЂСѓР·РєРё
+        self.start_button.setEnabled(False)
+
+        def worker():
+            try:
+                init_method = getattr(
+                    getattr(self.trading_system, "core_system", None),
+                    "initialize_heavy_components",
+                    None,
+                )
+                if init_method:
+                    init_method()
+                else:
+                    logger.info("initialize_heavy_components РЅРµ РЅР°Р№РґРµРЅ вЂ” РїСЂРѕРїСѓСЃРєР°РµРј")
+
+                # РџСЂРѕРІРµСЂСЏРµРј, РґРѕСЃС‚СѓРїРµРЅ Р»Рё bridge РїРµСЂРµРґ emit
+                if hasattr(self, 'bridge') and self.bridge is not None:
+                    # РџРѕСЃР»Рµ Р·Р°РІРµСЂС€РµРЅРёСЏ РѕС‚РїСЂР°РІР»СЏРµРј СЃРёРіРЅР°Р» РѕР± СѓСЃРїРµС…Рµ
+                    self.bridge.status_updated.emit("AI-РјРѕРґРµР»Рё Р·Р°РіСЂСѓР¶РµРЅС‹. РЎРёСЃС‚РµРјР° РіРѕС‚РѕРІР° Рє Р·Р°РїСѓСЃРєСѓ.", False)
+                    self.bridge.heavy_initialization_finished.emit()
+                else:
+                    logger.warning("Bridge РЅРµ РґРѕСЃС‚СѓРїРµРЅ, СЃРёРіРЅР°Р» РЅРµ РѕС‚РїСЂР°РІР»РµРЅ")
+
+                self.start_button.setEnabled(True)
+            except Exception as e:
+                # РџСЂРё РѕС€РёР±РєРµ РѕС‚РїСЂР°РІР»СЏРµРј СЃРёРіРЅР°Р» РѕР± РѕС€РёР±РєРµ
+                logger.critical(f"РћС€РёР±РєР° РїСЂРё РёРЅРёС†РёР°Р»РёР·Р°С†РёРё: {e}", exc_info=True)
+                if hasattr(self, 'bridge') and self.bridge is not None:
+                    self.bridge.status_updated.emit(f"РћРЁРР‘РљРђ: {e}", True)
+                # Р Р°Р·Р±Р»РѕРєРёСЂСѓРµРј РєРЅРѕРїРєСѓ, С‡С‚РѕР±С‹ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ РјРѕРі РїРѕРїСЂРѕР±РѕРІР°С‚СЊ СЃРЅРѕРІР°
+                self.start_button.setEnabled(True)
+
+        # Р—Р°РїСѓСЃРєР°РµРј РІРѕСЂРєРµСЂР° РІ РѕС‚РґРµР»СЊРЅРѕРј РїРѕС‚РѕРєРµ, С‡С‚РѕР±С‹ РЅРµ Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ GUI
+        init_thread = threading.Thread(target=worker, daemon=True)
+        init_thread.start()
+
+    def on_settings_saved(self):
+        """
+        РЎР»РѕС‚, РєРѕС‚РѕСЂС‹Р№ РІС‹Р·С‹РІР°РµС‚СЃСЏ РїРѕСЃР»Рµ СЃРѕС…СЂР°РЅРµРЅРёСЏ РЅР°СЃС‚СЂРѕРµРє РІ РґРѕС‡РµСЂРЅРµРј РѕРєРЅРµ.
+        РџРµСЂРµР·Р°РіСЂСѓР¶Р°РµС‚ РєРѕРЅС„РёРіСѓСЂР°С†РёСЋ Рё РїРµСЂРµРґР°РµС‚ РµРµ РІ СЏРґСЂРѕ СЃРёСЃС‚РµРјС‹.
+        """
+        logger.info("РћР±РЅР°СЂСѓР¶РµРЅРѕ СЃРѕС…СЂР°РЅРµРЅРёРµ РЅР°СЃС‚СЂРѕРµРє. РџСЂРёРјРµРЅРµРЅРёРµ РёР·РјРµРЅРµРЅРёР№ РЅР° Р»РµС‚Сѓ...")
+        try:
+            # 1. Р—Р°РіСЂСѓР¶Р°РµРј РЅРѕРІСѓСЋ РєРѕРЅС„РёРіСѓСЂР°С†РёСЋ
+            new_config = load_config()
+
+            # 1.5. РџР РРњР•РќРЇР•Рњ РўР•РњРЈ СЃСЂР°Р·Сѓ РїРѕСЃР»Рµ Р·Р°РіСЂСѓР·РєРё РєРѕРЅС„РёРіР°
+            theme_name = getattr(new_config, "GUI_THEME", "РўРµРјРЅР°СЏ")
+            self.apply_style(theme_name)
+            logger.info(f"[GUI] РўРµРјР° РїСЂРёРјРµРЅРµРЅР°: {theme_name}")
+
+            # 2. РџСЂРёРјРµРЅСЏРµРј Рє С‚РѕСЂРіРѕРІРѕР№ СЃРёСЃС‚РµРјРµ
+            self.trading_system.update_configuration(new_config)
+
+            # 3. РћР±РЅРѕРІР»СЏРµРј РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ РІ ControlCenterWidget
+            if hasattr(self, "control_center_tab"):
+                trading_settings = {
+                    "RISK_PERCENTAGE": new_config.RISK_PERCENTAGE,
+                    "MAX_OPEN_POSITIONS": new_config.MAX_OPEN_POSITIONS,
+                    "MAX_DAILY_DRAWDOWN_PERCENT": new_config.MAX_DAILY_DRAWDOWN_PERCENT,
+                    "trading_mode": getattr(new_config, "trading_mode", {"current_mode": "standard", "enabled": False}),
+                }
+                self.control_center_tab.update_trading_settings_display(trading_settings)
+                logger.info("[GUI] ControlCenterWidget РѕР±РЅРѕРІР»С‘РЅ РїРѕСЃР»Рµ СЃРѕС…СЂР°РЅРµРЅРёСЏ РЅР°СЃС‚СЂРѕРµРє")
+
+            # 4. РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ Р±Р°СЂ Рё РїР»Р°РЅРёСЂРѕРІС‰РёРє
+            self.update_status("РќР°СЃС‚СЂРѕР№РєРё СѓСЃРїРµС€РЅРѕ РїСЂРёРјРµРЅРµРЅС‹.", is_error=False)
+            self.update_scheduler_status_display()
+
+        except Exception as e:
+            logger.error(f"РћС€РёР±РєР° РїСЂРё РїСЂРёРјРµРЅРµРЅРёРё РЅРѕРІС‹С… РЅР°СЃС‚СЂРѕРµРє: {e}", exc_info=True)
+            self.update_status("РћС€РёР±РєР° РїСЂРё РїСЂРёРјРµРЅРµРЅРёРё РЅР°СЃС‚СЂРѕРµРє. РЎРј. Р»РѕРіРё.", is_error=True)
+
+    def update_thread_status(self, thread_name: str, status: str):
+        """РћР±РЅРѕРІР»СЏРµС‚ С‚РµРєСЃС‚ Рё С†РІРµС‚ РјРµС‚РєРё СЃС‚Р°С‚СѓСЃР° РїРѕС‚РѕРєР°."""
+        if thread_name in self.thread_status_labels:
+            label = self.thread_status_labels[thread_name]
+            status_colors = {
+                "RUNNING": ("#50fa7b", "Р РђР‘РћРўРђР•Рў"),
+                "STOPPING": ("#f1fa8c", "РћРЎРўРђРќРћР’РљРђ..."),
+                "STOPPED": ("#ff5555", "РћРЎРўРђРќРћР’Р›Р•Рќ"),
+            }
+            color, text = status_colors.get(status.upper(), ("#f8f8f2", status))
+            label.setText(text)
+            label.setStyleSheet(f"font-weight: bold; color: {color};")
+            QApplication.processEvents()  # РџСЂРёРЅСѓРґРёС‚РµР»СЊРЅРѕРµ РѕР±РЅРѕРІР»РµРЅРёРµ GUI
+
+    def _create_thread_status_panel(self) -> QGroupBox:
+        """РЎРѕР·РґР°РµС‚ РїР°РЅРµР»СЊ РґР»СЏ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ СЃС‚Р°С‚СѓСЃР° С„РѕРЅРѕРІС‹С… РїРѕС‚РѕРєРѕРІ Рё Р·Р°РґР°С‡."""
+        group_box = QGroupBox("РЎС‚Р°С‚СѓСЃ РЎРёСЃС‚РµРјС‹")
+        layout = QGridLayout()
+        group_box.setLayout(layout)
+        layout.setColumnStretch(1, 1)
+
+        # РЎР»РѕРІР°СЂСЊ РґР»СЏ Р¶РёРІС‹С… РїРѕС‚РѕРєРѕРІ
+        thread_names = {
+            "Trading": "РўРѕСЂРіРѕРІС‹Р№:",
+            "Monitoring": "РњРѕРЅРёС‚РѕСЂРёРЅРі:",
+            "Training": "R&D:",
+            "Orchestrator": "РћСЂРєРµСЃС‚СЂР°С‚РѕСЂ:",
+            "VectorDB Cleanup": "VectorDB Cleanup:",  # <-- РРЎРџР РђР’Р›Р•РќРР• F2
+        }
+
+        row = 0
+        for key, name in thread_names.items():
+            layout.addWidget(QLabel(name), row, 0, Qt.AlignRight)
+            status_label = QLabel("STOPPED")
+            status_label.setStyleSheet("font-weight: bold; color: #ff5555;")
+            # РћР±СЉРµРґРёРЅСЏРµРј 2 Рё 3 РєРѕР»РѕРЅРєРё
+            layout.addWidget(status_label, row, 1, 1, 2)
+            self.thread_status_labels[key] = status_label
+            row += 1
+
+        # Р Р°Р·РґРµР»РёС‚РµР»СЊ
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(separator, row, 0, 1, 3)
+        row += 1
+
+        # --- РќРђР§РђР›Рћ РР—РњР•РќР•РќРР™ ---
+        # РњРµС‚РєР° РґР»СЏ РѕР±СЃР»СѓР¶РёРІР°РЅРёСЏ
+        layout.addWidget(QLabel("РћР±СЃР»СѓР¶РёРІР°РЅРёРµ:"), row, 0, Qt.AlignRight)
+        maint_label = QLabel("...")  # Р’СЂРµРјРµРЅРЅС‹Р№ С‚РµРєСЃС‚
+        maint_label.setStyleSheet("color: #f1fa8c;")
+        layout.addWidget(maint_label, row, 1, 1, 2)
+        self.scheduler_status_labels["Maintenance"] = maint_label
+        row += 1
+
+        # РњРµС‚РєР° РґР»СЏ РѕРїС‚РёРјРёР·Р°С†РёРё
+        layout.addWidget(QLabel("РћРїС‚РёРјРёР·Р°С†РёСЏ:"), row, 0, Qt.AlignRight)
+        opt_label = QLabel("...")  # Р’СЂРµРјРµРЅРЅС‹Р№ С‚РµРєСЃС‚
+        opt_label.setStyleSheet("color: #f1fa8c;")
+        layout.addWidget(opt_label, row, 1, 1, 2)
+        self.scheduler_status_labels["Optimization"] = opt_label
+
+        return group_box
+
+    def apply_style(self, style_name: str):
+        """РџСЂРёРјРµРЅСЏРµС‚ С‚РµРјСѓ РѕС„РѕСЂРјР»РµРЅРёСЏ РєРѕ РІСЃРµРјСѓ РїСЂРёР»РѕР¶РµРЅРёСЋ."""
+        logger.info(f"[Theme] === РќРђР§РђР›Рћ РЎРњР•РќР« РўР•РњР«: {style_name} ===")
+
+        if style_name == "РЎРІРµС‚Р»Р°СЏ":
+            self.setStyleSheet(LIGHT_STYLE)
+            bg_color = "w"
+        elif style_name == "РўРµРјРЅР°СЏ":
+            self.setStyleSheet(DARK_STYLE)
+            bg_color = "#282a36"
+        elif style_name == "РЎС‚Р°РЅРґР°СЂС‚РЅР°СЏ":
+            # РЎС‚Р°РЅРґР°СЂС‚РЅР°СЏ = СЃРІРµС‚Р»Р°СЏ С‚РµРјР° Windows СЃ Р»С‘РіРєРёРј СЃРµСЂС‹Рј С„РѕРЅРѕРј
+            self.setStyleSheet("""
+                QWidget { background-color: #f0f0f0; color: #000000; }
+                QMainWindow, QDialog { background-color: #f0f0f0; }
+                QPushButton { background-color: #e1e1e1; border: 1px solid #adadad; padding: 5px 15px; }
+                QPushButton:hover { background-color: #e5f1fb; border: 1px solid #0078d7; }
+                QLineEdit, QTextEdit, QPlainTextEdit { background-color: #ffffff; border: 1px solid #adadad; }
+                QTabBar::tab { background-color: #e1e1e1; border: 1px solid #adadad; padding: 5px 10px; }
+                QTabBar::tab:selected { background-color: #f0f0f0; border-bottom: 1px solid #f0f0f0; }
+                QHeaderView::section { background-color: #e1e1e1; border: 1px solid #adadad; }
+                QTableWidget, QTreeView, QListView { background-color: #ffffff; border: 1px solid #adadad; }
+                QComboBox { background-color: #ffffff; border: 1px solid #adadad; }
+                QSpinBox, QDoubleSpinBox { background-color: #ffffff; border: 1px solid #adadad; }
+                QGroupBox { border: 1px solid #adadad; border-radius: 3px; margin-top: 10px; }
+                QMenuBar { background-color: #f0f0f0; }
+                QStatusBar { background-color: #f0f0f0; }
+            """)
+            bg_color = "#f0f0f0"
+        else:
+            self.setStyleSheet(DARK_STYLE)
+            bg_color = "#282a36"
+
+        logger.info(f"[Theme] Stylesheet СѓСЃС‚Р°РЅРѕРІР»РµРЅ, bg_color={bg_color}")
+
+        # РћР±РЅРѕРІР»СЏРµРј С„РѕРЅС‹ Р’РЎР•РҐ PlotWidget
+        self._update_all_plot_backgrounds(bg_color)
+
+        # РџСЂРёРЅСѓРґРёС‚РµР»СЊРЅРѕ РѕР±РЅРѕРІР»СЏРµРј Р’РЎР• РІРёРґР¶РµС‚С‹
+        QApplication.processEvents()
+        updated_widgets = 0
+        for widget in self.findChildren(QWidget):
+            try:
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+                widget.update()
+                updated_widgets += 1
+            except Exception:
+                pass
+
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+        QApplication.processEvents()
+
+        logger.info(f"[Theme] === РўР•РњРђ {style_name} РџР РРњР•РќР•РќРђ === (РѕР±РЅРѕРІР»РµРЅРѕ {updated_widgets} РІРёРґР¶РµС‚РѕРІ)")
+
+    def _update_all_plot_backgrounds(self, bg_color: str):
+        """РћР±РЅРѕРІР»СЏРµС‚ С„РѕРЅС‹ Р’РЎР•РҐ pyqtgraph PlotWidget."""
+        import pyqtgraph as pg
+
+        # РќР°С…РѕРґРёРј РІСЃРµ PlotWidget С‡РµСЂРµР· РїРѕРёСЃРє РїРѕ РІСЃРµРјСѓ РґРµСЂРµРІСѓ РІРёРґР¶РµС‚РѕРІ
+        all_plot_widgets = self.findChildren(pg.PlotWidget)
+        logger.info(f"[Theme] РќР°Р№РґРµРЅРѕ {len(all_plot_widgets)} PlotWidget")
+
+        success = 0
+        failed = 0
+        for i, pw in enumerate(all_plot_widgets):
+            try:
+                pw.setBackground(bg_color)
+                success += 1
+                if i < 5:
+                    logger.debug(f"[Theme]   {i+1}. {pw.objectName() or 'unnamed'} -> {bg_color}")
+            except Exception as e:
+                failed += 1
+                logger.warning(f"[Theme] РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ С„РѕРЅР°: {e}")
+
+        logger.info(f"[Theme] РћР±РЅРѕРІР»РµРЅРѕ {success}/{len(all_plot_widgets)} PlotWidget (РЅРµСѓРґР°С‡РЅРѕ: {failed}), bg={bg_color}")
+
+    def _init_widgets(self):
+        central_widget = QWidget()
+        self.main_central_widget = central_widget
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+
+        # 1. РЎРѕР·РґР°РµРј С‚РµРєСЃС‚РѕРІСѓСЋ РјРµС‚РєСѓ (QLabel)
+        title_label = QLabel()
+
+        # 2. РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј С‚РµРєСЃС‚ СЃ HTML-С‚РµРіРѕРј РґР»СЏ Р·РѕР»РѕС‚РѕРіРѕ С†РІРµС‚Р°
+        title_label.setText('<font color="#FFD700">Genesis--Piligrim Evolution v10.0: The Reflexive Core</font>')
+
+        # 3. РќР°СЃС‚СЂР°РёРІР°РµРј РІРЅРµС€РЅРёР№ РІРёРґ: РІС‹СЂР°РІРЅРёРІР°РЅРёРµ РїРѕ С†РµРЅС‚СЂСѓ, РєСЂСѓРїРЅС‹Р№ Р¶РёСЂРЅС‹Р№ С€СЂРёС„С‚
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("font-size: 14pt; font-weight: bold; padding: 5px;")
+
+        # 4. Р”РѕР±Р°РІР»СЏРµРј РјРµС‚РєСѓ РІ СЃР°РјС‹Р№ РІРµСЂС… РЅР°С€РµРіРѕ РѕРєРЅР°
+        main_layout.addWidget(title_label)
+
+        top_panel = self._create_top_panel()
+        main_layout.addWidget(top_panel)
+        main_splitter = QSplitter(Qt.Horizontal)
+        main_layout.addWidget(main_splitter)
+        left_panel = self._create_left_panel()
+        right_panel = self._create_right_panel()
+        main_splitter.addWidget(left_panel)
+        main_splitter.addWidget(right_panel)
+        main_splitter.setSizes([650, 950])
+        self.status_label = QLabel("РЎРёСЃС‚РµРјР° РЅРµ Р·Р°РїСѓС‰РµРЅР°.")
+        sb = self.statusBar()
+        if sb:
+            sb.addWidget(self.status_label)
+
+    def _create_top_panel(self):
+        top_widget = QFrame()
+        top_layout = QHBoxLayout(top_widget)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+
+        # --- РќРћР’Р«Р™ KPI BAR ---
+        kpi_bar = self._create_kpi_bar()
+
+        control_box = QFrame()
+        control_layout = QHBoxLayout(control_box)
+        control_layout.setAlignment(Qt.AlignTop)
+
+        # Р›РµРІР°СЏ РєРѕР»РѕРЅРєР°: РєРЅРѕРїРєР° Р·Р°РїСѓСЃРєР° + С‡РµРєР±РѕРєСЃ РЅР°Р±Р»СЋРґР°С‚РµР»СЏ (РІРµСЂС‚РёРєР°Р»СЊРЅРѕ)
+        start_layout = QVBoxLayout()
+        self.start_button = QPushButton("Р—Р°РїСѓСЃРє РЎРёСЃС‚РµРјС‹")
+        self.observer_checkbox = QCheckBox("Р РµР¶РёРј РќР°Р±Р»СЋРґР°С‚РµР»СЏ")
+        self.observer_checkbox.setChecked(True)
+        start_layout.addWidget(self.start_button)
+        start_layout.addWidget(self.observer_checkbox)
+        start_layout.addStretch()
+        control_layout.addLayout(start_layout)
+
+        # РћСЃС‚Р°Р»СЊРЅС‹Рµ РєРЅРѕРїРєРё (РІС‹СЂРѕРІРЅРµРЅС‹ РїРѕ РІРµСЂС…Сѓ)
+        buttons_layout = QVBoxLayout()
+        buttons_layout.setAlignment(Qt.AlignTop)
+
+        self.stop_button = QPushButton("РћСЃС‚Р°РЅРѕРІРєР°")
+        self.stop_button.setEnabled(False)
+
+        self.settings_button = QPushButton("РќР°СЃС‚СЂРѕР№РєРё")
+
+        self.restart_system_button = QPushButton("РџРµСЂРµР·Р°РїСѓСЃС‚РёС‚СЊ РЎРёСЃС‚РµРјСѓ")
+        self.restart_system_button.setStyleSheet("background-color: #ffb86c; color: #000;")
+
+        buttons_layout.addWidget(self.stop_button)
+        buttons_layout.addWidget(self.settings_button)
+        buttons_layout.addWidget(self.restart_system_button)
+        control_layout.addLayout(buttons_layout)
+
+        update_box = QFrame()
+        update_layout = QVBoxLayout(update_box)
+
+        # РўРµРєСѓС‰Р°СЏ РІРµСЂСЃРёСЏ
+        version_layout = QHBoxLayout()
+        self.update_version_label = QLabel("рџ“¦ Р’РµСЂСЃРёСЏ: N/A")
+        self.update_version_label.setStyleSheet("color: #50fa7b; font-weight: bold;")
+        version_layout.addWidget(self.update_version_label)
+        version_layout.addStretch()
+        update_layout.addLayout(version_layout)
+
+        # РЎС‚Р°С‚СѓСЃ РѕР±РЅРѕРІР»РµРЅРёР№
+        self.update_status_label = QLabel("рџ”„ РЎС‚Р°С‚СѓСЃ: Р—Р°РіСЂСѓР·РєР°...")
+        self.update_status_label.setStyleSheet("color: #f8f8f2;")
+        update_layout.addWidget(self.update_status_label)
+
+        # РњРѕРЅРёС‚РѕСЂРёРЅРі
+        self.update_monitoring_label = QLabel("рџ‘ЃпёЏ РњРѕРЅРёС‚РѕСЂРёРЅРі: N/A")
+        self.update_monitoring_label.setStyleSheet("color: #888;")
+        update_layout.addWidget(self.update_monitoring_label)
+
+        # РџРѕСЃР»РµРґРЅСЏСЏ РїСЂРѕРІРµСЂРєР°
+        self.update_last_check_label = QLabel("вЏ° РџРѕСЃР»РµРґРЅСЏСЏ РїСЂРѕРІРµСЂРєР°: N/A")
+        self.update_last_check_label.setStyleSheet("color: #888; font-size: 11px;")
+        update_layout.addWidget(self.update_last_check_label)
+
+        # РљРЅРѕРїРєР°
+        self.update_button = QPushButton("в¬‡пёЏ РћР±РЅРѕРІРёС‚СЊ Рё РџРµСЂРµР·Р°РїСѓСЃС‚РёС‚СЊ")
+        self.update_button.setEnabled(False)
+        self.update_button.setStyleSheet("""
+            QPushButton {
+                background-color: #50fa7b;
+                color: #282a36;
+                border: none;
+                padding: 8px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #69ff94;
+            }
+            QPushButton:disabled {
+                background-color: #44475a;
+                color: #6272a4;
+            }
+        """)
+        update_layout.addWidget(self.update_button)
+
+        thread_status_box = self._create_thread_status_panel()
+        # Р”Р»СЏ СЃС‚РёР»РёР·Р°С†РёРё, РµСЃР»Рё РїРѕРЅР°РґРѕР±РёС‚СЃСЏ
+        thread_status_box.setObjectName("ThreadStatusBox")
+
+        account_box = QFrame()
+
+        account_layout = QVBoxLayout(account_box)
+        self.balance_label = QLabel("Р‘Р°Р»Р°РЅСЃ: N/A")
+        self.equity_label = QLabel("Р­РєРІРёС‚Рё: N/A")
+        self.uptime_label = QLabel("Р’СЂРµРјСЏ СЂР°Р±РѕС‚С‹: -")
+        self.uptime_label.setStyleSheet("font-weight: bold; color: #50fa7b;")
+        self.pc_time_label = QLabel("PC Р’СЂРµРјСЏ: --:--:--")
+        self.server_time_label = QLabel("Р’СЂРµРјСЏ СЃРµСЂРІРµСЂР°: --:--:--")
+
+        account_layout.addWidget(self.balance_label)
+        account_layout.addWidget(self.equity_label)
+        account_layout.addWidget(self.uptime_label)
+        account_layout.addWidget(self.pc_time_label)
+        account_layout.addWidget(self.server_time_label)
+
+        top_layout.addWidget(control_box)
+        top_layout.addWidget(update_box)
+        top_layout.addWidget(thread_status_box)
+        top_layout.addWidget(self.notification_bar)
+        top_layout.addWidget(kpi_bar)
+
+        top_layout.addStretch()
+        top_layout.addWidget(account_box)
+
+        return top_widget
+
+    def _create_kpi_bar(self) -> QGroupBox:
+        """РЎРѕР·РґР°РµС‚ РІРёРґР¶РµС‚ РґР»СЏ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ РєР»СЋС‡РµРІС‹С… РјРµС‚СЂРёРє PnL Р·Р° РїРµСЂРёРѕРґ."""
+        group_box = QGroupBox("PnL РїРѕ РџРµСЂРёРѕРґР°Рј")
+        layout = QGridLayout()
+        group_box.setLayout(layout)
+
+        # РњРµС‚РєРё РґР»СЏ PnL (Р·Р°РєСЂС‹С‚С‹Рµ СЃРґРµР»РєРё)
+        self.pnl_day_label = QLabel("Р”РµРЅСЊ: N/A")
+        self.pnl_week_label = QLabel("РќРµРґРµР»СЏ: N/A")
+        self.pnl_month_label = QLabel("РњРµСЃСЏС†: N/A")
+
+        # РњРµС‚РєР° РґР»СЏ РѕС‚РєСЂС‹С‚РѕРіРѕ PnL (РЅРµР·Р°РєСЂС‹С‚С‹Рµ РїРѕР·РёС†РёРё) вЂ” С‚РѕР»СЊРєРѕ Р·РЅР°С‡РµРЅРёРµ
+        self.open_pnl_label = QLabel("N/A")
+        self.open_pnl_label.setToolTip("РўРµРєСѓС‰Р°СЏ РїСЂРёР±С‹Р»СЊ/СѓР±С‹С‚РѕРє РїРѕ РќР•Р·Р°РєСЂС‹С‚С‹Рј РїРѕР·РёС†РёСЏРј (Equity - Balance).")
+        self.open_pnl_label.setStyleSheet("font-weight: bold; color: #8be9fd;")
+
+        # РњРµС‚РєРё РґР»СЏ Drawdown (РЈР±С‹С‚РѕРє)
+        self.dd_day_label = QLabel("DD Р”РµРЅСЊ: N/A")
+        self.dd_week_label = QLabel("DD РќРµРґРµР»СЏ: N/A")
+        self.dd_month_label = QLabel("DD РњРµСЃСЏС†: N/A")
+
+        # --- Р”РћР‘РђР’Р›Р•РќРР• Р’РЎРџР›Р«Р’РђР®Р©РРҐ РџРћР”РЎРљРђР—РћРљ (TOOLTIPS) ---
+
+        # РџРѕРґСЃРєР°Р·РєРё РґР»СЏ РџСЂРёР±С‹Р»Рё
+        self.pnl_day_label.setToolTip("Р§РёСЃС‚Р°СЏ РїСЂРёР±С‹Р»СЊ/СѓР±С‹С‚РѕРє (PnL) РїРѕ Р·Р°РєСЂС‹С‚С‹Рј СЃРґРµР»РєР°Рј СЃ РЅР°С‡Р°Р»Р° С‚РµРєСѓС‰РµРіРѕ РґРЅСЏ (00:00 UTC).")
+        self.pnl_week_label.setToolTip(
+            "Р§РёСЃС‚Р°СЏ РїСЂРёР±С‹Р»СЊ/СѓР±С‹С‚РѕРє (PnL) РїРѕ Р·Р°РєСЂС‹С‚С‹Рј СЃРґРµР»РєР°Рј СЃ РЅР°С‡Р°Р»Р° С‚РµРєСѓС‰РµР№ РЅРµРґРµР»Рё (РџРѕРЅРµРґРµР»СЊРЅРёРє 00:00 UTC)."
+        )
+        self.pnl_month_label.setToolTip(
+            "Р§РёСЃС‚Р°СЏ РїСЂРёР±С‹Р»СЊ/СѓР±С‹С‚РѕРє (PnL) РїРѕ Р·Р°РєСЂС‹С‚С‹Рј СЃРґРµР»РєР°Рј СЃ РЅР°С‡Р°Р»Р° С‚РµРєСѓС‰РµРіРѕ РјРµСЃСЏС†Р° (1-Рµ С‡РёСЃР»Рѕ 00:00 UTC)."
+        )
+        self.open_pnl_label.setToolTip("РўРµРєСѓС‰Р°СЏ РїСЂРёР±С‹Р»СЊ/СѓР±С‹С‚РѕРє РїРѕ РќР•Р·Р°РєСЂС‹С‚С‹Рј РїРѕР·РёС†РёСЏРј (Equity - Balance).")
+
+        # РџРѕРґСЃРєР°Р·РєРё РґР»СЏ РњР°РєСЃРёРјР°Р»СЊРЅРѕР№ РџСЂРѕСЃР°РґРєРё (Drawdown)
+        self.dd_day_label.setToolTip("РњР°РєСЃРёРјР°Р»СЊРЅР°СЏ РїСЂРѕСЃР°РґРєР° (Max Drawdown) РїРѕ Р·Р°РєСЂС‹С‚С‹Рј СЃРґРµР»РєР°Рј СЃ РЅР°С‡Р°Р»Р° С‚РµРєСѓС‰РµРіРѕ РґРЅСЏ.")
+        self.dd_week_label.setToolTip("РњР°РєСЃРёРјР°Р»СЊРЅР°СЏ РїСЂРѕСЃР°РґРєР° (Max Drawdown) РїРѕ Р·Р°РєСЂС‹С‚С‹Рј СЃРґРµР»РєР°Рј СЃ РЅР°С‡Р°Р»Р° С‚РµРєСѓС‰РµР№ РЅРµРґРµР»Рё.")
+        self.dd_month_label.setToolTip("РњР°РєСЃРёРјР°Р»СЊРЅР°СЏ РїСЂРѕСЃР°РґРєР° (Max Drawdown) РїРѕ Р·Р°РєСЂС‹С‚С‹Рј СЃРґРµР»РєР°Рј СЃ РЅР°С‡Р°Р»Р° С‚РµРєСѓС‰РµРіРѕ РјРµСЃСЏС†Р°.")
+
+        # ----------------------------------------------------
+
+        # РЎС‚РёР»РёР·Р°С†РёСЏ (РґР»СЏ РЅР°РіР»СЏРґРЅРѕСЃС‚Рё)
+        self.pnl_day_label.setStyleSheet("font-weight: bold; color: #50fa7b;")
+        self.dd_day_label.setStyleSheet("font-weight: bold; color: #ff5555;")
+
+        # Р Р°Р·РјРµС‰РµРЅРёРµ РІ СЃРµС‚РєРµ
+        layout.addWidget(QLabel("РџСЂРёР±С‹Р»СЊ (Р·Р°РєСЂС‹С‚Рѕ):"), 0, 0)
+        layout.addWidget(self.pnl_day_label, 0, 1)
+        layout.addWidget(self.pnl_week_label, 0, 2)
+        layout.addWidget(self.pnl_month_label, 0, 3)
+
+        # РћС‚РєСЂС‹С‚С‹Р№ PnL вЂ” Р·Р°РіРѕР»РѕРІРѕРє РЅР°Рґ Р·РЅР°С‡РµРЅРёРµРј РІ РѕРґРЅРѕР№ РєРѕР»РѕРЅРєРµ (СЂР°СЃС‚СЏРЅСѓС‚ РЅР° 2 СЃС‚СЂРѕРєРё)
+        open_pnl_col = QWidget()
+        open_pnl_layout = QVBoxLayout(open_pnl_col)
+        open_pnl_layout.setContentsMargins(0, 0, 0, 0)
+        open_pnl_layout.setSpacing(2)
+        open_pnl_layout.addWidget(QLabel("РћС‚РєСЂС‹С‚Рѕ:"))
+        open_pnl_layout.addWidget(self.open_pnl_label)
+        layout.addWidget(open_pnl_col, 0, 4, 2, 1)  # row=0, col=4, rowSpan=2, colSpan=1
+
+        # РР·РјРµРЅРёРј РјРµС‚РєСѓ РґР»СЏ СЏСЃРЅРѕСЃС‚Рё
+        layout.addWidget(QLabel("Max DD (%):"), 1, 0)
+        layout.addWidget(self.dd_day_label, 1, 1)
+        layout.addWidget(self.dd_week_label, 1, 2)
+        layout.addWidget(self.dd_month_label, 1, 3)
+
+        return group_box
+
+    @Slot(dict)
+    def update_pnl_kpis(self, kpis: dict):
+        """РћР±РЅРѕРІР»СЏРµС‚ РјРµС‚РєРё PnL Рё Drawdown РёР· Р·Р°РєСЂС‹С‚С‹С… СЃРґРµР»РѕРє."""
+
+        def format_pnl(value):
+            # Р—РµР»РµРЅС‹Р№ РґР»СЏ РїСЂРёР±С‹Р»Рё, РєСЂР°СЃРЅС‹Р№ РґР»СЏ СѓР±С‹С‚РєР°
+            color = "#50fa7b" if value >= 0 else "#ff5555"
+            return f"<span style='font-weight: bold; color:{color}'>{value:+.2f}</span>"
+
+        def format_dd(value):
+            # РљСЂР°СЃРЅС‹Р№ РґР»СЏ РїСЂРѕСЃР°РґРєРё
+            color = "#ff5555"
+            return f"<span style='font-weight: bold; color:{color}'>{value:.2f}%</span>"
+
+        # РћР±РЅРѕРІР»СЏРµРј РјРµС‚РєРё PnL
+        self.pnl_day_label.setText(format_pnl(kpis.get("day_pnl", 0)))
+        self.pnl_week_label.setText(format_pnl(kpis.get("week_pnl", 0)))
+        self.pnl_month_label.setText(format_pnl(kpis.get("month_pnl", 0)))
+
+        # РћР±РЅРѕРІР»СЏРµРј РјРµС‚РєРё Drawdown
+        self.dd_day_label.setText(format_dd(kpis.get("day_dd", 0)))
+        self.dd_week_label.setText(format_dd(kpis.get("week_dd", 0)))
+        self.dd_month_label.setText(format_dd(kpis.get("month_dd", 0)))
+
+    def _create_left_panel(self):
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        tab_widget = QTabWidget()
+
+        # Р”РѕР±Р°РІР»СЏРµРј РѕР±СЂР°Р±РѕС‚С‡РёРє РїРµСЂРµРєР»СЋС‡РµРЅРёСЏ РІРєР»Р°РґРѕРє Р»РµРІРѕР№ РїР°РЅРµР»Рё
+        tab_widget.currentChanged.connect(lambda idx: self.on_left_tab_changed(idx, tab_widget))
+        logger.info("[GUI-Init] РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ Р»РµРІРѕР№ РїР°РЅРµР»Рё")
+
+        # --- Р’РљР›РђР”РљРђ "РћРўРљР Р«РўР«Р• РџРћР—РР¦РР" (Р±РµР· РёР·РјРµРЅРµРЅРёР№) ---
+        positions_tab_widget = QWidget()
+        positions_tab_layout = QVBoxLayout(positions_tab_widget)
+        positions_control_layout = QHBoxLayout()
+        positions_control_layout.addWidget(QLabel("<b>РћС‚РєСЂС‹С‚С‹Рµ РџРѕР·РёС†РёРё</b>"))
+        positions_control_layout.addStretch()
+        self.close_all_pos_button = QPushButton("Р—Р°РєСЂС‹С‚СЊ РІСЃРµ")
+        self.close_all_pos_button.setStyleSheet("background-color: #8B0000;")
+        positions_control_layout.addWidget(self.close_all_pos_button)
+        self.close_pos_button = QPushButton("Р—Р°РєСЂС‹С‚СЊ РІС‹Р±СЂР°РЅРЅСѓСЋ")
+        positions_control_layout.addWidget(self.close_pos_button)
+
+        self.positions_table = QTableView()
+        self.positions_headers = [
+            "РўРёРєРµС‚",
+            "РЎРёРј\nРІРѕР»",
+            "РЎС‚СЂР°\nС‚РµРіРёСЏ",
+            "РўРёРї",
+            "РћР±СЉРµРј",
+            "Р¦РµРЅР°\nРѕС‚РєСЂ.",
+            "РџСЂРё\nР±С‹Р»СЊ",
+            "Р‘Р°СЂРѕРІ\nРІ СЃРґРµР»РєРµ",
+            "РўР¤",
+        ]
+        self.positions_model = GenericTableModel([], self.positions_headers)
+        self.positions_table.setModel(self.positions_model)
+        header_pos = self.positions_table.horizontalHeader()
+        header_pos.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header_pos.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header_pos.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        positions_tab_layout.addLayout(positions_control_layout)
+        positions_tab_layout.addWidget(self.positions_table)
+        tab_widget.addTab(positions_tab_widget, "РћС‚РєСЂС‹С‚С‹Рµ РџРѕР·РёС†РёРё")
+
+        # --- Р’РљР›РђР”РљРђ "РРЎРўРћР РРЇ РЎР”Р•Р›РћРљ" (СЃ РёСЃРїСЂР°РІР»РµРЅРёСЏРјРё) ---
+        self.history_table = QTableView()
+
+        # +++ РќРђР§РђР›Рћ РР—РњР•РќР•РќРР™: РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј РџР РђР’РР›Р¬РќР«Р™ РїРѕСЂСЏРґРѕРє Р·Р°РіРѕР»РѕРІРєРѕРІ +++
+        self.history_headers = [
+            "РўРёРєРµС‚",
+            "РЎРёРј\nРІРѕР»",
+            "РЎС‚СЂР°\nС‚РµРіРёСЏ",
+            "РўРёРї",
+            "РћР±СЉРµРј",
+            "Р¦РµРЅР°\nР·Р°РєСЂ.",
+            "Р’СЂРµРјСЏ\nР·Р°РєСЂ.",
+            "РџСЂРё\nР±С‹Р»СЊ",
+            "РўР¤",
+        ]
+        # +++ РљРћРќР•Р¦ РР—РњР•РќР•РќРР™ +++
+
+        self.history_model = GenericTableModel([], self.history_headers)
+        self.history_table.setModel(self.history_model)
+
+        header_hist = self.history_table.horizontalHeader()
+        header_hist.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header_hist.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)  # Р’СЂРµРјСЏ Р·Р°РєСЂ.
+        header_hist.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # РЎС‚СЂР°С‚РµРіРёСЏ
+
+        tab_widget.addTab(self.history_table, "РСЃС‚РѕСЂРёСЏ РЎРґРµР»РѕРє")
+
+        # --- РћР‘Р©РР™ Р›Р•Р™РђРЈРў ---
+        left_layout.addWidget(tab_widget)
+        log_box = QFrame()
+        log_layout = QVBoxLayout(log_box)
+
+        # Р—Р°РіРѕР»РѕРІРѕРє Рё РїРµСЂРµРєР»СЋС‡Р°С‚РµР»СЊ РѕС‚Р»Р°РґРєРё
+        log_header_layout = QHBoxLayout()
+        log_header_layout.addWidget(QLabel("Р›РѕРіРё РЎРёСЃС‚РµРјС‹"))
+        log_header_layout.addStretch()
+
+        self.debug_log_checkbox = QCheckBox("РћС‚Р»Р°РґРєР° (Debug)")
+        self.debug_log_checkbox.setToolTip("Р’РєР»СЋС‡РёС‚СЊ РїРѕРґСЂРѕР±РЅС‹Рµ С‚РµС…РЅРёС‡РµСЃРєРёРµ Р»РѕРіРё (Р±Р°Р»Р°РЅСЃ, С€Р°РіРё РјРѕРЅРёС‚РѕСЂРёРЅРіР°, СЃРёРіРЅР°Р»С‹ GUI)")
+        self.debug_log_checkbox.stateChanged.connect(self._toggle_debug_logs)
+        log_header_layout.addWidget(self.debug_log_checkbox)
+
+        log_layout.addLayout(log_header_layout)
+
+        self.log_text_edit = QTextEdit()
+        self.log_text_edit.setReadOnly(True)
+        log_layout.addWidget(self.log_text_edit)
+        left_layout.addWidget(log_box)
+
+        return left_widget
+
+    def _on_backtest_type_changed(self):
+        test_type = self.bt_test_type_combo.currentText()
+        self.bt_strategy_combo.clear()  # РћС‡РёСЃС‚РєР° СЃРїРёСЃРєР°
+        self.bt_strategy_combo.setEnabled(True)
+
+        if test_type == "Event-Driven Backtest":
+            self.bt_strategy_combo.addItem("N/A (Р’СЃСЏ СЃРёСЃС‚РµРјР°)")
+            self.bt_strategy_combo.setEnabled(False)
+
+        elif test_type == "РЎРёСЃС‚РµРјРЅС‹Р№ Р±СЌРєС‚РµСЃС‚ (Р­РєРѕСЃРёСЃС‚РµРјР°)":
+            self.bt_strategy_combo.addItem("N/A (СЃРёСЃС‚РµРјР° СЂРµС€Р°РµС‚ СЃР°РјР°)")
+            self.bt_strategy_combo.setEnabled(False)
+
+        elif test_type == "РљР»Р°СЃСЃРёС‡РµСЃРєР°СЏ СЃС‚СЂР°С‚РµРіРёСЏ":
+            # Р—Р°РіСЂСѓР¶Р°РµРј СЃС‚СЂР°С‚РµРіРёРё Р·Р°РЅРѕРІРѕ
+            strategy_loader = StrategyLoader(self.trading_system.config)
+            strategies = strategy_loader.load_strategies()
+
+            if not strategies:
+                self.bt_strategy_combo.addItem("РЎС‚СЂР°С‚РµРіРёРё РЅРµ РЅР°Р№РґРµРЅС‹")
+            else:
+                for s in strategies:
+                    # Р”РѕР±Р°РІР»СЏРµРј РёРјСЏ РєР»Р°СЃСЃР° СЃС‚СЂР°С‚РµРіРёРё
+                    self.bt_strategy_combo.addItem(s.__class__.__name__)
+
+        elif test_type == "AI РњРѕРґРµР»СЊ":
+            all_models = self.trading_system.get_all_models()
+            pytorch_models = [m for m in all_models if "PyTorch" in m.get("type", "")]
+            if not pytorch_models:
+                self.bt_strategy_combo.addItem("РќРµС‚ СЃРѕРІРјРµСЃС‚РёРјС‹С… PyTorch РјРѕРґРµР»РµР№")
+                self.bt_strategy_combo.setEnabled(False)
+            else:
+                for model in pytorch_models:
+                    status = model.get("status", "N/A")
+                    item_text = f"ID: {model.get('id')} - {model.get('symbol')} - {model.get('type')} ({status})"
+                    self.bt_strategy_combo.addItem(item_text)
+
+    def on_kg_toggle(self):
+        is_checked = self.kg_enabled_checkbox.isChecked()
+
+        # РћР±РЅРѕРІР»СЏРµРј РєРѕРЅС„РёРі РІ СЏРґСЂРµ
+        if hasattr(self, "trading_system"):
+            ts = getattr(self.trading_system, "core_system", None)
+            if ts and hasattr(ts, "toggle_knowledge_graph"):
+                ts.toggle_knowledge_graph(is_checked)
+
+        # Р‘РµР·РѕРїР°СЃРЅРѕРµ РїРµСЂРµРєР»СЋС‡РµРЅРёРµ РІРёРґРёРјРѕСЃС‚Рё
+        # РџСЂРѕРІРµСЂСЏРµРј, СЃРѕР·РґР°РЅС‹ Р»Рё СѓР¶Рµ РІРёРґР¶РµС‚С‹
+        if hasattr(self, "knowledge_graph_view") and hasattr(self, "kg_disabled_label"):
+            self.knowledge_graph_view.setVisible(is_checked)
+            self.kg_disabled_label.setVisible(not is_checked)
+        else:
+            # Р•СЃР»Рё РјРµС‚РѕРґ РІС‹Р·РІР°РЅ РґРѕ РїРѕР»РЅРѕР№ РёРЅРёС†РёР°Р»РёР·Р°С†РёРё UI
+            pass
+
+    def _create_right_panel(self, vector_db_tab=None):
+        right_widget = QTabWidget()
+
+        # --- Р’РљР›РђР”РљРђ "РћРЎРќРћР’РќРћР™ Р“Р РђР¤РРљ" ---
+        self.chart_layout_widget = pg.GraphicsLayoutWidget()
+        right_widget.addTab(self.chart_layout_widget, "РћСЃРЅРѕРІРЅРѕР№ Р“СЂР°С„РёРє")
+        self.price_plot = self.chart_layout_widget.addPlot(row=0, col=0)
+
+        # РСЃРїРѕР»СЊР·СѓРµРј С„РѕСЂРјР°С‚РёСЂРѕРІР°РЅРёРµ РґР°С‚ РЅР° РЅРёР¶РЅРµР№ РѕСЃРё
+        self.price_plot.setAxisItems({"bottom": pg.DateAxisItem()})
+
+        grid_pen = pg.mkPen(color="#888", style=Qt.DotLine)
+        self.price_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.price_plot.getAxis("bottom").setPen(grid_pen)
+        self.price_plot.getAxis("left").setPen(grid_pen)
+        self.price_plot.getAxis("left").setWidth(60)
+        self.price_plot.disableAutoRange()
+
+        self.regime_region = pg.LinearRegionItem(
+            values=[0, 1], orientation="vertical", movable=False, brush=QColor(0, 0, 0, 0)
+        )
+        self.regime_region.setZValue(-100)
+        self.price_plot.addItem(self.regime_region)
+        self.regime_colors = {
+            "Strong Trend": QColor(0, 255, 0, 30),
+            "Weak Trend": QColor(0, 255, 0, 15),
+            "High Volatility Range": QColor(255, 255, 0, 30),
+            "Low Volatility Range": QColor(0, 0, 255, 20),
+        }
+
+        self.chart_layout_widget.nextRow()
+        self.volume_plot = self.chart_layout_widget.addPlot(row=1, col=0)
+        self.volume_plot.setMaximumHeight(150)
+        self.volume_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.volume_plot.getAxis("bottom").setPen(grid_pen)
+        self.volume_plot.getAxis("left").setPen(grid_pen)
+        self.volume_plot.getAxis("left").setWidth(60)
+        self.volume_plot.setXLink(self.price_plot)
+
+        self.candlestick_item = CustomCandlestickItem()
+        self.price_plot.addItem(self.candlestick_item)
+        self.volume_item = BarGraphItem(x=[], height=[], width=0.8, brush="#50fa7b")
+        self.ema50_item = pg.PlotDataItem(pen=pg.mkPen("c", width=2))
+        self.ema200_item = pg.PlotDataItem(pen=pg.mkPen("y", width=2))
+        self.trade_arrows_item = pg.ScatterPlotItem()
+        self.price_plot.addItem(self.ema50_item)
+        self.price_plot.addItem(self.ema200_item)
+        self.price_plot.addItem(self.trade_arrows_item)
+        self.volume_plot.addItem(self.volume_item)
+
+        vLine = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen("gray", style=Qt.DashLine))
+        hLine = pg.InfiniteLine(angle=0, movable=False, pen=pg.mkPen("gray", style=Qt.DashLine))
+        self.price_plot.addItem(vLine, ignoreBounds=True)
+        self.price_plot.addItem(hLine, ignoreBounds=True)
+        self.crosshair_label = pg.TextItem(anchor=(0, 1))
+        self.price_plot.addItem(self.crosshair_label)
+
+        def mouse_moved(evt):
+            pos = evt[0]
+            if self.price_plot.sceneBoundingRect().contains(pos):
+                mouse_point = self.price_plot.vb.mapSceneToView(pos)
+                if np.isnan(mouse_point.x()):
+                    return
+                timestamp = int(mouse_point.x())
+                price = mouse_point.y()
+                if timestamp < 0 or timestamp > 32503680000:
+                    return
+                vLine.setPos(timestamp)
+                hLine.setPos(price)
+                try:
+                    time_str = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
+                    self.crosshair_label.setText(f"{time_str}, {price:.5f}")
+                    view_range = self.price_plot.vb.viewRange()
+                    self.crosshair_label.setPos(view_range[0][0], view_range[1][1])
+                except (OSError, ValueError) as e:
+                    logger.debug(f"РћС€РёР±РєР° РїСЂРё РѕР±РЅРѕРІР»РµРЅРёРё РїРѕР·РёС†РёРё crosshair: {e}")
+
+        self.proxy = pg.SignalProxy(self.price_plot.scene().sigMouseMoved, rateLimit=60, slot=mouse_moved)
+
+        # --- Р’РљР›РђР”РљРђ "Р¦Р•РќРўР  РЈРџР РђР’Р›Р•РќРРЇ" ---
+        self.control_center_tab = ControlCenterWidget(
+            bridge=self.bridge, config=self.config, trading_system_adapter=self.trading_system
+        )
+        # Р—Р°РіСЂСѓР¶Р°РµРј РЅР°С‡Р°Р»СЊРЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё РґР»СЏ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ
+        self.control_center_tab.load_initial_settings()
+        logger.info("[GUI] ControlCenterWidget РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ СЃ РЅР°СЃС‚СЂРѕР№РєР°РјРё")
+        right_widget.addTab(self.control_center_tab, "Р¦РµРЅС‚СЂ РЈРїСЂР°РІР»РµРЅРёСЏ")
+
+        # --- Р’РљР›РђР”РљРђ "РђРќРђР›РРўРРљРђ" ---
+        analytics_tab_widget = QWidget()
+        analytics_layout = QVBoxLayout(analytics_tab_widget)
+
+        # 1. РЎРѕР·РґР°РµРј РћРўР”Р•Р›Р¬РќР«Р™ РІРёРґР¶РµС‚ РґР»СЏ РіСЂР°С„РёРєР° РѕР±СѓС‡РµРЅРёСЏ
+        self.loss_plot_widget = pg.PlotWidget(title="рџ”„ РџСЂРѕРіСЂРµСЃСЃ РѕР±СѓС‡РµРЅРёСЏ (Loss)")
+        self.loss_plot = self.loss_plot_widget.getPlotItem()  # РџРѕР»СѓС‡Р°РµРј СЃР°Рј РѕР±СЉРµРєС‚ РіСЂР°С„РёРєР°
+        self.loss_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.loss_plot.getAxis("bottom").setLabel("Р­РїРѕС…Р° РѕР±СѓС‡РµРЅРёСЏ")
+        self.loss_plot.getAxis("left").setLabel("Loss")
+        self.loss_curve = self.loss_plot.plot(pen="y", symbol="o", symbolBrush="y", symbolSize=3)
+
+        # РРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј РіСЂР°С„РёРє РїСѓСЃС‚С‹РјРё РґР°РЅРЅС‹РјРё РґР»СЏ РІРёРґРёРјРѕСЃС‚Рё
+        self.loss_curve.setData(x=[], y=[])
+        logger.info("[GUI-Analytics] Р“СЂР°С„РёРє РѕР±СѓС‡РµРЅРёСЏ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ")
+
+        # 1.1 РќРћР’Р«Р™: РљРѕРјРїР°РєС‚РЅР°СЏ РїР°РЅРµР»СЊ СЃ РґРІСѓРјСЏ РіСЂР°С„РёРєР°РјРё РІ РѕРґРЅРѕР№ СЃС‚СЂРѕРєРµ
+        compact_charts_widget = QWidget()
+        compact_charts_layout = QHBoxLayout(compact_charts_widget)
+        compact_charts_layout.setContentsMargins(0, 0, 0, 0)
+        compact_charts_layout.setSpacing(5)
+
+        # Р“СЂР°С„РёРє С‚РѕС‡РЅРѕСЃС‚Рё РјРѕРґРµР»РµР№
+        self.model_accuracy_plot_widget = pg.PlotWidget(title="рџ“Љ РўРѕС‡РЅРѕСЃС‚СЊ")
+        self.model_accuracy_plot = self.model_accuracy_plot_widget.getPlotItem()
+        self.model_accuracy_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.model_accuracy_plot.getAxis("bottom").setLabel("РЎРёРјРІРѕР»")
+        self.model_accuracy_plot.getAxis("left").setRange(0, 1)
+        self.model_accuracy_bars = pg.BarGraphItem(x=[], height=[], width=0.5, brush="g")
+        self.model_accuracy_plot.addItem(self.model_accuracy_bars)
+        self.model_accuracy_plot.addItem(pg.InfiniteLine(angle=0, pos=0.5, pen=pg.mkPen("r", style=Qt.DashLine)))
+        self.model_accuracy_data = {}
+        logger.info("[GUI-Analytics] Р“СЂР°С„РёРє С‚РѕС‡РЅРѕСЃС‚Рё РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ")
+
+        # Р“СЂР°С„РёРє РїСЂРѕРіСЂРµСЃСЃР° РїРµСЂРµРѕР±СѓС‡РµРЅРёСЏ
+        self.retrain_progress_widget = pg.PlotWidget(title="вЏ° Р”Рѕ РїРµСЂРµРѕР±СѓС‡РµРЅРёСЏ (С‡)")
+        self.retrain_progress_plot = self.retrain_progress_widget.getPlotItem()
+        self.retrain_progress_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.retrain_progress_plot.getAxis("bottom").setLabel("РЎРёРјРІРѕР»")
+        self.retrain_progress_plot.getAxis("left").setLabel("Р§Р°СЃРѕРІ")
+        self.retrain_progress_plot.getAxis("left").setRange(0, 3)
+
+        # РљР РРўРР§РќРћ: Verical line (РїРѕСЂРѕРі) РІРјРµСЃС‚Рѕ horizontal вЂ” angle=90 СЌС‚Рѕ РІРµСЂС‚РёРєР°Р»СЊРЅР°СЏ Р»РёРЅРёСЏ
+        # РќРѕ Р»СѓС‡С€Рµ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ РіРѕСЂРёР·РѕРЅС‚Р°Р»СЊРЅСѓСЋ РЅР° Y=1.0 (angle=0)
+        self.retrain_progress_threshold_line = pg.InfiniteLine(
+            angle=0,  # Р“РѕСЂРёР·РѕРЅС‚Р°Р»СЊРЅР°СЏ Р»РёРЅРёСЏ
+            pos=1.0,  # РќР° СѓСЂРѕРІРЅРµ Y=1.0 С‡Р°СЃ
+            pen=pg.mkPen("y", width=2, style=Qt.PenStyle.DashLine),
+            label="РџРѕСЂРѕРі: 1С‡",
+            labelOpts={"position": 0.98, "color": (255, 255, 0), "movable": False},
+        )
+        self.retrain_progress_plot.addItem(self.retrain_progress_threshold_line)
+
+        self.retrain_progress_bars = pg.BarGraphItem(
+            x=[], height=[], width=0.6, brush="b"  # РЈРІРµР»РёС‡РµРЅРѕ СЃ 0.5 РґР»СЏ Р»СѓС‡С€РµР№ РІРёРґРёРјРѕСЃС‚Рё
+        )
+        self.retrain_progress_plot.addItem(self.retrain_progress_bars)
+        self.retrain_progress_data = {}
+        logger.info("[GUI-Analytics] Р“СЂР°С„РёРє РїСЂРѕРіСЂРµСЃСЃР° РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ")
+
+        compact_charts_layout.addWidget(self.model_accuracy_plot_widget, 1)
+        compact_charts_layout.addWidget(self.retrain_progress_widget, 1)
+
+        # 2. РЎРѕР·РґР°РµРј РћРўР”Р•Р›Р¬РќР«Р™ РІРёРґР¶РµС‚ РґР»СЏ РіСЂР°С„РёРєР° P&L
+        self.pnl_plot_widget = pg.PlotWidget(title="РљСЂРёРІР°СЏ РґРѕС…РѕРґРЅРѕСЃС‚Рё (P&L)")
+        self.pnl_plot = self.pnl_plot_widget.getPlotItem()
+        self.pnl_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.pnl_plot.getAxis("left").setLabel("Р‘Р°Р»Р°РЅСЃ", units="USD")
+        self.pnl_plot.setAxisItems({"bottom": pg.DateAxisItem()})
+        self.pnl_curve = self.pnl_plot.plot(pen="g")
+
+        # 3. РЎРѕР·РґР°РµРј РћРўР”Р•Р›Р¬РќР«Р™ РІРёРґР¶РµС‚ РґР»СЏ РіСЂР°С„РёРєР° СЂРµР¶РёРјР° РЅР°Р±Р»СЋРґР°С‚РµР»СЏ
+        self.observer_pnl_plot_widget = pg.PlotWidget(title="Р”РѕС…РѕРґРЅРѕСЃС‚СЊ (Р РµР¶РёРј РќР°Р±Р»СЋРґР°С‚РµР»СЏ)")
+        self.observer_pnl_plot = self.observer_pnl_plot_widget.getPlotItem()
+        self.observer_pnl_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.observer_pnl_plot.getAxis("left").setLabel("Р‘Р°Р»Р°РЅСЃ (СЃРёРјСѓР»СЏС†РёСЏ)", units="USD")
+        self.observer_pnl_plot.getAxis("bottom").setLabel("РљРѕР»РёС‡РµСЃС‚РІРѕ РІРёСЂС‚СѓР°Р»СЊРЅС‹С… СЃРґРµР»РѕРє")
+        self.observer_pnl_curve = self.observer_pnl_plot.plot(pen=pg.mkPen("c", width=2))
+
+        # РћС€РёР±РєР° РїСЂРµРґСЃРєР°Р·Р°РЅРёР№ (Drift)
+        self.drift_plot_widget = pg.PlotWidget(title="РћС€РёР±РєР° РїСЂРµРґСЃРєР°Р·Р°РЅРёР№ AI (Concept Drift)")
+        self.drift_plot = self.drift_plot_widget.getPlotItem()
+        self.drift_plot.showGrid(x=True, y=True, alpha=0.3)
+        self.drift_plot.getAxis("bottom").setLabel("Р’СЂРµРјСЏ")
+        self.drift_plot.getAxis("left").setLabel("РћС€РёР±РєР° (APE)")
+        self.drift_plot.setAxisItems({"bottom": pg.DateAxisItem()})
+
+        # Scatter plot РґР»СЏ РЅРѕСЂРјР°Р»СЊРЅС‹С… С‚РѕС‡РµРє (Р·РµР»РµРЅС‹Рµ РєСЂСѓРіРё)
+        self.drift_scatter = pg.ScatterPlotItem(size=8, pen=pg.mkPen(None), brush=pg.mkBrush("#50fa7b"), symbol="o")
+        self.drift_plot.addItem(self.drift_scatter)
+
+        # РћС‚РґРµР»СЊРЅС‹Р№ Scatter РґР»СЏ С‚РѕС‡РµРє, РіРґРµ РѕР±РЅР°СЂСѓР¶РµРЅ РґСЂРµР№С„ (РєСЂР°СЃРЅС‹Рµ РєСЂРµСЃС‚РёРєРё)
+        self.drift_alert_scatter = pg.ScatterPlotItem(
+            size=12, pen=pg.mkPen("w", width=2), brush=pg.mkBrush("#ff5555"), symbol="x"
+        )
+        self.drift_plot.addItem(self.drift_alert_scatter)
+
+        # РҐСЂР°РЅРёР»РёС‰Рµ РґР°РЅРЅС‹С… РґР»СЏ РіСЂР°С„РёРєР°
+        self.drift_data_points = []
+        self.drift_alert_points = []
+
+        # 4. Р”РѕР±Р°РІР»СЏРµРј РІСЃРµ РІРёРґР¶РµС‚С‹ РІ РІРµСЂС‚РёРєР°Р»СЊРЅС‹Р№ РєРѕРјРїРѕРЅРѕРІС‰РёРє
+        analytics_layout.addWidget(self.loss_plot_widget)
+        analytics_layout.addWidget(compact_charts_widget)  # РљРѕРјРїР°РєС‚РЅР°СЏ РїР°РЅРµР»СЊ (2 РіСЂР°С„РёРєР° РІ СЃС‚СЂРѕРєСѓ)
+        analytics_layout.addWidget(self.pnl_plot_widget)
+        analytics_layout.addWidget(self.observer_pnl_plot_widget)
+        analytics_layout.addWidget(self.drift_plot_widget)
+
+        # Р—Р°РґР°РµРј РјРёРЅРёРјР°Р»СЊРЅСѓСЋ РІС‹СЃРѕС‚Сѓ РґР»СЏ РІРёРґРёРјРѕСЃС‚Рё РіСЂР°С„РёРєРѕРІ
+        self.loss_plot_widget.setMinimumHeight(180)
+        compact_charts_widget.setMinimumHeight(150)
+        self.pnl_plot_widget.setMinimumHeight(150)
+        self.observer_pnl_plot_widget.setMinimumHeight(150)
+        self.drift_plot_widget.setMinimumHeight(150)
+
+        # РЎРѕР·РґР°РµРј РїРѕРґРІРєР»Р°РґРєРё РґР»СЏ Р°РЅР°Р»РёС‚РёРєРё
+        analytics_subtabs = QTabWidget()
+
+        # РџРѕРґРІРєР»Р°РґРєР° 1: Р“СЂР°С„РёРєРё РѕР±СѓС‡РµРЅРёСЏ
+        training_charts_widget = QWidget()
+        training_charts_layout = QVBoxLayout(training_charts_widget)
+        training_charts_layout.addWidget(self.loss_plot_widget)
+        training_charts_layout.addWidget(compact_charts_widget)
+        analytics_subtabs.addTab(training_charts_widget, "рџ“€ РћР±СѓС‡РµРЅРёРµ")
+
+        # РџРѕРґРІРєР»Р°РґРєР° 2: РџСЂРѕРёР·РІРѕРґРёС‚РµР»СЊРЅРѕСЃС‚СЊ
+        performance_charts_widget = QWidget()
+        performance_charts_layout = QVBoxLayout(performance_charts_widget)
+        performance_charts_layout.addWidget(self.pnl_plot_widget)
+        performance_charts_layout.addWidget(self.observer_pnl_plot_widget)
+        analytics_subtabs.addTab(performance_charts_widget, "рџ’° РџСЂРѕРёР·РІРѕРґРёС‚РµР»СЊРЅРѕСЃС‚СЊ")
+
+        # РџРѕРґРІРєР»Р°РґРєР° 3: Р”СЂРµР№С„ Рё Р°РЅРѕРјР°Р»РёРё
+        drift_charts_widget = QWidget()
+        drift_charts_layout = QVBoxLayout(drift_charts_widget)
+        drift_charts_layout.addWidget(self.drift_plot_widget)
+        analytics_subtabs.addTab(drift_charts_widget, "рџ”Ќ Р”СЂРµР№С„")
+
+        analytics_layout.addWidget(analytics_subtabs)
+
+        right_widget.addTab(analytics_tab_widget, "рџ“€ РђРЅР°Р»РёС‚РёРєР°")
+
+        # --- Р’РљР›РђР”РљРђ "РЎРљРђРќР•Р  Р Р«РќРљРђ" ---
+        scanner_widget = QWidget()
+        scanner_layout = QVBoxLayout(scanner_widget)
+        self.scanner_table = QTableView()
+        self.scanner_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.scanner_table.customContextMenuRequested.connect(self.show_scanner_context_menu)
+
+        # РЈР»СѓС‡С€РµРЅРЅР°СЏ РЅР°СЃС‚СЂРѕР№РєР° С‚Р°Р±Р»РёС†С‹
+        self.scanner_table.setAlternatingRowColors(True)
+        self.scanner_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.scanner_table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.scanner_table.verticalHeader().setVisible(False)
+
+        scanner_layout.addWidget(self.scanner_table)
+
+        self.scanner_headers = [
+            "Р Р°РЅРі",
+            "РЎРёРјРІРѕР»",
+            "РС‚РѕРіРѕРІР°СЏ РћС†РµРЅРєР°",
+            "РћС†РµРЅРєР° Р’РѕР».",
+            "РќРѕСЂРј. ATR (%)",
+            "РўСЂРµРЅРґ",
+            "Р›РёРєРІРёРґРЅРѕСЃС‚СЊ",
+            "РЎРїСЂРµРґ (РїРёРїСЃС‹)",
+        ]
+
+        self.scanner_model = GenericTableModel([], self.scanner_headers)
+        self.scanner_table.setModel(self.scanner_model)
+
+        # РРЎРџР РђР’Р›Р•РќРР•: РСЃРїРѕР»СЊР·СѓРµРј ResizeToContents РІРјРµСЃС‚Рѕ Stretch РґР»СЏ Р»СѓС‡С€РµР№ С‡РёС‚Р°РµРјРѕСЃС‚Рё
+        header = self.scanner_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(True)
+
+        right_widget.addTab(scanner_widget, "РЎРєР°РЅРµСЂ Р С‹РЅРєР°")
+
+        # --- Р’РљР›РђР”РљРђ "РџРђРќР•Р›Р¬ РћР РљР•РЎРўР РђРўРћР Рђ" ---
+        orchestrator_tab = QWidget()
+        orchestrator_layout = QVBoxLayout(orchestrator_tab)
+        orchestrator_layout.addWidget(QLabel("<b>Р Р°СЃРїСЂРµРґРµР»РµРЅРёРµ РєР°РїРёС‚Р°Р»Р° РћСЂРєРµСЃС‚СЂР°С‚РѕСЂРѕРј (РІ СЂРµР°Р»СЊРЅРѕРј РІСЂРµРјРµРЅРё)</b>"))
+        self.orchestrator_chart_widget = pg.PlotWidget()
+        self.orchestrator_chart_widget.showGrid(x=True, y=True, alpha=0.3)
+        self.orchestrator_bar_item = pg.BarGraphItem(x=[], height=[], width=0.6, brush="g")
+        self.orchestrator_chart_widget.addItem(self.orchestrator_bar_item)
+        self.orchestrator_chart_widget.getAxis("left").setLabel("Р”РѕР»СЏ РєР°РїРёС‚Р°Р»Р°", units="%")
+        self.orchestrator_chart_widget.getAxis("bottom").setTicks([[]])
+        orchestrator_layout.addWidget(self.orchestrator_chart_widget)
+        right_widget.addTab(orchestrator_tab, "РџР°РЅРµР»СЊ РћСЂРєРµСЃС‚СЂР°С‚РѕСЂР°")
+
+        # --- Р’РљР›РђР”РљРђ "R&D Р¦Р•РќРўР " ---
+        rd_tab_widget = QWidget()
+        rd_layout = QVBoxLayout(rd_tab_widget)
+        rd_controls_layout = QHBoxLayout()
+        self.force_rd_button = QPushButton("Р—Р°РїСѓСЃС‚РёС‚СЊ R&D С†РёРєР» СЃРµР№С‡Р°СЃ")
+        rd_controls_layout.addWidget(self.force_rd_button)
+        rd_controls_layout.addStretch()
+        self.rd_table = QTableView()
+        self.rd_headers = ["РџРѕРєРѕР»РµРЅРёРµ", "Р›СѓС‡С€РёР№ Fitness", "РљРѕРЅС„РёРіСѓСЂР°С†РёСЏ СЃС‚СЂР°С‚РµРіРёРё"]
+        self.rd_model = RDTableModel(self.rd_headers)
+        self.rd_table.setModel(self.rd_model)
+        self.rd_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.rd_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        rd_layout.addLayout(rd_controls_layout)
+        rd_layout.addWidget(self.rd_table)
+        right_widget.addTab(rd_tab_widget, "R&D Р¦РµРЅС‚СЂ")
+
+        # --- Р’РљР›РђР”РљРђ "Р¦Р•РќРўР  Р Р•Р¤Р›Р•РљРЎРР" ---
+        reflexion_tab_widget = QWidget()
+        reflexion_layout = QVBoxLayout(reflexion_tab_widget)
+        reflexion_controls_layout = QHBoxLayout()
+        self.create_directive_button = QPushButton("РЎРѕР·РґР°С‚СЊ Р”РёСЂРµРєС‚РёРІСѓ")
+        self.delete_directive_button = QPushButton("РЈРґР°Р»РёС‚СЊ Р”РёСЂРµРєС‚РёРІСѓ")
+        self.delete_directive_button.setStyleSheet("background-color: #ff5555;")
+        reflexion_controls_layout.addWidget(self.create_directive_button)
+        reflexion_controls_layout.addStretch()
+        reflexion_controls_layout.addWidget(self.delete_directive_button)
+        self.directives_table = QTableView()
+        self.directives_headers = ["Р”РёСЂРµРєС‚РёРІР°", "Р—РЅР°С‡РµРЅРёРµ", "РџСЂРёС‡РёРЅР°", "Р”РµР№СЃС‚РІСѓРµС‚ РґРѕ"]
+        self.directives_model = GenericTableModel([], self.directives_headers)
+        self.directives_table.setModel(self.directives_model)
+        self.directives_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.directives_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        reflexion_layout.addWidget(QLabel("<b>РђРєС‚РёРІРЅС‹Рµ Р”РёСЂРµРєС‚РёРІС‹ РЎРёСЃС‚РµРјС‹</b>"))
+        reflexion_layout.addLayout(reflexion_controls_layout)
+        reflexion_layout.addWidget(self.directives_table)
+        right_widget.addTab(reflexion_tab_widget, "Р¦РµРЅС‚СЂ Р РµС„Р»РµРєСЃРёРё")
+
+        # --- Р’РљР›РђР”РљРђ "РњР•РќР•Р”Р–Р•Р  РњРћР”Р•Р›Р•Р™" ---
+        model_manager_tab = QWidget()
+        model_manager_layout = QVBoxLayout(model_manager_tab)
+        mm_controls_layout = QHBoxLayout()
+        self.refresh_models_button = QPushButton("РћР±РЅРѕРІРёС‚СЊ СЃРїРёСЃРѕРє")
+        self.demote_model_button = QPushButton("Р Р°Р·Р¶Р°Р»РѕРІР°С‚СЊ С‡РµРјРїРёРѕРЅР°")
+        self.demote_model_button.setStyleSheet("background-color: #8B0000;")
+        mm_controls_layout.addWidget(self.refresh_models_button)
+        mm_controls_layout.addStretch()
+        mm_controls_layout.addWidget(self.demote_model_button)
+        self.models_table = QTableView()
+        self.models_headers = ["ID", "РЎРёРјРІРѕР»", "РўРёРї", "Р’РµСЂСЃРёСЏ", "РЎС‚Р°С‚СѓСЃ", "Sharpe", "Profit Factor", "Р”Р°С‚Р° РѕР±СѓС‡РµРЅРёСЏ"]
+        self.models_model = GenericTableModel([], self.models_headers)
+        self.models_table.setModel(self.models_model)
+        self.models_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.models_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        model_manager_layout.addLayout(mm_controls_layout)
+        model_manager_layout.addWidget(self.models_table)
+        right_widget.addTab(model_manager_tab, "РњРµРЅРµРґР¶РµСЂ РњРѕРґРµР»РµР№")
+
+        # --- Р’РљР›РђР”РљРђ "DeFi РњР•РўР РРљР" ---
+        self.defi_widget = DeFiWidget()
+        right_widget.addTab(self.defi_widget, "рџ’Ћ DeFi РњРµС‚СЂРёРєРё")
+
+        # --- Р’РљР›РђР”РљРђ "Р“Р РђР¤ Р—РќРђРќРР™" ---
+        knowledge_graph_tab = QWidget()
+        kg_layout = QVBoxLayout(knowledge_graph_tab)
+
+        # 1. РџР°РЅРµР»СЊ СѓРїСЂР°РІР»РµРЅРёСЏ (Р§РµРєР±РѕРєСЃ)
+        kg_controls_layout = QHBoxLayout()
+        self.kg_enabled_checkbox = QCheckBox("Р’РєР»СЋС‡РёС‚СЊ/РћС‚РєР»СЋС‡РёС‚СЊ РІРёР·СѓР°Р»РёР·Р°С†РёСЋ РіСЂР°С„Р°")
+        self.kg_enabled_checkbox.setToolTip("Р’РєР»СЋС‡Р°РµС‚/РѕС‚РєР»СЋС‡Р°РµС‚ СЂРµСЃСѓСЂСЃРѕРµРјРєСѓСЋ РѕС‚СЂРёСЃРѕРІРєСѓ РіСЂР°С„Р° Р·РЅР°РЅРёР№ РІ СЂРµР°Р»СЊРЅРѕРј РІСЂРµРјРµРЅРё.")
+        # РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј Р·РЅР°С‡РµРЅРёРµ РёР· РєРѕРЅС„РёРіР°
+        self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
+
+        kg_controls_layout.addWidget(self.kg_enabled_checkbox)
+        kg_controls_layout.addStretch()
+        kg_layout.addLayout(kg_controls_layout)
+
+        kg_layout.addWidget(QLabel("<b>РРЅС‚РµСЂР°РєС‚РёРІРЅР°СЏ РєР°СЂС‚Р° РїСЂРёС‡РёРЅРЅРѕ-СЃР»РµРґСЃС‚РІРµРЅРЅС‹С… СЃРІСЏР·РµР№</b>"))
+
+        # 2. РЎРѕР·РґР°РµРј WebEngineView (РЎР°Рј РіСЂР°С„)
+        self.knowledge_graph_view = QWebEngineView()
+        # Р”РµР»Р°РµРј С„РѕРЅ РїСЂРѕР·СЂР°С‡РЅС‹Рј РґР»СЏ РєСЂР°СЃРѕС‚С‹
+        self.knowledge_graph_view.page().setBackgroundColor(Qt.transparent)
+
+        # 3. РЎРѕР·РґР°РµРј РјРµС‚РєСѓ-Р·Р°РіР»СѓС€РєСѓ
+        self.kg_disabled_label = QLabel("Р’РёР·СѓР°Р»РёР·Р°С†РёСЏ РіСЂР°С„Р° Р·РЅР°РЅРёР№ РѕС‚РєР»СЋС‡РµРЅР°.\nРђРЅР°Р»РёР· СЃРІСЏР·РµР№ РІ С„РѕРЅРµ РїСЂРѕРґРѕР»Р¶Р°РµС‚СЃСЏ.")
+        self.kg_disabled_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.kg_disabled_label.setStyleSheet("font-size: 14px; color: gray; padding: 20px; border: 2px dashed #444;")
+
+        # 4. Р”РѕР±Р°РІР»СЏРµРј РІРёРґР¶РµС‚С‹ РІ layout
+        kg_layout.addWidget(self.knowledge_graph_view)
+        kg_layout.addWidget(self.kg_disabled_label)
+
+        # 5. РќРђРЎРўР РћР™РљРђ РњРћРЎРўРђ РЎ JS (РљР РРўРР§Р•РЎРљР Р’РђР–РќРђРЇ Р§РђРЎРўР¬)
+
+        # РЎРѕР·РґР°РµРј РѕР±СЉРµРєС‚ Р±СЌРєРµРЅРґР°
+        self.graph_backend = GraphBackend(self)
+
+        # !!! Р’РђР–РќРћ: РЎРѕР·РґР°РµРј РєР°РЅР°Р» СЃ СЂРѕРґРёС‚РµР»РµРј (self), С‡С‚РѕР±С‹ СЃР±РѕСЂС‰РёРє РјСѓСЃРѕСЂР° РЅРµ СѓРґР°Р»РёР» РµРіРѕ !!!
+        self.channel = QWebChannel(self)
+
+        # Р РµРіРёСЃС‚СЂРёСЂСѓРµРј РѕР±СЉРµРєС‚ РїРѕРґ РёРјРµРЅРµРј "backend" (РєР°Рє РІ HTML)
+        self.channel.registerObject("backend", self.graph_backend)
+
+        # РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј РєР°РЅР°Р» РЅР° СЃС‚СЂР°РЅРёС†Сѓ
+        self.knowledge_graph_view.page().setWebChannel(self.channel)
+
+        # 6. Р—Р°РіСЂСѓР·РєР° HTML С„Р°Р№Р»Р°
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        graph_html_path = os.path.join(project_root, "assets", "graph_view.html")
+
+        if os.path.exists(graph_html_path):
+            # РСЃРїРѕР»СЊР·СѓРµРј QTimer РґР»СЏ РЅРµР±РѕР»СЊС€РѕР№ Р·Р°РґРµСЂР¶РєРё, С‡С‚РѕР±С‹ РґРІРёР¶РѕРє СѓСЃРїРµР» РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°С‚СЊСЃСЏ
+            QTimer.singleShot(100, lambda: self.knowledge_graph_view.setUrl(QUrl.fromLocalFile(graph_html_path)))
+        else:
+            logger.error(f"РќРµ РЅР°Р№РґРµРЅ С„Р°Р№Р» РґР»СЏ РІРёР·СѓР°Р»РёР·Р°С†РёРё РіСЂР°С„Р°: {graph_html_path}")
+            self.knowledge_graph_view.setHtml(f"<h3 style='color:red'>Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ: {graph_html_path}</h3>")
+
+        right_widget.addTab(knowledge_graph_tab, "Р“СЂР°С„ Р—РЅР°РЅРёР№")
+
+        # --- Р’РљР›РђР”РљРђ "Р’Р•РљРўРћР РќРђРЇ Р‘Р” (RAG)" ---
+        vector_db_tab = self._create_vector_db_tab()
+        right_widget.addTab(vector_db_tab, "Р’РµРєС‚РѕСЂРЅР°СЏ Р‘Р” (RAG)")
+
+        # --- Р’РљР›РђР”РљРђ "РђРќРђР›РР— РЎР”Р•Р›РљР (XAI)" ---
+        xai_tab_widget = QWidget()
+        xai_layout = QVBoxLayout(xai_tab_widget)
+        self.xai_label = QLabel("РљР»РёРєРЅРёС‚Рµ РЅР° СЃРґРµР»РєСѓ РІ 'РСЃС‚РѕСЂРёРё РЎРґРµР»РѕРє' РґР»СЏ Р°РЅР°Р»РёР·Р°")
+        self.xai_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.xai_web_view = QWebEngineView()
+        self.xai_web_view.setHtml(
+            "<html><body style='background-color:#282a36;'><h3 style='color:#f8f8f2; text-align:center;'>РћР¶РёРґР°РЅРёРµ РґР°РЅРЅС‹С…...</h3></body></html>"
+        )
+        feedback_panel = QFrame()
+        feedback_layout = QHBoxLayout(feedback_panel)
+        feedback_panel.setLayout(feedback_layout)
+        self.good_trade_button = QPushButton("рџ‘Ќ РҐРѕСЂРѕС€РµРµ СЂРµС€РµРЅРёРµ")
+        self.good_trade_button.setStyleSheet("background-color: #50fa7b; color: #000;")
+        self.good_trade_button.setEnabled(False)
+        self.bad_trade_button = QPushButton("рџ‘Ћ РџР»РѕС…РѕРµ СЂРµС€РµРЅРёРµ")
+        self.bad_trade_button.setStyleSheet("background-color: #ff5555;")
+        self.bad_trade_button.setEnabled(False)
+        feedback_layout.addStretch()
+        feedback_layout.addWidget(self.good_trade_button)
+        feedback_layout.addWidget(self.bad_trade_button)
+        feedback_layout.addStretch()
+        xai_layout.addWidget(self.xai_label)
+        xai_layout.addWidget(self.xai_web_view)
+        xai_layout.addWidget(feedback_panel)
+        right_widget.addTab(xai_tab_widget, "РђРЅР°Р»РёР· РЎРґРµР»РєРё (XAI)")
+
+        # --- Р’РљР›РђР”РљРђ "Р‘Р­РљРўР•РЎРўР•Р " ---
+        backtester_tab = QWidget()
+        backtester_layout = QVBoxLayout(backtester_tab)
+        controls_frame = QFrame()
+        controls_layout = QHBoxLayout(controls_frame)
+        self.bt_symbol_combo = QComboBox()
+        self.bt_test_type_combo = QComboBox()
+
+        self.bt_test_type_combo.addItems(
+            ["Event-Driven Backtest", "РЎРёСЃС‚РµРјРЅС‹Р№ Р±СЌРєС‚РµСЃС‚ (Р­РєРѕСЃРёСЃС‚РµРјР°)", "РљР»Р°СЃСЃРёС‡РµСЃРєР°СЏ СЃС‚СЂР°С‚РµРіРёСЏ", "AI РњРѕРґРµР»СЊ"]
+        )
+
+        self.bt_strategy_combo = QComboBox()
+        self.bt_timeframe_combo = QComboBox()
+        self.timeframe_map = {
+            "M1": mt5.TIMEFRAME_M1,
+            "M5": mt5.TIMEFRAME_M5,
+            "M15": mt5.TIMEFRAME_M15,
+            "M30": mt5.TIMEFRAME_M30,
+            "H1": mt5.TIMEFRAME_H1,
+            "H4": mt5.TIMEFRAME_H4,
+            "D1": mt5.TIMEFRAME_D1,
+            "W1": mt5.TIMEFRAME_W1,
+        }
+        self.bt_timeframe_combo.addItems(list(self.timeframe_map.keys()))
+        self.bt_timeframe_combo.setCurrentText("H1")
+        strategy_loader = StrategyLoader(self.trading_system.config)
+        strategies = strategy_loader.load_strategies()
+
+        if not strategies:
+            self.bt_strategy_combo.addItem("РЎС‚СЂР°С‚РµРіРёРё РЅРµ РЅР°Р№РґРµРЅС‹")
+        else:
+            for s in strategies:
+                self.bt_strategy_combo.addItem(s.__class__.__name__)
+
+
+
+if __name__ == "__main__":
+    import traceback
+    # Форсируем вывод логов в консоль (важно для Windows)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(Path(__file__).parent / "logs" / "genesis_startup.log", encoding='utf-8', mode='w', delay=True)
+        ],
+        force=True  # Перезаписываем конфигурацию, если была
+    )
+    logger = logging.getLogger("genesis")
+    logger.info("=" * 80)
+    logger.info("🚀 ЗАПУСК GUI APPLICATION")
+    logger.info("=" * 80)
+    try:
+        app = QApplication(sys.argv)
+        app.setApplicationName("Genesis Trading System v24.0")
+        app.setOrganizationName("NLP-Core-Team")
+        # Критично для стабильности Qt на Windows
+        app.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL)
+        logger.info("✅ QApplication создан")
+
+        # Создаём EventBridge
+        from src.gui.event_bridge import GUIEventBridge
+        bridge = GUIEventBridge()
+        logger.info("✅ GUIEventBridge создан")
+
+# Собираем реальное ядро TradingSystem
+        from src.db.database_manager import DatabaseManager
+        from src.core.event_bus import get_event_bus
+
+        # 1. DatabaseManager
+        db_manager = DatabaseManager(app_config_for_path)
+        logger.info("✅ DatabaseManager создан")
+
+        # 2. EventBus
+        event_bus = get_event_bus()
+        logger.info("✅ EventBus получен")
+
+        # 3. MT5 Connection Manager
+        from src.core.mt5_connection_manager import MT5ConnectionManager
+        mt5_manager = MT5ConnectionManager(config=app_config_for_path, event_bus=event_bus)
+        logger.info("✅ MT5ConnectionManager создан")
+
+        # 4. MLPredictor (если нужен)
+        try:
+            from src.core.ml_predictor import MLPredictor
+            predictor = MLPredictor(config=app_config_for_path, event_bus=event_bus)
+            logger.info("✅ MLPredictor создан")
+        except Exception as e:
+            logger.warning(f"⚠️ MLPredictor не создан: {e}. Используем заглушку.")
+            predictor = None
+
+        # 5. Реальное TradingSystem
+        trading_system_core = TradingSystem(
+            config=app_config_for_path,
+            db_manager=db_manager,
+            mt5_api=mt5_manager,
+            predictor=predictor
+        )
+        logger.info("✅ TradingSystem (ядро) создан")
+
+        # 6. PySideTradingSystem с ядром
+        trading_system_adapter = PySideTradingSystem(
+            config=app_config_for_path,
+            bridge=bridge,
+            trading_system=trading_system_core
+        )
+        logger.info("✅ PySideTradingSystem (адаптер) создан с ядром")

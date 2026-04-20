@@ -16,8 +16,10 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFrame,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -58,7 +60,7 @@ class UnifiedTradingSettingsWidget(QWidget):
         # Флаг блокировки рекурсивных обновлений
         self._updating = False
 
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setup_ui()
 
     def setup_ui(self):
@@ -68,7 +70,7 @@ class UnifiedTradingSettingsWidget(QWidget):
 
         # === 1. ЗАГОЛОВОК ===
         header = QLabel("⚙️ Настройки Торговли и Риск-менеджмента")
-        header.setFont(QFont("Arial", 16, QFont.Bold))
+        header.setFont(QFont("Arial", 16, 70))
         header.setStyleSheet("color: #f8f8f2; padding: 10px;")
         layout.addWidget(header)
 
@@ -82,8 +84,8 @@ class UnifiedTradingSettingsWidget(QWidget):
 
         # === 4. РАЗДЕЛИТЕЛЬ ===
         separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
         separator.setStyleSheet("background-color: #3e4451;")
         layout.addWidget(separator)
 
@@ -135,7 +137,7 @@ class UnifiedTradingSettingsWidget(QWidget):
 
         self.enable_checkbox = QCheckBox()
         self.enable_checkbox.setChecked(False)
-        self.enable_checkbox.setCursor(Qt.PointingHandCursor)
+        self.enable_checkbox.setCursor(Qt.CursorShape.PointingHandCursor)
         self.enable_checkbox.setStyleSheet("""
             QCheckBox {
                 spacing: 0px;
@@ -186,7 +188,7 @@ class UnifiedTradingSettingsWidget(QWidget):
     def _create_summary_panel(self) -> QFrame:
         """Панель итоговых параметров в реальном времени."""
         panel = QFrame()
-        panel.setFrameStyle(QFrame.StyledPanel)
+        panel.setFrameStyle(QFrame.Shape.StyledPanel)
         panel.setStyleSheet("""
             QFrame {
                 background-color: #282a36;
@@ -200,9 +202,9 @@ class UnifiedTradingSettingsWidget(QWidget):
 
         # Заголовок
         title = QLabel("📈 Итоговые Параметры (применяются к системе)")
-        title.setFont(QFont("Arial", 12, QFont.Bold))
+        title.setFont(QFont("Arial", 12, 70))
         title.setStyleSheet("color: #bd93f9;")
-        title.setAlignment(Qt.AlignCenter)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
         # Сетка параметров
@@ -212,49 +214,49 @@ class UnifiedTradingSettingsWidget(QWidget):
         # Риск на сделку
         grid.addWidget(QLabel("🎯 Риск на сделку:"), 0, 0)
         self.summary_risk_label = QLabel("0.50%")
-        self.summary_risk_label.setFont(QFont("Consolas", 14, QFont.Bold))
+        self.summary_risk_label.setFont(QFont("Consolas", 14, 70))
         self.summary_risk_label.setStyleSheet("color: #50fa7b;")
-        self.summary_risk_label.setAlignment(Qt.AlignRight)
+        self.summary_risk_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.summary_risk_label, 0, 1)
 
         # Max позиций
         grid.addWidget(QLabel("📊 Max позиций:"), 1, 0)
         self.summary_positions_label = QLabel("5")
-        self.summary_positions_label.setFont(QFont("Consolas", 14, QFont.Bold))
+        self.summary_positions_label.setFont(QFont("Consolas", 14, 70))
         self.summary_positions_label.setStyleSheet("color: #8be9fd;")
-        self.summary_positions_label.setAlignment(Qt.AlignRight)
+        self.summary_positions_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.summary_positions_label, 1, 1)
 
         # Max дневная просадка
         grid.addWidget(QLabel("📉 Max дневная просадка:"), 2, 0)
         self.summary_drawdown_label = QLabel("5.00%")
-        self.summary_drawdown_label.setFont(QFont("Consolas", 14, QFont.Bold))
+        self.summary_drawdown_label.setFont(QFont("Consolas", 14, 70))
         self.summary_drawdown_label.setStyleSheet("color: #ff5555;")
-        self.summary_drawdown_label.setAlignment(Qt.AlignRight)
+        self.summary_drawdown_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.summary_drawdown_label, 2, 1)
 
         # Stop Loss
         grid.addWidget(QLabel("🛑 Stop Loss:"), 3, 0)
         self.summary_sl_label = QLabel("3.0x ATR")
-        self.summary_sl_label.setFont(QFont("Consolas", 14, QFont.Bold))
+        self.summary_sl_label.setFont(QFont("Consolas", 14, 70))
         self.summary_sl_label.setStyleSheet("color: #ffb86c;")
-        self.summary_sl_label.setAlignment(Qt.AlignRight)
+        self.summary_sl_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.summary_sl_label, 3, 1)
 
         # Take Profit
         grid.addWidget(QLabel("✅ Take Profit:"), 4, 0)
         self.summary_tp_label = QLabel("2.5x RR")
-        self.summary_tp_label.setFont(QFont("Consolas", 14, QFont.Bold))
+        self.summary_tp_label.setFont(QFont("Consolas", 14, 70))
         self.summary_tp_label.setStyleSheet("color: #50fa7b;")
-        self.summary_tp_label.setAlignment(Qt.AlignRight)
+        self.summary_tp_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.summary_tp_label, 4, 1)
 
         # Статус режима
         grid.addWidget(QLabel("🏷️ Активный режим:"), 5, 0)
         self.summary_mode_label = QLabel("🟡 Стандартный")
-        self.summary_mode_label.setFont(QFont("Arial", 12, QFont.Bold))
+        self.summary_mode_label.setFont(QFont("Arial", 12, 70))
         self.summary_mode_label.setStyleSheet("color: #f1fa8c;")
-        self.summary_mode_label.setAlignment(Qt.AlignRight)
+        self.summary_mode_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.summary_mode_label, 5, 1)
 
         grid.setColumnStretch(0, 1)
@@ -305,7 +307,7 @@ class UnifiedTradingSettingsWidget(QWidget):
         agg_layout.addWidget(agg_label)
 
         # Слайдер
-        self.aggression_slider = QSlider(Qt.Horizontal)
+        self.aggression_slider = QSlider(Qt.Orientation.Horizontal)
         self.aggression_slider.setRange(0, 100)
         self.aggression_slider.setValue(0)  # Будет пересчитано
         self.aggression_slider.setToolTip("Перетаскивайте для быстрой настройки")
@@ -479,7 +481,7 @@ class UnifiedTradingSettingsWidget(QWidget):
 
     def _on_mode_enabled_changed(self, state: int):
         """Обработка включения/выключения режимов."""
-        self.mode_enabled = state == Qt.Checked
+        self.mode_enabled = state == Qt.CheckState.Checked
         self.modes_widget.on_enabled_changed(state)
         self.mode_enabled_changed.emit(self.mode_enabled)
 
@@ -615,11 +617,11 @@ class UnifiedTradingSettingsWidget(QWidget):
             self,
             "Сброс настроек",
             "Вы уверены, что хотите сбросить все настройки к значениям по умолчанию?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self._reset_to_defaults()
             self._on_settings_changed_internal()
             QMessageBox.information(self, "Успех", "Настройки сброшены к значениям по умолчанию")
@@ -640,11 +642,11 @@ class UnifiedTradingSettingsWidget(QWidget):
                 f"• Риск: {mode_data.get('risk_percentage', 0)}%\n"
                 f"• Max DD: {mode_data.get('max_daily_drawdown', 0)}%\n\n"
                 "Применить настройки?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
             )
 
-            if reply != QMessageBox.Yes:
+            if reply != QMessageBox.StandardButton.Yes:
                 return
 
         self.settings_changed.emit(settings)

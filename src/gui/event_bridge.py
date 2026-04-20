@@ -23,11 +23,26 @@ class GUIEventBridge(QObject):
     signal_generated = Signal(dict)
     order_executed = Signal(dict)
     accuracy_updated = Signal(dict)
+    model_accuracy_updated = Signal(dict)  # Для графиков точности
+    retrain_progress_updated = Signal(dict)  # Для прогресса переобучения
+    pnl_kpis_updated = Signal(dict)  # Для PnL KPI
     system_alert = Signal(str)
     trading_started = Signal(bool)
     trading_stopped = Signal(bool)
     system_restart_requested = Signal()  # НОВОЕ: запрос перезапуска
     system_restart_completed = Signal(bool)  # НОВОЕ: подтверждение
+    news_batch_received = Signal(dict)  # НОВОЕ: новости из EventBus
+
+    # Сигналы для ControlCenterWidget
+    log_message_added = Signal(str)  # Для лога
+    status_updated = Signal(str, bool)  # message, is_error
+    heavy_initialization_finished = Signal()  # Для завершения инициализации
+
+    # Сигналы для VectorDB
+    vector_db_search_results = Signal(list)
+
+    # Сигналы для Market Scanner
+    market_scan_updated = Signal(dict)  # Для сканера рынка
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -55,6 +70,14 @@ class GUIEventBridge(QObject):
             await self._event_bus.subscribe("trading_started", self._on_trading_started, domain=ThreadDomain.GUI)
             await self._event_bus.subscribe("trading_stopped", self._on_trading_stopped, domain=ThreadDomain.GUI)
             await self._event_bus.subscribe("system_restart_completed", self._on_restart_completed, domain=ThreadDomain.GUI)
+
+            # 🔧 Подписка на события обучения для GUI
+            await self._event_bus.subscribe("model_updated", self._on_model_updated, domain=ThreadDomain.GUI)
+            await self._event_bus.subscribe("retrain_progress", self._on_retrain_progress, domain=ThreadDomain.GUI)
+
+            # 📰 Подписка на новости
+            await self._event_bus.subscribe("news_batch_processed", self._on_news_batch, domain=ThreadDomain.GUI)
+
             self._subscribed = True
             logger.info("✅ GUIEventBridge активен")
         except Exception as e:
@@ -137,6 +160,7 @@ class GUIEventBridge(QObject):
 
     @Slot(dict)
     def _on_trading_started(self, event: SystemEvent):
+        logger.info(f"📥 GUIEventBridge получил trading_started: {event.payload}")
         self._safe_emit(self.trading_started, True)
 
     @Slot(dict)
@@ -156,3 +180,51 @@ class GUIEventBridge(QObject):
 
         # Эмитим сигнал для обновления UI
         self._safe_emit(self.system_restart_completed, success)
+
+    @Slot(dict)
+    def _on_model_updated(self, event: SystemEvent):
+        """Обработка события обновления модели - для графиков"""
+        payload = event.payload
+        logger.debug(f"📈 Model updated: {payload.get('symbol')} acc={payload.get('accuracy')}")
+        self._safe_emit(
+            self.model_accuracy_updated,
+            {
+                "symbol": payload.get("symbol"),
+                "accuracy": payload.get("accuracy", 0),
+                "version": payload.get("version", 0),
+                "timestamp": time.time(),
+            },
+        )
+
+    @Slot(dict)
+    def _on_retrain_progress(self, event: SystemEvent):
+        """Обработка прогресса переобучения - для индикатора прогресса"""
+        payload = event.payload
+        logger.debug(f"🔄 Retrain progress: {payload.get('symbol')} {payload.get('progress', 0):.0%}")
+        self._safe_emit(
+            self.retrain_progress_updated,
+            {
+                "symbol": payload.get("symbol"),
+                "progress": payload.get("progress", 0),
+                "stage": payload.get("stage", "unknown"),
+                "message": payload.get("message", ""),
+            },
+        )
+
+    @Slot(dict)
+    def _on_news_batch(self, event: SystemEvent):
+        """Обработка батча новостей из EventBus"""
+        payload = event.payload
+        logger.debug(
+            f"📰 News batch received: {payload.get('count', 0)} articles, sentiment={payload.get('avg_sentiment', 0):.2f}"
+        )
+        self._safe_emit(
+            self.news_batch_received,
+            {
+                "articles": payload.get("articles", []),
+                "count": payload.get("count", 0),
+                "avg_sentiment": payload.get("avg_sentiment", 0.0),
+                "sources": payload.get("sources", []),
+                "timestamp": time.time(),
+            },
+        )

@@ -263,23 +263,29 @@ class DomainRegistry:
 
 def run_in_domain(domain: ThreadDomain):
     """
-    Декоратор для выполнения функции в указанном домене.
+    Декоратор для маркировки/выполнения функции в указанном домене.
 
-    Пример:
-        @run_in_domain(ThreadDomain.ML_INFERENCE)
-        def predict_price(self, symbol: str) -> float:
-            return self.model.predict(...)
-
-    Реальная реализация:
-        - Проверяет текущий поток
-        - Если поток не соответствует домену — выполняет через executor
-        - Если уже в правильном домене — вызывает напрямую
+    Важно:
+    - Для async-функций декоратор не должен менять их природу coroutine,
+      иначе EventBus перестанет await-ить обработчики.
+    - Для sync-функций сохраняем текущую fallback-логику с executor.
     """
+    import asyncio
+    import functools
     import threading
-    from concurrent.futures import ThreadPoolExecutor
 
     def decorator(func: Callable):
-        def wrapper(*args, **kwargs):
+        if asyncio.iscoroutinefunction(func):
+
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                return await func(*args, **kwargs)
+
+            async_wrapper.__domain__ = domain
+            return async_wrapper
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
             # Проверяем, находимся ли мы уже в правильном домене
             current_thread = threading.current_thread()
             domain_config = DomainRegistry.get_config(domain)
@@ -306,8 +312,7 @@ def run_in_domain(domain: ThreadDomain):
             future = executor.submit(func, *args, **kwargs)
             return future.result(timeout=domain_config.get("timeout", 30))
 
-        wrapper.__domain__ = domain
-        wrapper.__wrapped__ = func
-        return wrapper
+        sync_wrapper.__domain__ = domain
+        return sync_wrapper
 
     return decorator

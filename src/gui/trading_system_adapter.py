@@ -1,343 +1,283 @@
 # src/gui/trading_system_adapter.py
 """
-Адаптер между GUI и ядром TradingSystem.
-Проксирует вызовы, подключает сигналы, обеспечивает безопасное обновление GUI.
+Адаптор для интеграции trading system с GUI.
 """
 
-import asyncio
 import logging
+import threading
 import time
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Optional
 
 import MetaTrader5 as mt5
-from PySide6.QtCore import QObject, QThreadPool
-
-from src.core.config_models import Settings
-from src.core.event_bus import EventPriority, SystemEvent
-from src.core.mt5_connection_manager import mt5_initialize
-from src.core.thread_domains import ThreadDomain
-from src.core.trading_system import TradingSystem
-from src.gui.sound_manager import SoundManager
-from src.gui.widgets.bridges import Bridge, GUIBridge
-from src.utils.worker import Worker
+from PySide6.QtCore import QObject, Signal
 
 logger = logging.getLogger(__name__)
 
 
-class PySideTradingSystem(QObject):
-    """
-    Адаптер-прослойка между MainWindow и TradingSystem.
-    Проксирует вызовы к ядру и управляет сигналами.
-    """
+@dataclass
+class _HistoryDeal:
+    """Минимальная структура сделки для GUI-таблицы истории."""
 
-    def __init__(self, config: Settings, bridge: Bridge, sound_manager: SoundManager):
+    ticket: int
+    symbol: str
+    strategy: str
+    trade_type: str
+    volume: float
+    price_close: float
+    time_close: datetime
+    profit: float
+    timeframe: str
+
+
+class PySideTradingSystem(QObject):
+    """Адаптор для запуска trading system в PySide GUI."""
+
+    # Сигналы для GUI
+    status_changed = Signal(str)
+    error_occurred = Signal(str)
+    metrics_updated = Signal(dict)
+
+    def __init__(self, config=None, bridge=None, sound_manager=None, event_bus=None):
         super().__init__()
         self.config = config
         self.bridge = bridge
         self.sound_manager = sound_manager
-        self._event_bridge: Optional[GUIBridge] = None  # Будет установлен через set_event_bridge()
+        self.event_bus = event_bus
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._gui_sync_thread: Optional[threading.Thread] = None
+        self._news_collector = None
+        self._pending_observer_mode: Optional[bool] = None
+        self.core_system = None  # Для совместимости с main_pyside.py
+        self.system = None  # TradingSystem instance
 
-        # Новая архитектура: TradingSystem принимает только core компоненты
-        # mt5_api, db_manager, predictor инициализируются отдельно
-        self.core_system: TradingSystem = TradingSystem(
-            config=config.dict() if hasattr(config, "dict") else config,
-            mt5_api=None,  # Будет установлен позже
-            db_manager=None,  # Будет установлен позже
-            predictor=None,  # Будет установлен позже
-        )
+    def set_event_bridge(self, event_bridge):
+        """Устанавливает event bridge для связи с GUI."""
+        self.bridge = event_bridge
+        if hasattr(event_bridge, "event_bus"):
+            self.event_bus = event_bridge.event_bus
+        logger.info(f"Event bridge set: {event_bridge}")
 
-        self._connect_core_signals()
-        self._proxy_core_methods()
+    def set_observer_mode(self, mode: bool):
+        """Устанавливает режим наблюдателя (для совместимости)."""
+        target_system = self.system or self.core_system
+        if target_system and hasattr(target_system, "set_observer_mode"):
+            self.system = target_system
+            self.core_system = target_system
+            self.system.set_observer_mode(mode)
+            logger.info(f"Observer mode set to: {mode}")
+            return None
+        self._pending_observer_mode = mode
+        logger.warning(f"set_observer_mode delayed until system ready, mode={mode}")
+        return None
 
-    def set_event_bridge(self, event_bridge: GUIBridge):
-        """Установка ссылки на GUIEventBridge для публикации событий"""
-        self._event_bridge = event_bridge
-        logger.info("🔗 PySideTradingSystem connected to GUIEventBridge")
+    async def get_vector_db_stats(self):
+        """Получает статистику VectorDB (для совместимости)."""
+        if self.system and hasattr(self.system, "core"):
+            # Пытаемся получить статистику из ядра
+            try:
+                if hasattr(self.system.core, "get_vector_db_stats"):
+                    result = self.system.core.get_vector_db_stats()
+                    # Если метод async, ждём результат
+                    if hasattr(result, "__await__"):
+                        return await result
+                    return result
+            except Exception as e:
+                logger.warning(f"get_vector_db_stats failed: {e}")
+                return {"status": "error", "message": str(e)}
+        return {"status": "not_ready", "message": "System not initialized"}
 
-    def _connect_core_signals(self):
-        """Подключает сигналы core_system -> bridge."""
-        # В новой архитектуре сигналы идут через EventBus
-        # Здесь оставляем placeholder для будущей интегра
-        logger.debug("Core signals connected (via EventBus in new architecture)")
+    def start(self):
+        """Запускает trading system в фоновом потоке."""
+        if self._running:
+            logger.warning("System already running")
+            return
 
-    def _proxy_core_methods(self):
-        """Создаёт прокси-методы для вызова из MainWindow."""
-        # Новая архитектура: методы вызываются через EventBus
-        self.get_stats = self.core_system.get_stats
-        self.start = self.core_system.start
-        self.stop = self.core_system.stop
+        self._running = True
+        self.status_changed.emit("Starting trading system...")
 
-    async def start_all_threads(self, threadpool=None):
-        """Запуск ядра. Полностью асинхронный, без блокировок."""
-        logger.info("🔄 start_all_threads: делегирование в core_system.start()")
+        # Импортируем здесь, чтобы избежать циклических импортов
+        from unittest.mock import Mock
+
+        from src.core.trading_system import TradingSystem
+        from src.data.news_collector import NewsCollector
+
         try:
-            if hasattr(self, "core_system") and self.core_system:
-                await self.core_system.start()  # ← Ждём завершения инициализации
-                logger.info("✅ core_system успешно запущен")
+            # Используем переданный config или загружаем из services_container
+            if not self.config:
+                from src.core.services_container import get_config
 
-                # Запускаем фоновые сервисы (если они отдельные асинхронные задачи)
-                if hasattr(self, "start_all_background_services"):
-                    await self.start_all_background_services()
+                self.config = get_config()
 
-                logger.info("🟢 Все компоненты ядра активны и работают в фоне")
+            # Создаём мок для db_manager
+            db_manager = Mock()
+            db_manager.Session = Mock()
+            db_manager.engine = Mock()
+
+            # Инициализируем NewsCollector если включён в конфиге
+            news_enabled = getattr(self.config, "NEWS_COLLECTION_ENABLED", True)
+            if news_enabled:
+                self._news_collector = NewsCollector(config=self.config, db_manager=db_manager)
+                logger.info("NewsCollector initialized")
+
+            # TradingSystem ожидает dict-like config с .get(...)
+            if hasattr(self.config, "model_dump"):
+                core_config = self.config.model_dump()
+            elif isinstance(self.config, dict):
+                core_config = self.config
+            else:
+                core_config = vars(self.config)
+
+            # Создаём trading system с обязательными зависимостями
+            mt5_api = Mock()
+            predictor = Mock()
+            self.system = TradingSystem(config=core_config, mt5_api=mt5_api, db_manager=db_manager, predictor=predictor)
+            self.core_system = self.system
+
+            # Если observer mode был выставлен до запуска, применяем его сейчас
+            if self._pending_observer_mode is not None and hasattr(self.system, "set_observer_mode"):
+                self.system.set_observer_mode(self._pending_observer_mode)
+                self._pending_observer_mode = None
+
+            # Запускаем в отдельном потоке
+            self._thread = threading.Thread(target=self._run_system, daemon=True)
+            self._thread.start()
+            self._start_gui_sync_loop()
+
+            self.status_changed.emit("Trading system started")
+            logger.info("Trading system started in background thread")
+
         except Exception as e:
-            logger.error(f"❌ Failed to start core_system: {e}", exc_info=True)
-            raise
+            logger.error(f"Failed to start trading system: {e}", exc_info=True)
+            self.error_occurred.emit(f"Failed to start: {e}")
+            self._running = False
 
-    async def start_all_background_services(self, threadpool=None):
-        """
-        Запуск фоновых сервисов.
-        """
-        logger.info("start_all_background_services called - services auto-start via EventBus")
-        # Компоненты уже запущены через start(), фоновые сервисы работают автоматически
+    def _start_gui_sync_loop(self):
+        """Периодически отправляет в GUI баланс/позиции/историю из MT5."""
+        if self._gui_sync_thread and self._gui_sync_thread.is_alive():
+            return
 
-    async def initialize_heavy_components(self):
-        """
-        Инициализация тяжёлых компонентов.
-        """
-        logger.info("initialize_heavy_components called - components initialized via core_system.start()")
-        # В новой архитектуре это делается при старте компонентов
+        self._gui_sync_thread = threading.Thread(target=self._gui_sync_worker, daemon=True)
+        self._gui_sync_thread.start()
+        logger.info("GUI sync loop started")
 
-    async def emergency_close_position(self, ticket: int):
-        """Экстренное закрытие одной позиции через EventBus."""
-        logger.warning(f"🚨 Emergency close position: {ticket}")
+    def _gui_sync_worker(self):
+        last_history_sync = 0.0
+        while self._running:
+            try:
+                if not mt5.initialize():
+                    time.sleep(2.0)
+                    continue
+
+                account = mt5.account_info()
+                if account and self.bridge and hasattr(self.bridge, "balance_updated"):
+                    self.bridge.balance_updated.emit(float(account.balance), float(account.equity))
+
+                positions = mt5.positions_get() or []
+                if self.bridge and hasattr(self.bridge, "positions_updated"):
+                    positions_payload = [p._asdict() for p in positions]
+                    self.bridge.positions_updated.emit(positions_payload)
+
+                now_ts = time.time()
+                if now_ts - last_history_sync >= 10.0 and self.bridge and hasattr(self.bridge, "history_updated"):
+                    utc_to = datetime.utcnow()
+                    utc_from = utc_to - timedelta(days=14)
+                    deals = mt5.history_deals_get(utc_from, utc_to) or []
+                    history_payload = []
+                    for d in deals:
+                        dd = d._asdict()
+                        # DEAL_TYPE_BUY=0, DEAL_TYPE_SELL=1
+                        deal_type = "BUY" if dd.get("type") == 0 else "SELL"
+                        history_payload.append(
+                            _HistoryDeal(
+                                ticket=int(dd.get("ticket", 0)),
+                                symbol=str(dd.get("symbol", "")),
+                                strategy="MT5",
+                                trade_type=deal_type,
+                                volume=float(dd.get("volume", 0.0)),
+                                price_close=float(dd.get("price", 0.0)),
+                                time_close=datetime.fromtimestamp(int(dd.get("time", 0))),
+                                profit=float(dd.get("profit", 0.0)),
+                                timeframe="N/A",
+                            )
+                        )
+                    self.bridge.history_updated.emit(history_payload)
+                    if hasattr(self.bridge, "pnl_updated"):
+                        self.bridge.pnl_updated.emit(history_payload)
+                    last_history_sync = now_ts
+            except Exception as e:
+                logger.warning(f"GUI sync worker error: {e}", exc_info=True)
+
+            time.sleep(2.0)
+
+    def _run_system(self):
+        """Основной цикл trading system."""
         try:
-            from src.core.event_bus import EventPriority, SystemEvent
-            from src.core.thread_domains import ThreadDomain
+            if self._news_collector and self.config:
+                # Запускаем первичный сбор новостей
+                import asyncio
 
-            await self._event_bridge.publish_from_gui(
-                "emergency_close_position", {"ticket": ticket}, priority=EventPriority.CRITICAL
-            )
-            logger.info("✅ Emergency close position request published to EventBus")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    news_list = loop.run_until_complete(self._news_collector.fetch_all_news())
+                    self._news_collector.save_to_database(news_list)
+                    logger.info(f"Initial news collection: {len(news_list)} news")
+                    self.status_changed.emit(f"News collected: {len(news_list)} articles")
+                finally:
+                    loop.close()
+
+            # Запускаем trading system
+            import inspect
+
+            start_result = self.system.start()
+            if inspect.isawaitable(start_result):
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(start_result)
+                finally:
+                    loop.close()
+
         except Exception as e:
-            logger.error(f"❌ Failed to publish emergency close: {e}", exc_info=True)
-
-    async def emergency_close_all_positions(self):
-        """Экстренное закрытие всех позиций через EventBus."""
-        logger.warning("🚨 Emergency close ALL positions")
-        try:
-            from src.core.event_bus import EventPriority, SystemEvent
-
-            await self._event_bridge.publish_from_gui("emergency_close_all_positions", {}, priority=EventPriority.CRITICAL)
-            logger.info("✅ Emergency close all positions request published to EventBus")
-        except Exception as e:
-            logger.error(f"❌ Failed to publish emergency close all: {e}", exc_info=True)
-
-    async def set_observer_mode(self, enabled: bool):
-        """Переключение режима наблюдателя через EventBus."""
-        logger.info(f"👁️ Observer mode: {enabled}")
-        try:
-            await self._event_bridge.publish_from_gui(
-                "set_observer_mode",
-                {"enabled": enabled},
-            )
-            logger.info("✅ Observer mode request published")
-        except Exception as e:
-            logger.error(f"❌ Failed to set observer mode: {e}", exc_info=True)
-
-    async def update_configuration(self, new_config: Settings):
-        """Обновление конфигурации через EventBus."""
-        logger.info("⚙️ Configuration updated")
-        self.config = new_config
-        try:
-            await self._event_bridge.publish_from_gui(
-                "config_updated",
-                {"config": new_config.dict() if hasattr(new_config, "dict") else new_config},
-            )
-            logger.info("✅ Config update published")
-        except Exception as e:
-            logger.error(f"❌ Failed to publish config update: {e}", exc_info=True)
-
-    async def force_training_cycle(self):
-        """Принудительное обучение через EventBus."""
-        logger.info("🧠 Force training cycle requested")
-        try:
-            from src.core.event_bus import EventPriority
-
-            await self._event_bridge.publish_from_gui("force_training", {}, priority=EventPriority.HIGH)
-            logger.info("✅ Training request published")
-        except Exception as e:
-            logger.error(f"❌ Failed to publish training request: {e}", exc_info=True)
-
-    async def force_rd_cycle(self):
-        """Принудительный R&D цикл через EventBus."""
-        logger.info("🔬 Force R&D cycle requested")
-        try:
-            await self._event_bridge.publish_from_gui(
-                "force_rd_cycle",
-                {},
-            )
-            logger.info("✅ R&D cycle request published")
-        except Exception as e:
-            logger.error(f"❌ Failed to publish R&D request: {e}", exc_info=True)
-
-    async def add_directive(self, directive_type: str, reason: str, duration_hours: int, value: Any) -> None:
-        """Добавление директивы через EventBus."""
-        logger.info(f"📝 Add directive: {directive_type}")
-        try:
-            await self._event_bridge.publish_from_gui(
-                "add_directive",
-                {
-                    "type": directive_type,
-                    "reason": reason,
-                    "duration_hours": duration_hours,
-                    "value": value,
-                },
-            )
-            logger.info("✅ Directive published")
-        except Exception as e:
-            logger.error(f"❌ Failed to publish directive: {e}", exc_info=True)
+            logger.error(f"Error in trading system thread: {e}", exc_info=True)
+            self.error_occurred.emit(f"System error: {e}")
+        finally:
+            self._running = False
 
     def stop(self):
-        """Остановка системы."""
-        logger.info("🛑 Stopping trading system")
+        """Останавливает trading system."""
+        if not self._running:
+            return
+
+        logger.info("Stopping trading system...")
+        self.status_changed.emit("Stopping trading system...")
+
+        if hasattr(self, "system"):
+            self.system.stop()
+
+        self._running = False
+        self.status_changed.emit("Trading system stopped")
+        logger.info("Trading system stopped")
+
+    def is_running(self):
+        """Проверяет, запущена ли система."""
+        return self._running
+
+    async def start_all_threads(self):
+        """Совместимость с async запуском из main_pyside."""
+        if not self._running:
+            self.start()
+        return self.system is not None
+
+    async def _on_system_restart(self, event=None):
+        """Совместимость с async перезапуском через EventBus."""
         try:
-            import asyncio
-
-            if hasattr(self, "core_system") and self.core_system:
-                loop = asyncio.new_event_loop()
-                loop.run_until_complete(self.core_system.stop())
-                loop.close()
-                logger.info("✅ Trading system stopped")
+            self.stop()
+            self.start()
+            return self.system is not None
         except Exception as e:
-            logger.error(f"❌ Failed to stop system: {e}", exc_info=True)
-
-    async def _on_system_restart(self, event: SystemEvent):
-        """Обработчик запроса на перезапуск системы"""
-        logger.info("🔄 Получен запрос на перезапуск системы")
-
-        try:
-            # 1. Полная остановка всех компонентов
-            logger.info("🛑 Остановка компонентов...")
-            if hasattr(self, "core_system") and self.core_system:
-                await self.core_system.stop()  # ← ПРЯМОЙ await, не через self.stop()
-                logger.info("✅ Trading system stopped")
-
-            # Пауза для очистки ресурсов
-            await asyncio.sleep(1.0)
-
-            # 3. Повторный запуск
-            logger.info("🚀 Повторный запуск компонентов...")
-            await self.start_all_threads()
-
-            # 4. Уведомление GUI об успехе через EventBus
-            event_bus = self._event_bridge.event_bus
-            if event_bus:
-                await event_bus.publish(
-                    SystemEvent(
-                        type="system_restart_completed",
-                        payload={"success": True, "timestamp": time.time()},
-                        priority=EventPriority.HIGH,
-                    )
-                )
-            logger.info("✅ Система успешно перезапущена")
-
-        except Exception as e:
-            logger.error(f"❌ Ошибка перезапуска: {e}", exc_info=True)
-            # Уведомление об ошибке через EventBus
-            event_bus = self._event_bridge.event_bus
-            if event_bus:
-                await event_bus.publish(
-                    SystemEvent(
-                        type="system_restart_completed",
-                        payload={"success": False, "error": str(e)},
-                        priority=EventPriority.CRITICAL,
-                    )
-                )
-
-    async def set_trading_mode(self, mode_id: str, settings: Optional[Dict[str, Any]] = None):
-        """Установка режима торговли через EventBus."""
-        logger.info(f"🎯 Set trading mode: {mode_id}")
-        try:
-            await self._event_bridge.publish_from_gui(
-                "set_trading_mode",
-                {"mode_id": mode_id, "settings": settings or {}},
-            )
-            logger.info("✅ Trading mode request published")
-        except Exception as e:
-            logger.error(f"❌ Failed to publish trading mode: {e}", exc_info=True)
-
-    async def get_trading_mode(self) -> str:
-        """Получение текущего режима торговли."""
-        # TODO: запрос через EventBus
-        return "live"  # Заглушка до реализации запроса статуса
-
-    async def set_paper_trading_mode(self, enabled: bool):
-        """Установка режима Paper Trading через EventBus."""
-        logger.info(f"📄 Paper trading mode: {enabled}")
-        try:
-            await self._event_bridge.publish_from_gui(
-                "set_paper_trading_mode",
-                {"enabled": enabled},
-            )
-            logger.info("✅ Paper trading mode request published")
-        except Exception as e:
-            logger.error(f"❌ Failed to publish paper trading mode: {e}", exc_info=True)
-
-    async def get_all_models(self) -> List[Dict]:
-        """Получение списка моделей из БД через EventBus."""
-        # TODO: запрос через EventBus
-        return []  # Заглушка до реализации запроса
-
-    async def get_vector_db_stats(self) -> Dict[str, Any]:
-        """Статистика VectorDB через EventBus."""
-        # TODO: запрос через EventBus
-        return {}  # Заглушка до реализации запроса
-
-    def search_vector_db(self, query_text: str):
-        """Поиск в VectorDB через EventBus."""
-        logger.info(f"🔍 VectorDB search request: '{query_text}'")
-        try:
-            import asyncio
-
-            asyncio.create_task(self._event_bridge.publish_from_gui("vector_db_search", {"query": query_text}))
-            logger.info("✅ VectorDB search request published")
-        except Exception as e:
-            logger.error(f"❌ Failed to publish search request: {e}", exc_info=True)
-
-    def connect_to_terminal_adapter(self) -> tuple[bool, str]:
-        """Подключение к MetaTrader 5."""
-        logger.info("Попытка подключения к MetaTrader 5 через адаптер...")
-        try:
-            if not mt5_initialize(
-                path=self.config.MT5_PATH,
-                login=int(self.config.MT5_LOGIN) if self.config.MT5_LOGIN else None,
-                password=self.config.MT5_PASSWORD,
-                server=self.config.MT5_SERVER,
-                timeout=10000,
-            ):
-                error_message = f"initialize() failed, error code = {mt5.last_error()}"
-                logger.error(f"Не удалось подключиться к MT5: {error_message}")
-                return False, error_message
-
-            account_info = mt5.account_info()
-            if account_info is None:
-                error_message = f"account_info() failed, error code = {mt5.last_error()}"
-                logger.error(f"Не удалось получить информацию о счете: {error_message}")
-                return False, error_message
-
-            logger.info(f"Успешное подключение к счету #{account_info.login} на сервере {account_info.server}.")
-            return True, "Success"
-        except Exception as e:
-            logger.error(f"MT5 connection error: {e}")
-            return False, str(e)
-
-    def _safe_gui_update(self, method_name: str, *args, **kwargs):
-        """Безопасная отправка сигналов GUI."""
-        try:
-            signal_map = {
-                "update_status": (self.bridge.status_updated, (args[0], kwargs.get("is_error", False))),
-                "update_balance": (self.bridge.balance_updated, args),
-                "update_positions_view": (self.bridge.positions_updated, args),
-                "update_history_view": (self.bridge.history_updated, args),
-                "update_visualization": (self.bridge.training_history_updated, args),
-                "update_candle_chart": (self.bridge.candle_chart_updated, args),
-                "update_pnl_graph": (self.bridge.pnl_updated, args),
-                "update_rd_log": (self.bridge.rd_progress_updated, args),
-                "update_times": (self.bridge.times_updated, args),
-            }
-            if method_name in signal_map:
-                signal, signal_args = signal_map[method_name]
-                signal.emit(*signal_args)
-        except Exception as e:
-            logger.error(f"Ошибка при отправке сигнала GUI '{method_name}': {e}")
+            logger.error(f"System restart failed: {e}", exc_info=True)
+            return False
