@@ -135,6 +135,27 @@ class FixedFractionalSizer(IPositionSizer):
         self.risk_percent = risk_percent
         logger.info(f"FixedFractionalSizer инициализирован с risk={risk_percent*100}%")
 
+    def _get_pip_value(self, symbol: str) -> float:
+        """Возвращает pip value для символа в валюте счёта (USD)."""
+        symbol_upper = symbol.upper()
+        if "JPY" in symbol_upper:
+            return 0.0667
+        elif "XAU" in symbol_upper or "GOLD" in symbol_upper:
+            return 1.0
+        elif "XAG" in symbol_upper or "SILVER" in symbol_upper:
+            return 5.0
+        elif "BTC" in symbol_upper:
+            return 0.01
+        elif "ETH" in symbol_upper:
+            return 0.1
+        return 10.0
+
+    def _get_pip_multiplier(self, symbol: str) -> float:
+        """Возвращает множитель для расчёта пипов (4 для大多数 пар, 2 для JPY)."""
+        if "JPY" in symbol.upper():
+            return 100.0
+        return 10000.0
+
     def calculate(
         self,
         symbol: str,
@@ -147,16 +168,11 @@ class FixedFractionalSizer(IPositionSizer):
     ) -> PositionSizeResult:
         """Рассчитывает размер позиции."""
 
-        # Риск в долларах
         risk_usd = account_equity * self.risk_percent
+        pip_multiplier = self._get_pip_multiplier(symbol)
+        stop_loss_pips = abs(entry_price - stop_loss_price) * pip_multiplier
+        pip_value = self._get_pip_value(symbol)
 
-        # Стоп-лосс в пунктах
-        stop_loss_pips = abs(entry_price - stop_loss_price) * 10000
-
-        # Pip value (упрощённо для USD пар)
-        pip_value = 10.0  # $10 на пип для стандартного лота
-
-        # Размер позиции
         if stop_loss_pips > 0:
             lot = risk_usd / (stop_loss_pips * pip_value)
         else:
@@ -168,7 +184,7 @@ class FixedFractionalSizer(IPositionSizer):
             risk_usd=risk_usd,
             risk_percent=self.risk_percent * 100,
             stop_loss_pips=stop_loss_pips,
-            metadata={"pip_value": pip_value, "account_equity": account_equity},
+            metadata={"pip_value": pip_value, "pip_multiplier": pip_multiplier, "account_equity": account_equity},
         )
 
 
@@ -197,6 +213,27 @@ class KellyCriterionSizer(IPositionSizer):
         self.max_kelly_percent = max_kelly_percent
         logger.info(f"KellyCriterionSizer инициализирован (Half-Kelly={use_half_kelly})")
 
+    def _get_pip_value(self, symbol: str) -> float:
+        """Возвращает pip value для символа."""
+        symbol_upper = symbol.upper()
+        if "JPY" in symbol_upper:
+            return 0.0667
+        elif "XAU" in symbol_upper or "GOLD" in symbol_upper:
+            return 1.0
+        elif "XAG" in symbol_upper or "SILVER" in symbol_upper:
+            return 5.0
+        elif "BTC" in symbol_upper:
+            return 0.01
+        elif "ETH" in symbol_upper:
+            return 0.1
+        return 10.0
+
+    def _get_pip_multiplier(self, symbol: str) -> float:
+        """Возвращает множитель для расчёта пипов."""
+        if "JPY" in symbol.upper():
+            return 100.0
+        return 10000.0
+
     def calculate(
         self,
         symbol: str,
@@ -209,39 +246,42 @@ class KellyCriterionSizer(IPositionSizer):
     ) -> PositionSizeResult:
         """Рассчитывает размер позиции по критерию Келли."""
 
-        # Статистика стратегии по умолчанию
         if strategy_stats is None:
-            # Если статистики нет, используем консервативные значения
             win_rate = 0.5
-            profit_factor = 1.5
+            avg_win = 1.5
+            avg_loss = 1.0
         else:
             win_rate = strategy_stats.get("win_rate", 0.5)
-            profit_factor = strategy_stats.get("profit_factor", 1.5)
+            if "avg_win" in strategy_stats and "avg_loss" in strategy_stats:
+                avg_win = strategy_stats["avg_win"]
+                avg_loss = strategy_stats["avg_loss"]
+            elif "profit_factor" in strategy_stats:
+                pf = strategy_stats["profit_factor"]
+                avg_win = pf if pf > 0 else 1.0
+                avg_loss = 1.0
+            else:
+                avg_win = 1.5
+                avg_loss = 1.0
 
-        # Расчёт по формуле Келли
-        if profit_factor <= 0:
-            kelly = 0.0
-        else:
-            kelly = win_rate - (1 - win_rate) / profit_factor
+        if avg_loss <= 0:
+            avg_loss = 1.0
+        b = avg_win / avg_loss
+        p = win_rate
+        q = 1.0 - p
 
-        # Half-Kelly для консервативности
+        kelly = (b * p - q) / b if b > 0 else 0.0
+
         if self.use_half_kelly:
             kelly = kelly / 2
 
-        # Ограничиваем максимум
         kelly = min(kelly, self.max_kelly_percent)
-        kelly = max(kelly, 0.0)  # Не отрицательный
+        kelly = max(kelly, 0.0)
 
-        # Риск в долларах
         risk_usd = account_equity * kelly
+        pip_multiplier = self._get_pip_multiplier(symbol)
+        stop_loss_pips = abs(entry_price - stop_loss_price) * pip_multiplier
+        pip_value = self._get_pip_value(symbol)
 
-        # Стоп-лосс в пунктах
-        stop_loss_pips = abs(entry_price - stop_loss_price) * 10000
-
-        # Pip value
-        pip_value = 10.0
-
-        # Размер позиции
         if stop_loss_pips > 0:
             lot = risk_usd / (stop_loss_pips * pip_value)
         else:
@@ -257,9 +297,12 @@ class KellyCriterionSizer(IPositionSizer):
             stop_loss_pips=stop_loss_pips,
             metadata={
                 "win_rate": win_rate,
-                "profit_factor": profit_factor,
+                "avg_win": avg_win,
+                "avg_loss": avg_loss,
+                "profit_factor": b,
                 "raw_kelly": kelly * 2 if self.use_half_kelly else kelly,
                 "pip_value": pip_value,
+                "pip_multiplier": pip_multiplier,
             },
         )
 
@@ -286,6 +329,25 @@ class VolatilityAdjustedSizer(IPositionSizer):
         self.atr_multiplier = atr_multiplier
         logger.info(f"VolatilityAdjustedSizer инициализирован (ATR mult={atr_multiplier})")
 
+    def _get_pip_value(self, symbol: str) -> float:
+        symbol_upper = symbol.upper()
+        if "JPY" in symbol_upper:
+            return 0.0667
+        elif "XAU" in symbol_upper or "GOLD" in symbol_upper:
+            return 1.0
+        elif "XAG" in symbol_upper or "SILVER" in symbol_upper:
+            return 5.0
+        elif "BTC" in symbol_upper:
+            return 0.01
+        elif "ETH" in symbol_upper:
+            return 0.1
+        return 10.0
+
+    def _get_pip_multiplier(self, symbol: str) -> float:
+        if "JPY" in symbol.upper():
+            return 100.0
+        return 10000.0
+
     def calculate(
         self,
         symbol: str,
@@ -298,29 +360,20 @@ class VolatilityAdjustedSizer(IPositionSizer):
     ) -> PositionSizeResult:
         """Рассчитывает размер позиции на основе волатильности."""
 
-        # Если ATR не предоставлен, используем стоп-лосс
         if atr is None or atr <= 0:
             atr = abs(entry_price - stop_loss_price)
 
-        # Целевой риск в долларах
         target_risk_usd = account_equity * self.target_risk_percent
+        pip_multiplier = self._get_pip_multiplier(symbol)
+        atr_pips = atr * pip_multiplier
+        pip_value = self._get_pip_value(symbol)
 
-        # ATR в пунктах
-        atr_pips = atr * 10000
-
-        # Pip value
-        pip_value = 10.0
-
-        # Размер позиции на основе волатильности
         if atr_pips > 0:
             lot = target_risk_usd / (atr_pips * self.atr_multiplier * pip_value)
         else:
             lot = 0.0
 
-        # Стоп-лосс в пунктах
-        stop_loss_pips = abs(entry_price - stop_loss_price) * 10000
-
-        # Фактический риск
+        stop_loss_pips = abs(entry_price - stop_loss_price) * pip_multiplier
         actual_risk_usd = lot * stop_loss_pips * pip_value
         actual_risk_percent = (actual_risk_usd / account_equity) * 100
 
@@ -336,6 +389,7 @@ class VolatilityAdjustedSizer(IPositionSizer):
                 "atr_multiplier": self.atr_multiplier,
                 "target_risk_usd": target_risk_usd,
                 "pip_value": pip_value,
+                "pip_multiplier": pip_multiplier,
             },
         )
 
@@ -361,6 +415,25 @@ class RiskParitySizer(IPositionSizer):
 
         logger.info(f"RiskParitySizer инициализирован (max_positions={max_positions})")
 
+    def _get_pip_value(self, symbol: str) -> float:
+        symbol_upper = symbol.upper()
+        if "JPY" in symbol_upper:
+            return 0.0667
+        elif "XAU" in symbol_upper or "GOLD" in symbol_upper:
+            return 1.0
+        elif "XAG" in symbol_upper or "SILVER" in symbol_upper:
+            return 5.0
+        elif "BTC" in symbol_upper:
+            return 0.01
+        elif "ETH" in symbol_upper:
+            return 0.1
+        return 10.0
+
+    def _get_pip_multiplier(self, symbol: str) -> float:
+        if "JPY" in symbol.upper():
+            return 100.0
+        return 10000.0
+
     def calculate(
         self,
         symbol: str,
@@ -373,17 +446,12 @@ class RiskParitySizer(IPositionSizer):
     ) -> PositionSizeResult:
         """Рассчитывает размер позиции с равным риском."""
 
-        # Риск на позицию
         risk_percent = self.risk_per_position
         risk_usd = account_equity * risk_percent
+        pip_multiplier = self._get_pip_multiplier(symbol)
+        stop_loss_pips = abs(entry_price - stop_loss_price) * pip_multiplier
+        pip_value = self._get_pip_value(symbol)
 
-        # Стоп-лосс в пунктах
-        stop_loss_pips = abs(entry_price - stop_loss_price) * 10000
-
-        # Pip value
-        pip_value = 10.0
-
-        # Размер позиции
         if stop_loss_pips > 0:
             lot = risk_usd / (stop_loss_pips * pip_value)
         else:
@@ -400,6 +468,7 @@ class RiskParitySizer(IPositionSizer):
                 "max_positions": self.max_positions,
                 "risk_per_position_percent": risk_percent * 100,
                 "pip_value": pip_value,
+                "pip_multiplier": pip_multiplier,
             },
         )
 

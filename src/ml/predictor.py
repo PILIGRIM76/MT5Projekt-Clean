@@ -305,7 +305,7 @@ class MLPredictor:
                 return False
 
             # 4. Атомарная замена в кэше
-            async with lock_manager.acquire(LockLevel.MODEL_CACHE, timeout=5.0):
+            with lock_manager.acquire(LockLevel.MODEL_CACHE, timeout=5.0):
                 await self.cache.update(
                     symbol,
                     new_model,
@@ -318,13 +318,14 @@ class MLPredictor:
                 )
 
             # 5. Уведомление системы
+            metadata = self.cache.get_metadata(symbol) or {}
             await self.event_bus.publish(
                 SystemEvent(
                     type="model_updated",
                     payload={
                         "symbol": symbol,
                         "accuracy": metrics["accuracy"],
-                        "version": self.cache.get_metadata(symbol)["version"],
+                        "version": metadata.get("version", 0),
                     },
                     priority=EventPriority.MEDIUM,
                 )

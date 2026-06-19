@@ -73,23 +73,12 @@ class GUICoordinator:
             return
 
         try:
-            # Отправляем KPI по отдельности
-            kpi_mapping = {
-                "day_pnl": "pnl_day_updated",
-                "week_pnl": "pnl_week_updated",
-                "month_pnl": "pnl_month_updated",
-                "day_dd": "dd_day_updated",
-                "week_dd": "dd_week_updated",
-                "month_dd": "dd_month_updated",
-            }
-
-            for kpi_key, signal_name in kpi_mapping.items():
-                if kpi_key in kpis:
-                    signal = getattr(self.bridge, signal_name, None)
-                    if signal and hasattr(signal, "emit"):
-                        signal.emit(kpis[kpi_key])
+            # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Отправляем все KPI одним сигналом
+            if hasattr(self.bridge, "pnl_kpis_updated") and hasattr(self.bridge.pnl_kpis_updated, "emit"):
+                self.bridge.pnl_kpis_updated.emit(kpis)
+                logger.debug(f"[GUI] PnL KPI отправлены: {kpis}")
         except Exception as e:
-            logger.error(f"Ошибка обновления PnL KPI: {e}")
+            logger.error(f"Ошибка обновления PnL KPI: {e}", exc_info=True)
 
     def send_model_accuracy(self, accuracy_data: Dict[str, float]) -> None:
         """

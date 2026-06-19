@@ -1,4 +1,4 @@
-﻿# src/core/trading_system.py
+# src/core/trading_system.py
 """
 Ядро торговой системы: событийный пайплайн принятия решений.
 
@@ -22,6 +22,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -127,15 +128,15 @@ class StrategyEngine:
         else:
             return None
 
-        volume = self._calculate_volume(symbol, confidence)
+        volume = self._calculate_volume(symbol or "", confidence)
 
         signal = TradeSignal(
-            symbol=symbol,
+            symbol=symbol or "",
             action=action,
             volume=volume,
             confidence=confidence,
             model_version=payload.get("model_version", 0),
-            correlation_id=event.correlation_id,
+            correlation_id=event.correlation_id or "",
         )
 
         self._signal_count += 1
@@ -207,25 +208,84 @@ class RiskEngine:
     async def _get_symbol_positions(self, symbol: str) -> List[Dict]:
         """Получение открытых позиций по символу (с кэшированием)."""
         if time.time() - self._cache_timestamp < 5:
-            return self._positions_cache.get(symbol, [])
+            return self._positions_cache.get(symbol, [])  # type: ignore
 
-        # Запрос к MT5 (в реальном коде)
-        positions = []
+        try:
+            import MetaTrader5 as mt5
+
+            if mt5.initialize():
+                raw_positions = mt5.positions_get(symbol=symbol) or []
+                positions = [p._asdict() for p in raw_positions]
+            else:
+                positions = []
+        except Exception as e:
+            logger.warning(f"Failed to get positions for {symbol}: {e}")
+            positions = []
+
         self._positions_cache[symbol] = positions
         self._cache_timestamp = time.time()
         return positions
 
     async def _calculate_total_exposure(self) -> float:
-        """Расчёт общей экспозиции."""
-        return 2.5
+        """Расчёт общей экспозиции по всем открытым позициям."""
+        try:
+            import MetaTrader5 as mt5
+
+            if not mt5.initialize():
+                return 0.0
+            positions = mt5.positions_get() or []
+            if not positions:
+                return 0.0
+            total = sum(abs(p.volume) for p in positions)
+            return total
+        except Exception as e:
+            logger.warning(f"Failed to calculate total exposure: {e}")
+            return 0.0
 
     async def _calculate_current_drawdown(self) -> float:
-        """Расчёт текущей просадки в %."""
-        return 1.2
+        """Расчёт текущей просадки в % от пикового эквити."""
+        try:
+            import MetaTrader5 as mt5
+
+            if not mt5.initialize():
+                return 0.0
+            account = mt5.account_info()
+            if not account:
+                return 0.0
+            balance = account.balance
+            equity = account.equity
+            if balance <= 0:
+                return 0.0
+            drawdown = ((balance - equity) / balance) * 100
+            return max(0.0, drawdown)
+        except Exception as e:
+            logger.warning(f"Failed to calculate drawdown: {e}")
+            return 0.0
 
     async def _get_volatility(self, symbol: str) -> float:
-        """Расчёт волатильности."""
-        return 0.0025
+        """Расчёт волатильности через ATR (Average True Range)."""
+        try:
+            import MetaTrader5 as mt5
+
+            if not mt5.initialize():
+                return 0.001
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 20)
+            if rates is None or len(rates) < 2:
+                return 0.001
+            import numpy as np
+
+            highs = np.array([r["high"] for r in rates])
+            lows = np.array([r["low"] for r in rates])
+            closes = np.array([r["close"] for r in rates])
+            tr = np.maximum(highs[1:] - lows[1:], np.maximum(np.abs(highs[1:] - closes[:-1]), np.abs(lows[1:] - closes[:-1])))
+            atr = np.mean(tr[-14:]) if len(tr) >= 14 else np.mean(tr)
+            mid_price = np.mean(closes[-20:]) if len(closes) >= 20 else closes[-1]
+            if mid_price > 0:
+                return atr / mid_price
+            return 0.001
+        except Exception as e:
+            logger.warning(f"Failed to get volatility for {symbol}: {e}")
+            return 0.001
 
 
 class ExecutionEngine:
@@ -272,17 +332,77 @@ class ExecutionEngine:
             return ExecutionResult(success=False, message=str(e))
 
     def _send_order_sync(self, signal: TradeSignal, price: Optional[float]) -> ExecutionResult:
-        """Синхронная отправка ордера."""
-        import random
+        """Синхронная отправка ордера через MT5 API."""
+        try:
+            import MetaTrader5 as mt5
 
-        success = random.random() > 0.05
-        return ExecutionResult(
-            success=success,
-            order_id=f"ORD_{int(time.time())}" if success else None,
-            retcode=10009 if success else 4000,
-            message="Done" if success else "Requote",
-            slippage=random.uniform(0, 0.0002) if success else 0,
-        )
+            if not mt5.initialize():
+                return ExecutionResult(
+                    success=False,
+                    message=f"MT5 init failed: {mt5.last_error()}",
+                    retcode=mt5.last_error()[0] if mt5.last_error() else -1,
+                )
+
+            symbol = signal.symbol
+            if not mt5.symbol_select(symbol, True):
+                return ExecutionResult(
+                    success=False,
+                    message=f"Cannot select symbol {symbol}",
+                    retcode=10013,
+                )
+
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is None:
+                return ExecutionResult(
+                    success=False,
+                    message=f"Cannot get tick for {symbol}",
+                    retcode=10013,
+                )
+
+            order_type = mt5.ORDER_TYPE_BUY if signal.action == SignalType.BUY else mt5.ORDER_TYPE_SELL
+            order_price = tick.ask if order_type == mt5.ORDER_TYPE_BUY else tick.bid
+
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": symbol,
+                "volume": float(signal.volume),
+                "type": order_type,
+                "price": order_price,
+                "deviation": 20,
+                "magic": 234000,
+                "comment": f"Genesis-{signal.action.name}",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
+            }
+
+            result = mt5.order_send(request)
+            if result is None:
+                return ExecutionResult(
+                    success=False,
+                    message=f"order_send returned None: {mt5.last_error()}",
+                    retcode=mt5.last_error()[0] if mt5.last_error() else -1,
+                )
+
+            if result.retcode != mt5.TRADE_RETCODE_DONE:
+                return ExecutionResult(
+                    success=False,
+                    order_id=str(result.order) if result.order else None,
+                    retcode=result.retcode,
+                    message=result.comment,
+                    slippage=0.0,
+                )
+
+            return ExecutionResult(
+                success=True,
+                order_id=str(result.order),
+                retcode=result.retcode,
+                message="Done",
+                slippage=abs(result.price - order_price) if result.price else 0.0,
+            )
+
+        except Exception as e:
+            logger.error(f"MT5 order_send exception: {e}", exc_info=True)
+            return ExecutionResult(success=False, message=str(e), retcode=-1)
 
     def get_stats(self) -> Dict[str, Any]:
         return {
@@ -304,6 +424,7 @@ class TradingSystem:
         self.config = config
         self.mt5 = mt5_api
         self.db = db_manager
+        self.db_manager = db_manager  # alias для совместимости с GUI/adapter
         self.predictor = predictor
 
         self.event_bus = get_event_bus()
@@ -322,6 +443,7 @@ class TradingSystem:
         }
 
         self._running = False
+        self._market_sentiment = 0.0
 
     async def start(self):
         """Запуск системы: подписка на события"""
@@ -345,8 +467,46 @@ class TradingSystem:
             domain=ThreadDomain.PERSISTENCE,
             priority=EventPriority.MEDIUM,
         )
+        await self.event_bus.subscribe(
+            "news_batch_processed",
+            self._on_news_batch,
+            domain=ThreadDomain.STRATEGY_ENGINE,
+            priority=EventPriority.LOW,
+        )
 
         logger.info("TradingSystem started — pipeline active")
+
+        # === ОТПРАВКА ПОДТВЕРЖДЕНИЯ В GUI ===
+        await self.event_bus.publish(
+            SystemEvent(
+                type="trading_started",
+                payload={
+                    "status": True,
+                    "timestamp": datetime.now().isoformat(),
+                    "components": ["DataSync", "MLPredictor", "RiskManager", "Executor"],
+                },
+                priority=EventPriority.HIGH,
+            )
+        )
+        logger.info("📡 GUI notified: trading_started event published")
+        # =======================================
+
+        # 🔧 HEARTBEAT: Каждые 30 секунд логируем статус системы
+        asyncio.create_task(self._system_heartbeat())
+        logger.info("💓 System heartbeat started")
+
+    async def _system_heartbeat(self):
+        """Heartbeat для мониторинга жизненного цикла системы."""
+        import asyncio as aio
+
+        while getattr(self, "_running", True):
+            try:
+                task_count = len(aio.all_tasks())
+                logger.info(f"💓 System Heartbeat: OK | Tasks: {task_count} | Running: {self._running}")
+                await aio.sleep(30)
+            except Exception as e:
+                logger.error(f"💓 Heartbeat error: {e}")
+                break
 
     async def stop(self):
         """Корректная остановка"""
@@ -443,6 +603,21 @@ class TradingSystem:
         """Логирование результата исполнения в БД"""
         if hasattr(self.db, "log_trade_execution"):
             await self.db.log_trade_execution(event.payload)
+
+    @run_in_domain(ThreadDomain.STRATEGY_ENGINE)
+    async def _on_news_batch(self, event: SystemEvent):
+        """Обработка батча новостей — обновление сентимента для решений"""
+        payload = event.payload
+        avg_sentiment = payload.get("avg_sentiment", 0.0)
+        count = payload.get("count", 0)
+
+        logger.debug(f"📰 Новости: {count} шт, сентимент: {avg_sentiment:.2f}")
+
+        self._market_sentiment = avg_sentiment
+
+    def get_market_sentiment(self) -> float:
+        """Получение текущего рыночного сентимента из новостей."""
+        return getattr(self, "_market_sentiment", 0.0)
 
     def _get_tick_price(self, tick_payload: Dict) -> Optional[float]:
         """Извлечение цены из тика"""

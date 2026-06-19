@@ -137,5 +137,6 @@ logs_monitor_report.json
 .kiro/
 .qoder/
 .qwen/
-__pycache__/  
-*.pyc 
+__pycache__/
+*.pyc
+.aider*

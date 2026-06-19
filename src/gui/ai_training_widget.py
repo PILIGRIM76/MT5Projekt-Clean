@@ -103,7 +103,7 @@ class AITrainingWidget(QWidget):
                 font-size: 14px;
             }
         """)
-        self.next_training_label.setAlignment(Qt.AlignCenter)
+        self.next_training_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         training_layout.addWidget(self.next_training_label)
 
         # Статус обучения

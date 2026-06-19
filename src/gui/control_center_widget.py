@@ -314,28 +314,28 @@ class ControlCenterWidget(QWidget):
         self.current_risk_label = QLabel("0.50%")
         self.current_risk_label.setFont(self.font())
         self.current_risk_label.setStyleSheet("color: #50fa7b; font-weight: bold; font-size: 14px;")
-        self.current_risk_label.setAlignment(Qt.AlignRight)
+        self.current_risk_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         summary_layout.addWidget(self.current_risk_label, 0, 1)
 
         # Max позиций
         summary_layout.addWidget(QLabel("📊 Max позиций:"), 1, 0)
         self.current_positions_label = QLabel("5")
         self.current_positions_label.setStyleSheet("color: #8be9fd; font-weight: bold; font-size: 14px;")
-        self.current_positions_label.setAlignment(Qt.AlignRight)
+        self.current_positions_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         summary_layout.addWidget(self.current_positions_label, 1, 1)
 
         # Max дневная просадка
         summary_layout.addWidget(QLabel("📉 Max дневная просадка:"), 2, 0)
         self.current_drawdown_label = QLabel("5.00%")
         self.current_drawdown_label.setStyleSheet("color: #ff5555; font-weight: bold; font-size: 14px;")
-        self.current_drawdown_label.setAlignment(Qt.AlignRight)
+        self.current_drawdown_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         summary_layout.addWidget(self.current_drawdown_label, 2, 1)
 
         # Режим торговли
         summary_layout.addWidget(QLabel("🏷️ Активный режим:"), 3, 0)
         self.current_mode_label = QLabel("🟡 Стандартный")
         self.current_mode_label.setStyleSheet("color: #f1fa8c; font-weight: bold; font-size: 14px;")
-        self.current_mode_label.setAlignment(Qt.AlignRight)
+        self.current_mode_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         summary_layout.addWidget(self.current_mode_label, 3, 1)
 
         summary_layout.setColumnStretch(0, 1)

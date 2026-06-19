@@ -13,6 +13,7 @@ os.environ["NO_PROXY"] = "*"
 # ============================================================================
 
 import asyncio
+import inspect
 import json
 import logging
 import multiprocessing
@@ -98,6 +99,7 @@ from src.core.trading_system import TradingSystem
 from src.data.data_provider import DataProvider
 from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
 from src.gui.control_center_widget import ControlCenterWidget
+from src.gui.dashboard_widget import ModernDashboardWidget
 from src.gui.dialogs import DirectiveDialog
 from src.gui.log_utils import ColorFormatter, QtLogHandler, setup_qt_logging
 from src.gui.models import DictTableModel, GenericTableModel, RDTableModel
@@ -1965,6 +1967,15 @@ class MainWindow(QMainWindow):
         backtester_layout.addWidget(results_splitter)
         right_widget.addTab(backtester_tab, "Бэктестер")
 
+        # --- ВКЛАДКА "ДАШБОРД" ---
+        try:
+            from src.core.event_bus import get_event_bus
+
+            self.dashboard_widget = ModernDashboardWidget(event_bus=get_event_bus(), parent=self)
+        except Exception:
+            self.dashboard_widget = ModernDashboardWidget(event_bus=None, parent=self)
+        right_widget.addTab(self.dashboard_widget, "📊 Дашборд")
+
         # Добавляем обработчик переключения вкладок для логирования
         right_widget.currentChanged.connect(self.on_tab_changed)
         logger.info("[GUI-Init] Все вкладки правой панели инициализированы")
@@ -2087,12 +2098,12 @@ class MainWindow(QMainWindow):
         if hasattr(self.bridge, "trading_signals_updated"):
             self.bridge.trading_signals_updated.connect(self.control_center_tab.update_trading_signals_table)
 
-        # Подключение сигналов запуска/остановки торговли
-        self.bridge.trading_started.connect(self._on_trading_started_success)
-        self.bridge.trading_stopped.connect(self._on_trading_stopped_success)
+        # Подключение сигналов запуска/остановки торговли (в main() после создания _event_bridge)
+        pass
 
     def _on_trading_started_success(self, status: bool):
         """GUI получил подтверждение запуска."""
+        logger.info(f"🟢 _on_trading_started_success вызван со статусом: {status}")
         self.status_label.setText("✅ Торговая система запущена")
         self.stop_button.setEnabled(True)
         self.start_button.setEnabled(False)
@@ -2126,17 +2137,34 @@ class MainWindow(QMainWindow):
 
             if reply == QMessageBox.Yes:
                 # Пользователь подтвердил -> Выключаем
-                import asyncio
-
-                threading.Thread(target=lambda: asyncio.run(self.trading_system.set_observer_mode(False)), daemon=True).start()
+                self._set_observer_mode_safe(False)
             else:
                 # Пользователь отменил -> Возвращаем галочку обратно (Включено)
                 self.observer_checkbox.setChecked(True)
         else:
             # Пользователь ставит галочку -> Включаем без вопросов
-            import asyncio
+            self._set_observer_mode_safe(True)
 
-            threading.Thread(target=lambda: asyncio.run(self.trading_system.set_observer_mode(True)), daemon=True).start()
+    def _set_observer_mode_safe(self, mode: bool):
+        """Безопасно вызывает set_observer_mode для sync/async реализаций."""
+        method = getattr(self.trading_system, "set_observer_mode", None)
+        if not callable(method):
+            logger.warning("[MainWindow] set_observer_mode недоступен")
+            return
+
+        def _runner():
+            try:
+                if inspect.iscoroutinefunction(method):
+                    asyncio.run(method(mode))
+                    return
+
+                result = method(mode)
+                if inspect.isawaitable(result):
+                    asyncio.run(result)
+            except Exception as e:
+                logger.warning(f"[MainWindow] Ошибка set_observer_mode({mode}): {e}", exc_info=True)
+
+        threading.Thread(target=_runner, daemon=True).start()
 
     def _delete_selected_directive(self):
         selected_indexes = self.directives_table.selectionModel().selectedRows()
@@ -3878,6 +3906,11 @@ def main():
         trading_system_adapter.set_event_bridge(event_bridge)
         window._event_bridge = event_bridge  # Сохраняем ссылку для запуска
 
+        # Подключаем сигналы запуска/остановки торговли ПОСЛЕ установки _event_bridge
+        event_bridge.trading_started.connect(window._on_trading_started_success)
+        event_bridge.trading_stopped.connect(window._on_trading_stopped_success)
+        logger.info("🔗 Сигналы trading_started/stopped подключены")
+
         # --- НАЧАЛО ИЗМЕНЕНИЙ: Запуск asyncio в отдельном потоке ---
 
         # 1. Создаем и запускаем поток для asyncio
@@ -3909,16 +3942,28 @@ def main():
                 logger.info("🧠 Ядро получило команду: trading_start_requested")
                 try:
                     # Запуск компонентов через trading_system_adapter
+                    started_ok = False
                     if hasattr(window, "trading_system") and window.trading_system:
                         ts = window.trading_system
                         if hasattr(ts, "start_all_threads"):
-                            await ts.start_all_threads()
+                            started_ok = bool(await ts.start_all_threads())
+                        else:
+                            started_ok = False
 
-                    # Уведомляем GUI об успехе
-                    await event_bus.publish(
-                        SystemEvent(type="trading_started", payload={"status": True}, priority=EventPriority.HIGH)
-                    )
-                    logger.info("✅ Ядро запущено, все компоненты активны")
+                    if started_ok:
+                        await event_bus.publish(
+                            SystemEvent(type="trading_started", payload={"status": True}, priority=EventPriority.HIGH)
+                        )
+                        logger.info("✅ Ядро запущено, все компоненты активны")
+                    else:
+                        await event_bus.publish(
+                            SystemEvent(
+                                type="system_alert",
+                                payload={"message": "Сбой запуска: ядро не инициализировано (adapter.system is None)"},
+                                priority=EventPriority.CRITICAL,
+                            )
+                        )
+                        logger.error("❌ Ядро не запущено: adapter.system is None")
                 except Exception as e:
                     logger.error(f"❌ Ошибка запуска ядра: {e}", exc_info=True)
                     await event_bus.publish(

@@ -24,7 +24,6 @@ try:
     # ------------------------------------------------------------------
 except ImportError:
     faiss = None
-from src.core.config_models import VectorDBSettings
 
 
 class VectorDBManager:

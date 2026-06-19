@@ -274,8 +274,14 @@ class NewsCollector:
         unique_news = {news["id"]: news for news in all_news}
         all_news = list(unique_news.values())
 
-        # Сортируем по времени
-        all_news.sort(key=lambda x: x["published_at"], reverse=True)
+        # Сортируем по времени (нормализуем datetime для сравнения)
+        def normalize_datetime(dt):
+            """Убираем timezone info для сравнения"""
+            if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
+                return dt.replace(tzinfo=None)
+            return dt
+
+        all_news.sort(key=lambda x: normalize_datetime(x["published_at"]), reverse=True)
 
         elapsed = time.time() - start_time
         self.stats["news_collected"] += len(all_news)

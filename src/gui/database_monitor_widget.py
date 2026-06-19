@@ -209,7 +209,7 @@ class DatabaseStatusWidget(QFrame):
 
     def init_ui(self):
         """Инициализация UI."""
-        self.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
+        self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Raised)
         self.setStyleSheet("""
             DatabaseStatusWidget {
                 background-color: #2b2b2b;
@@ -251,7 +251,7 @@ class DatabaseStatusWidget(QFrame):
 
         # Разделитель
         line = QFrame()
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("background-color: #3c3f41;")
         line.setFixedHeight(1)
         layout.addWidget(line)

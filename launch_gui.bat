@@ -1,0 +1,3 @@
+@echo off
+echo Launching Genesis GUI...
+start "Genesis GUI" powershell -NoExit -Command "cd 'F:\MT5Qoder\MT5Projekt-Clean'; .\venv311\Scripts\Activate.ps1; python main_pyside.py"

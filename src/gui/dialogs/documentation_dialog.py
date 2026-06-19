@@ -105,7 +105,7 @@ class DocumentationDialog(QDialog):
         main_layout.addWidget(header, 0)
 
         # Основной контент (сплиттер)
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Левая панель — оглавление
         toc_widget = QWidget()

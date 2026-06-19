@@ -63,7 +63,7 @@ class LockLevel(IntEnum):
     MODEL_TRAINING = 10  # Обучение моделей (блокирует много ресурсов)
 
     # === LEGACY ALIASES для обратной совместимости ===
-    MT5_LOCK = 1  # Алиас на CACHE для старого кода
+    MT5_LOCK = 1  # Алиас на CACHE (istorical order: MT5 доступ ниже DB)
     DB_LOCK = 6  # Алиас на DB_WRITE для старого кода
     MODEL_LOCK = 4  # Алиас на MODEL_CACHE для старого кода
     CONFIG_LOCK = 2  # Алиас на CONFIG для старого кода
