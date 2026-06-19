@@ -453,16 +453,34 @@ class EventBus:
         self._initialized = True
         self._subscribers: Dict[EventType, List[Callable]] = defaultdict(list)
         self._async_subscribers: Dict[EventType, List[Callable]] = defaultdict(list)
-        self._event_history: deque = deque(maxlen=1000)  # O(1) вместо O(n) pop(0)
-        self._max_history = 1000
+        self.__dict__["_max_history"] = 1000
+        self._event_history: deque = deque(maxlen=1000)
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
         logger.info("EventBus инициализирован (legacy API)")
+
+    def __setattr__(self, name, value):
+        if name == "_max_history" and hasattr(self, "_event_history"):
+            old_items = list(self._event_history)
+            super().__setattr__(name, value)
+            self._event_history = deque(old_items[-value:], maxlen=value)
+        else:
+            super().__setattr__(name, value)
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Установка event loop для асинхронных операций."""
         self._event_loop = loop
         logger.debug("EventBus event loop установлен")
+
+    @property
+    def max_history(self) -> int:
+        return self._max_history
+
+    @max_history.setter
+    def max_history(self, value: int):
+        old_items = list(self._event_history)
+        self._max_history = value
+        self._event_history = deque(old_items[-value:], maxlen=value)
 
     # ===========================================
     # Subscription Methods

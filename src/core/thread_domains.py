@@ -257,7 +257,7 @@ class DomainRegistry:
     def reset(cls):
         """Сброс к дефолтным конфигурациям"""
         with cls._lock:
-            cls._config = DEFAULT_DOMAIN_CONFIG.copy()
+            cls._config = copy.deepcopy(DEFAULT_DOMAIN_CONFIG)
             cls._executors.clear()
 
 

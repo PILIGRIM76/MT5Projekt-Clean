@@ -121,7 +121,6 @@ class GUIEventBridge(QObject):
             else:
                 raise
 
-    @Slot(dict)
     def _on_prediction(self, event: SystemEvent):
         self._safe_emit(
             self.prediction_received,
@@ -132,7 +131,6 @@ class GUIEventBridge(QObject):
             },
         )
 
-    @Slot(dict)
     def _on_signal(self, event: SystemEvent):
         self._safe_emit(
             self.signal_generated,
@@ -143,7 +141,6 @@ class GUIEventBridge(QObject):
             },
         )
 
-    @Slot(dict)
     def _on_order(self, event: SystemEvent):
         self._safe_emit(
             self.order_executed,
@@ -154,22 +151,17 @@ class GUIEventBridge(QObject):
             },
         )
 
-    @Slot(dict)
     def _on_health(self, event: SystemEvent):
         self._safe_emit(self.system_alert, event.payload.get("message", "System alert"))
 
-    @Slot(dict)
     def _on_trading_started(self, event: SystemEvent):
         logger.info(f"📥 GUIEventBridge получил trading_started: {event.payload}")
         self._safe_emit(self.trading_started, True)
 
-    @Slot(dict)
     def _on_trading_stopped(self, event: SystemEvent):
         self._safe_emit(self.trading_stopped, True)
 
-    @Slot(dict)
     def _on_restart_completed(self, event: SystemEvent):
-        """Обработка подтверждения перезапуска от ядра"""
         success = event.payload.get("success", False)
         error = event.payload.get("error", "")
 
@@ -178,12 +170,9 @@ class GUIEventBridge(QObject):
         else:
             logger.error(f"❌ Перезапуск не удался: {error}")
 
-        # Эмитим сигнал для обновления UI
         self._safe_emit(self.system_restart_completed, success)
 
-    @Slot(dict)
     def _on_model_updated(self, event: SystemEvent):
-        """Обработка события обновления модели - для графиков"""
         payload = event.payload
         logger.debug(f"📈 Model updated: {payload.get('symbol')} acc={payload.get('accuracy')}")
         self._safe_emit(
@@ -196,9 +185,7 @@ class GUIEventBridge(QObject):
             },
         )
 
-    @Slot(dict)
     def _on_retrain_progress(self, event: SystemEvent):
-        """Обработка прогресса переобучения - для индикатора прогресса"""
         payload = event.payload
         logger.debug(f"🔄 Retrain progress: {payload.get('symbol')} {payload.get('progress', 0):.0%}")
         self._safe_emit(
@@ -211,9 +198,7 @@ class GUIEventBridge(QObject):
             },
         )
 
-    @Slot(dict)
     def _on_news_batch(self, event: SystemEvent):
-        """Обработка батча новостей из EventBus"""
         payload = event.payload
         logger.debug(
             f"📰 News batch received: {payload.get('count', 0)} articles, sentiment={payload.get('avg_sentiment', 0):.2f}"

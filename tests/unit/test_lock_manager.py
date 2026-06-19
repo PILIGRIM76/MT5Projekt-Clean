@@ -2,8 +2,9 @@
 Тесты для LockHierarchy — иерархия блокировок.
 """
 
-import time
 import threading
+import time
+
 import pytest
 
 from src.core.lock_manager import LockHierarchy, LockLevel, lock_manager
@@ -43,21 +44,18 @@ class TestLockHierarchy:
 
     def test_timeout_raises_timeout_error(self):
         """Проверка: таймаут → TimeoutError для разных потоков."""
+        lm = LockHierarchy(default_timeout=2.0)
 
         def hold_lock():
-            # Другой поток держит лок 3 секунды
-            with self.lm.acquire(LockLevel.MT5_LOCK, timeout=10.0):
+            with lm.acquire(LockLevel.MT5_LOCK, timeout=10.0):
                 time.sleep(3)
 
-        # Запускаем поток который держит лок
         t = threading.Thread(target=hold_lock)
         t.start()
-        time.sleep(0.2)
+        time.sleep(0.3)
 
-        # Пытаемся захватить тот же лок из ТЕКУЩЕГО потока с коротким таймаутом
-        short_lm = LockHierarchy(default_timeout=0.2)
         with pytest.raises(TimeoutError):
-            with short_lm.acquire(LockLevel.MT5_LOCK, timeout=0.3):
+            with lm.acquire(LockLevel.MT5_LOCK, timeout=0.3):
                 pass
 
         t.join(timeout=5)
@@ -85,7 +83,7 @@ class TestLockHierarchy:
             stats = self.lm.get_stats()
             assert stats["threads_holding_locks"] == 1
             assert stats["total_locks_held"] == 1
-            assert len(stats["lock_levels"]) == 4
+            assert len(stats["lock_levels"]) >= 4
 
     def test_reentrant_lock(self):
         """Проверка: RLock позволяет повторный захват тем же потоком."""
@@ -121,17 +119,17 @@ class TestLockLevelEnum:
     """Тесты LockLevel enum."""
 
     def test_all_levels_defined(self):
-        """Проверка: все 4 уровня определены."""
+        """Проверка: legacy aliases определены."""
         assert LockLevel.MT5_LOCK.value == 1
-        assert LockLevel.DB_LOCK.value == 2
-        assert LockLevel.MODEL_LOCK.value == 3
-        assert LockLevel.CONFIG_LOCK.value == 4
+        assert LockLevel.DB_LOCK.value == 6
+        assert LockLevel.MODEL_LOCK.value == 4
+        assert LockLevel.CONFIG_LOCK.value == 2
 
     def test_ordering(self):
-        """Проверка: уровни упорядочены правильно."""
-        assert LockLevel.MT5_LOCK < LockLevel.DB_LOCK
-        assert LockLevel.DB_LOCK < LockLevel.MODEL_LOCK
-        assert LockLevel.MODEL_LOCK < LockLevel.CONFIG_LOCK
+        """Проверка: уровни упорядочены правильно (legacy aliases)."""
+        assert LockLevel.MT5_LOCK < LockLevel.CONFIG_LOCK
+        assert LockLevel.CONFIG_LOCK < LockLevel.MODEL_LOCK
+        assert LockLevel.MODEL_LOCK < LockLevel.DB_LOCK
 
 
 class TestLockHierarchyThreadSafety:

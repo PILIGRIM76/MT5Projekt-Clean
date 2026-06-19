@@ -165,11 +165,19 @@ class PySideTradingSystem(QObject):
 
     def _gui_sync_worker(self):
         last_history_sync = 0.0
+        mt5_init_retries = 0
+        max_mt5_retries = 15
+
         while self._running:
             try:
                 if not mt5.initialize():
+                    mt5_init_retries += 1
+                    if mt5_init_retries >= max_mt5_retries:
+                        logger.error(f"MT5 init failed after {max_mt5_retries} retries, stopping sync")
+                        break
                     time.sleep(2.0)
                     continue
+                mt5_init_retries = 0
 
                 account = mt5.account_info()
                 if account and self.bridge and hasattr(self.bridge, "balance_updated"):
@@ -188,7 +196,6 @@ class PySideTradingSystem(QObject):
                     history_payload = []
                     for d in deals:
                         dd = d._asdict()
-                        # DEAL_TYPE_BUY=0, DEAL_TYPE_SELL=1
                         deal_type = "BUY" if dd.get("type") == 0 else "SELL"
                         history_payload.append(
                             _HistoryDeal(
@@ -255,8 +262,17 @@ class PySideTradingSystem(QObject):
         logger.info("Stopping trading system...")
         self.status_changed.emit("Stopping trading system...")
 
-        if hasattr(self, "system"):
-            self.system.stop()
+        if hasattr(self, "system") and self.system:
+            try:
+                import asyncio
+
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(self.system.stop())
+                else:
+                    loop.run_until_complete(self.system.stop())
+            except RuntimeError:
+                pass
 
         self._running = False
         self.status_changed.emit("Trading system stopped")
