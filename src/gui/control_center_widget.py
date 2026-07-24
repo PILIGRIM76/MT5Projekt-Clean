@@ -4,6 +4,8 @@ import logging
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor
+
+from src.gui.trading_modes_widget import TRADING_MODES
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,

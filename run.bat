@@ -11,14 +11,17 @@ echo ║     Genesis Trading System - Запуск                       ║
 echo ╚═══════════════════════════════════════════════════════════╝
 echo.
 
-REM Активация venv
-if exist venv\Scripts\activate.bat (
-    echo Активация виртуального окружения...
+REM Активация venv (проверяем оба варианта)
+if exist venv311\Scripts\activate.bat (
+    echo Активация виртуального окружения (venv311)...
+    call venv311\Scripts\activate.bat
+) else if exist venv\Scripts\activate.bat (
+    echo Активация виртуального окружения (venv)...
     call venv\Scripts\activate.bat
 ) else (
-    echo Ошибка: venv не найдено!
-    echo Выполните: setup.bat
-    exit /b 1
+    echo Внимание: venv не найдено!
+    echo Запуск с системным Python...
+    REM Продолжаем без venv
 )
 
 REM Проверка основных зависимостей
