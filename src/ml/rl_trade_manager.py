@@ -110,92 +110,151 @@ class TradingLifecycleEnv(gym.Env):
         pnl_norm = unrealized_pnl_pct * 100
         # ------------------------------------------------------------------
 
-        # 0: HOLD
+        # ================================================================
+        # СИСТЕМА ПОощрений ЗА ПРАВИЛЬНЫЕ РЕШЕНИЯ
+        # ================================================================
+
+        # 0: HOLD — удержание позиции
         if action == 0:
             if self.position != 0:
                 self.bars_in_trade += 1
-                reward += unrealized_pnl_pct * self.rewards_config.hold_reward_multiplier
 
-                # --- TZ 3.2: Штраф за "Пересиживание" ---
-                if pnl_norm < 0 and self.bars_in_trade > 20:
-                    # Penalty_Hold = -0.01 * PnL_Norm * exp(Bars / 20)
-                    penalty_hold = -0.01 * pnl_norm * np.exp(self.bars_in_trade / 20.0)
-                    reward -= penalty_hold
-                # -----------------------------------------
+                # ✅ НАГРАДА: Позиция в прибыли — растёт
+                if unrealized_pnl_pct > 0:
+                    # Базовая награда пропорциональна прибыли
+                    reward += unrealized_pnl_pct * self.rewards_config.hold_reward_multiplier
 
-        # 1: CLOSE_50%
-        elif action == 4 and self.position != 0:
-            reward += unrealized_pnl_pct * self.rewards_config.partial_close_multiplier
+                    # 🌟 БОНУС: Позиция держится разумное время (5-50 баров)
+                    if 5 <= self.bars_in_trade <= 50:
+                        reward += 0.05  # Бонус за терпение
 
-            # --- TZ 3.1: Награда за Частичный TP ---
-            if current_atr > 0:
-                # PnL в цене
-                pnl_in_price = current_price - self.entry_price if self.position == 1 else self.entry_price - current_price
+                    # 🌟 БОНУС: Прибыль растёт (PnL > 1.5%)
+                    if unrealized_pnl_pct > 0.015:
+                        reward += 0.1  # Бонус за сильный тренд
 
-                # Проверка: PnL > 1.5 * ATR
-                if pnl_in_price > 1.5 * current_atr:
-                    reward += 0.2  # Фиксированный бонус
-            # ---------------------------------------
+                # ❌ ШТРАФ: Позиция в убытке — растёт
+                elif unrealized_pnl_pct < 0:
+                    # Базовый штраф пропорционален убытку
+                    reward -= abs(unrealized_pnl_pct) * 0.5
 
-            self.position = self.position / 2
-            if abs(self.position) < 0.01:
-                self.position = 0
+                    # ❌ ШТРАФ: Пересиживание убыточной позиции (>20 баров)
+                    if self.bars_in_trade > 20:
+                        # Экспоненциальный штраф — чем дольше, тем больнее
+                        penalty_hold = -0.01 * pnl_norm * np.exp(self.bars_in_trade / 20.0)
+                        reward += penalty_hold  # penalty_hold отрицательный
 
-        # 2: MOVE_SL_TO_BE
-        elif action == 2 and self.position != 0:
-            unrealized_pnl = (current_price - self.entry_price) / self.entry_price * self.position
-            if unrealized_pnl > 0.001 and not self.sl_moved_to_be:
-                reward += self.rewards_config.move_sl_to_be_reward
-                self.sl_moved_to_be = True
-            else:
-                reward += self.rewards_config.move_sl_to_be_penalty
+                    # ❌ ШТРАФ: Убыток > 2% — критический
+                    if unrealized_pnl_pct < -0.02:
+                        reward -= 0.5  # Жёсткий штраф за потерю контроля
 
-        # 3: CLOSE_100%
+                # ⚠️ ШТРАФ: Холд без позиции — бездействие
+                else:
+                    reward -= 0.001  # Маленький штраф за бездействие
+
+        # 1: BUY — открытие длинной позиции
+        elif action == 1 and self.position == 0:
+            self.position = 1
+            self.entry_price = current_price
+            self.current_sl = current_price - self.config.STOP_LOSS_ATR_MULTIPLIER * current_atr
+            self.bars_in_trade = 0
+            self.sl_moved_to_be = False
+
+            # ❌ ШТРАФ: Комиссия за вход
+            reward -= 0.0005
+
+            # ✅ НАГРАДА: Вход по тренду (цена выше MA)
+            if "SMA_20" in self.df.columns:
+                sma20 = self.df["SMA_20"].iloc[self.current_step]
+                if current_price > sma20:
+                    reward += 0.02  # Бонус за вход по тренду
+
+        # 2: SELL — открытие короткой позиции
+        elif action == 2 and self.position == 0:
+            self.position = -1
+            self.entry_price = current_price
+            self.current_sl = current_price + self.config.STOP_LOSS_ATR_MULTIPLIER * current_atr
+            self.bars_in_trade = 0
+            self.sl_moved_to_be = False
+
+            # ❌ ШТРАФ: Комиссия за вход
+            reward -= 0.0005
+
+            # ✅ НАГРАДА: Вход по тренду (цена ниже MA)
+            if "SMA_20" in self.df.columns:
+                sma20 = self.df["SMA_20"].iloc[self.current_step]
+                if current_price < sma20:
+                    reward += 0.02  # Бонус за вход по тренду
+
+        # 3: CLOSE_100% — полное закрытие позиции
         elif action == 3 and self.position != 0:
             unrealized_pnl = (current_price - self.entry_price) / self.entry_price * self.position
-            reward += unrealized_pnl * 1.0
+
+            # ✅ НАГРАДА: Закрытие в прибыли
+            if unrealized_pnl > 0:
+                reward += unrealized_pnl * 1.0  # Полная награда за прибыль
+
+                # 🌟 БОНУС: Закрытие на пике (прибыль > 2%)
+                if unrealized_pnl > 0.02:
+                    reward += 0.2  # Бонус за фиксацию сильной прибыли
+
+                # 🌟 БОНУС: Быстрое закрытие прибыльной сделки (<10 баров)
+                if self.bars_in_trade < 10:
+                    reward += 0.1  # Бонус за быструю реакцию
+
+            # ❌ ШТРАФ: Закрытие в убытке
+            elif unrealized_pnl < 0:
+                reward += unrealized_pnl * 1.0  # Штраф = убыток
+
+                # ❌ ШТРАФ: Паническое закрытие (<5 баров, убыток)
+                if self.bars_in_trade < 5:
+                    reward -= 0.1  # Штраф за панику
+
+            # Сброс позиции
             self.position = 0
             self.bars_in_trade = 0
             done = True
 
-            # --- TZ 3.1: НОВОЕ ДЕЙСТВИЕ: PARTIAL_CLOSE_RISK (действие 4) ---
+        # 4: CLOSE_50% / PARTIAL_CLOSE_RISK — частичное закрытие
         elif action == 4 and self.position != 0:
-            # Имитация VaR позиции: для простоты берем PnL_Norm
-            # InitialRisk_Position = 1.0 (в нормализованных единицах)
-            # CurrentVaR_Position (имитация) = -PnL_Norm (если в убытке)
-
-            # Проверка: CurrentVaR_Position > 2.0 * InitialRisk_Position
-            # (Т.е. убыток > 2% от цены входа)
-            is_high_risk = pnl_norm < -2.0
+            # Проверяем: это управление риском или фиксация прибыли?
+            is_high_risk = pnl_norm < -2.0  # Убыток > 2%
 
             if is_high_risk:
-                # Уменьшаем позицию на 25%
+                # ✅ НАГРАДА: Управление риском — уменьшаем убыточную позицию
                 self.position *= 0.75
-                reward += 0.1  # Небольшая награда за дисциплину
+                reward += 0.1  # Бонус за дисциплину
                 logger.info(f"[RL-Trader] PARTIAL_CLOSE_RISK: Убыток > 2%. Позиция уменьшена. Reward: 0.1")
             else:
-                reward -= 0.1  # Штраф за ненужное закрытие
+                # ✅ НАГРАДА: Фиксация части прибыли
+                if unrealized_pnl_pct > 0:
+                    reward += unrealized_pnl_pct * self.rewards_config.partial_close_multiplier
+
+                    # 🌟 БОНУС: Частичная фиксация при прибыли > 1.5 * ATR
+                    if current_atr > 0:
+                        pnl_in_price = (
+                            current_price - self.entry_price if self.position == 1 else self.entry_price - current_price
+                        )
+                        if pnl_in_price > 1.5 * current_atr:
+                            reward += 0.2  # Бонус за умное управление
+
+                self.position = self.position / 2
 
             if abs(self.position) < 0.01:
                 self.position = 0
 
-        # --- Имитация открытия позиции (если нет позиции) ---
-        elif self.position == 0:
-            if action == 1:  # BUY
-                self.position = 1
-                self.entry_price = current_price
-                self.current_sl = current_price - self.config.STOP_LOSS_ATR_MULTIPLIER * current_atr
-                reward -= 0.0005
-            elif action == 2:  # SELL
-                self.position = -1
-                self.entry_price = current_price
-                self.current_sl = current_price + self.config.STOP_LOSS_ATR_MULTIPLIER * current_atr
-                reward -= 0.0005
+        # ================================================================
+        # ДОПОЛНИТЕЛЬНЫЕ ПРОВЕРКИ
+        # ================================================================
 
-        # --- Штраф за слишком долгое удержание (остается как дополнительный выход) ---
+        # ❌ ШТРАФ: Слишком долгое удержание (>200 баров)
         if self.bars_in_trade > 200:
-            reward -= 0.1
+            reward -= 0.5
             done = True
+            logger.warning(f"[RL-Trader] Позиция держалась {self.bars_in_trade} баров. Принудительное закрытие.")
+
+        # ✅ НАГРАДА: Stop Loss сработал правильно (защитил от большего убытка)
+        if self.position != 0 and self.sl_moved_to_be and unrealized_pnl_pct < 0:
+            reward += 0.05  # Бонус за то что SL защитил капитал
 
         return self._get_obs(), reward, done, False, {}
 

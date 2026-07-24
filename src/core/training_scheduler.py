@@ -177,8 +177,10 @@ class TrainingScheduler:
         if self.training_in_progress:
             return False
 
+        # FIX: Если last_training_time None — первое обучение должно запуститься!
         if self.last_training_time is None:
-            return False  # Первый запуск только по расписанию
+            logger.info("🔄 Первое автообучение: запускаю немедленно!")
+            return True
 
         hours_since_last = (datetime.now() - self.last_training_time).total_seconds() / 3600
         return hours_since_last >= self.interval_hours
@@ -282,6 +284,87 @@ class TrainingScheduler:
         """Запускает обучение вручную (из GUI)."""
         logger.info("Ручной запуск переобучения моделей...")
         self._run_training_job()
+
+    def update_settings(self, config) -> bool:
+        """
+        Обновляет настройки планировщика НА ЛЕТУ без перезагрузки.
+
+        Args:
+            config: Новая конфигурация (объект Settings или dict)
+
+        Returns:
+            True если настройки применены
+        """
+        logger.info("🔄 [TrainingScheduler] Обновление настроек...")
+
+        try:
+            # Читаем из вложенного объекта auto_retraining
+            auto_retrain_config = getattr(config, "auto_retraining", None)
+            if auto_retrain_config:
+                if isinstance(auto_retrain_config, dict):
+                    new_enabled = auto_retrain_config.get("enabled", True)
+                    new_schedule_time = auto_retrain_config.get("schedule_time", "02:00")
+                    new_interval_hours = auto_retrain_config.get("interval_hours", 0.5)
+                    new_max_symbols = auto_retrain_config.get("max_symbols", 30)
+                    new_max_workers = auto_retrain_config.get("max_workers", 3)
+                else:
+                    # Pydantic модель
+                    new_enabled = getattr(auto_retrain_config, "enabled", True)
+                    new_schedule_time = getattr(auto_retrain_config, "schedule_time", "02:00")
+                    new_interval_hours = getattr(auto_retrain_config, "interval_hours", 0.5)
+                    new_max_symbols = getattr(auto_retrain_config, "max_symbols", 30)
+                    new_max_workers = getattr(auto_retrain_config, "max_workers", 3)
+            else:
+                # Fallback на старые атрибуты
+                new_enabled = getattr(config, "AUTO_RETRAIN_ENABLED", True)
+                new_schedule_time = getattr(config, "AUTO_RETRAIN_TIME", "02:00")
+                new_interval_hours = getattr(config, "AUTO_RETRAIN_INTERVAL_HOURS", 0.5)
+                new_max_symbols = getattr(config, "AUTO_RETRAIN_MAX_SYMBOLS", 30)
+                new_max_workers = getattr(config, "AUTO_RETRAIN_MAX_WORKERS", 3)
+
+            # Проверяем что изменилось
+            changes = []
+            if self.enabled != new_enabled:
+                changes.append(f"enabled: {self.enabled} → {new_enabled}")
+            if self.interval_hours != new_interval_hours:
+                changes.append(f"interval_hours: {self.interval_hours} → {new_interval_hours}")
+            if self.schedule_time != new_schedule_time:
+                changes.append(f"schedule_time: {self.schedule_time} → {new_schedule_time}")
+            if self.max_symbols != new_max_symbols:
+                changes.append(f"max_symbols: {self.max_symbols} → {new_max_symbols}")
+            if self.max_workers != new_max_workers:
+                changes.append(f"max_workers: {self.max_workers} → {new_max_workers}")
+
+            if not changes:
+                logger.info("[TrainingScheduler] Настройки не изменились")
+                return False
+
+            logger.info(f"📝 [TrainingScheduler] Изменения: {', '.join(changes)}")
+
+            # Применяем новые настройки
+            self.enabled = new_enabled
+            self.schedule_time = new_schedule_time
+            self.interval_hours = new_interval_hours
+            self.max_symbols = new_max_symbols
+            self.max_workers = new_max_workers
+
+            # Перенастраиваем расписание
+            if self.is_running:
+                self._setup_schedule()
+                logger.info("✅ [TrainingScheduler] Расписание перенастроено")
+
+            logger.info(
+                f"✅ [TrainingScheduler] Настройки обновлены: "
+                f"enabled={self.enabled}, interval={self.interval_hours}ч, "
+                f"schedule={self.schedule_time}, max_sym={self.max_symbols}, "
+                f"workers={self.max_workers}"
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ [TrainingScheduler] Ошибка обновления настроек: {e}", exc_info=True)
+            return False
 
     def get_status(self) -> dict:
         """Возвращает статус планировщика."""

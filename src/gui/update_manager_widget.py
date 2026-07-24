@@ -219,12 +219,8 @@ class UpdateManagerWidget(QWidget):
         if not self.trading_system:
             return
 
-        # Получаем hot_reload_manager через core_system
-        manager = None
-        if hasattr(self.trading_system, "core_system") and self.trading_system.core_system:
-            manager = self.trading_system.core_system.hot_reload_manager
-        elif hasattr(self.trading_system, "hot_reload_manager"):
-            manager = self.trading_system.hot_reload_manager
+        # Получаем hot_reload_manager через адаптер
+        manager = getattr(self.trading_system, "hot_reload_manager", None)
 
         if not manager:
             return

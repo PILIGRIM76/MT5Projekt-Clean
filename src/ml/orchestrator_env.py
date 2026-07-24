@@ -43,6 +43,57 @@ class OrchestratorEnv(gym.Env):
         # --- 2. Вызов родительского конструктора (ПЕРЕМЕЩЕНО В КОНЕЦ) ---
         super(OrchestratorEnv, self).__init__()
 
+    def _enforce_minimum_allocations(self, regime: str, allocation: dict) -> dict:
+        """
+        Гарантирует минимальные доли для ключевых стратегий в определённых режимах.
+        Это обеспечивает диверсификацию даже если PPO модель выдала нулевые веса.
+        """
+        # Копируем чтобы не модифицировать оригинал
+        adjusted = allocation.copy()
+
+        # 🔹 Low Volatility Range: RLTradeManager минимум 5%
+        if regime == "Low Volatility Range" and adjusted.get("RLTradeManager", 0) < 0.05:
+            old_rl = adjusted.get("RLTradeManager", 0)
+            adjusted["RLTradeManager"] = 0.05
+            # Перераспределяем разницу пропорционально другим стратегиям
+            other_strategies = {k: v for k, v in adjusted.items() if k != "RLTradeManager"}
+            total_other = sum(other_strategies.values())
+            if total_other > 0:
+                for key in other_strategies:
+                    adjusted[key] = adjusted[key] * (1 - 0.05) / total_other
+            logger.debug(f"[OrchestratorEnv] 🔄 {regime}: RLTradeManager увеличен с {old_rl:.3f} до 0.05")
+
+        # 🔹 Strong Trend: AI_Model минимум 10% для дополнения RL
+        if regime == "Strong Trend" and adjusted.get("AI_Model", 0) < 0.10:
+            old_ai = adjusted.get("AI_Model", 0)
+            adjusted["AI_Model"] = 0.10
+            # Перераспределяем разницу пропорционально другим стратегиям
+            other_strategies = {k: v for k, v in adjusted.items() if k != "AI_Model"}
+            total_other = sum(other_strategies.values())
+            if total_other > 0:
+                for key in other_strategies:
+                    adjusted[key] = adjusted[key] * (1 - 0.10) / total_other
+            logger.debug(f"[OrchestratorEnv] 🔄 {regime}: AI_Model увеличен с {old_ai:.3f} до 0.10")
+
+        # 🔹 Weak Trend: AI_Model минимум 10% для дополнения
+        if regime == "Weak Trend" and adjusted.get("AI_Model", 0) < 0.10:
+            old_ai = adjusted.get("AI_Model", 0)
+            adjusted["AI_Model"] = 0.10
+            other_strategies = {k: v for k, v in adjusted.items() if k != "AI_Model"}
+            total_other = sum(other_strategies.values())
+            if total_other > 0:
+                for key in other_strategies:
+                    adjusted[key] = adjusted[key] * (1 - 0.10) / total_other
+            logger.debug(f"[OrchestratorEnv] 🔄 {regime}: AI_Model увеличен с {old_ai:.3f} до 0.10")
+
+        # Нормализуем чтобы сумма была 1.0
+        total = sum(adjusted.values())
+        if abs(total - 1.0) > 1e-6:
+            for key in adjusted:
+                adjusted[key] /= total
+
+        return adjusted
+
     def _get_current_regime_one_hot(self) -> Tuple[str, np.ndarray]:
         """Получает текущий режим рынка и его One-Hot кодировку."""
         regime = self.trading_system._get_current_market_regime_name()
@@ -129,6 +180,10 @@ class OrchestratorEnv(gym.Env):
                 )
 
             allocation = {name: float(weight) for name, weight in zip(self.strategy_names, normalized_weights)}
+
+            # 🔧 ПОСТ-ОБРАБОТКА: Гарантируем минимальные доли для диверсификации
+            allocation = self._enforce_minimum_allocations(regime, allocation)
+
             regime_allocations[regime] = allocation
 
             logger.info(f"  Allocation: {allocation}")

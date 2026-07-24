@@ -1,0 +1,16 @@
+{
+  "_comment": "Пример конфигурации GUI с новыми параметрами",
+  "_description": "Добавьте эти параметры в ваш configs/settings.json",
+
+  "GUI_THEME": "Светлая",
+  "ALWAYS_ON_TOP": false,
+  "USE_CUSTOM_TITLE_BAR": false,
+  "ANIMATIONS_ENABLED": true,
+
+  "_notes": {
+    "GUI_THEME": "Доступные значения: 'Светлая', 'Темная'",
+    "ALWAYS_ON_TOP": "Окно всегда поверх остальных окон. Полезно для мониторинга.",
+    "USE_CUSTOM_TITLE_BAR": "Убирает системные рамки, добавляет кастомную рамку с перетаскиванием.",
+    "ANIMATIONS_ENABLED": "Включает плавные анимации. Автоотключаются при CPU > 85%."
+  }
+}

@@ -12,7 +12,12 @@ import MetaTrader5 as mt5
 import pandas as pd
 import requests
 from httpx import AsyncClient, AsyncHTTPTransport
-from ntscraper import Nitter
+try:
+    from ntscraper import Nitter
+except Exception as e:
+    Nitter = None
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Nitter (ntscraper) недоступен: {e}. Источник Twitter отключен.")
 from telethon.sync import TelegramClient
 
 from src.data.web_scraper import scrape_investing_calendar

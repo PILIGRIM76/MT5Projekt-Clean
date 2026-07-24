@@ -20,6 +20,16 @@ from PySide6.QtWidgets import (
 class DirectiveDialog(QDialog):
     """Диалог для создания новой директивы."""
 
+    # Человекочитаемые названия типов директив
+    DIRECTIVE_TYPE_LABELS = {
+        "BLOCK_TRADING": "🚫 Блокировка торговли",
+        "RISK_OFF_MODE": "🛡️ Режим пониженного риска",
+        "SET_MAX_WEEKLY_DRAWDOWN": "📊 Макс. недельная просадка (%)",
+    }
+
+    # Обратное соответствие для получения ключа по индексу
+    DIRECTIVE_TYPE_KEYS = list(DIRECTIVE_TYPE_LABELS.keys())
+
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Создать новую директиву")
@@ -27,7 +37,9 @@ class DirectiveDialog(QDialog):
 
         layout.addWidget(QLabel("Тип директивы:"), 0, 0)
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["BLOCK_TRADING", "RISK_OFF_MODE", "SET_MAX_WEEKLY_DRAWDOWN"])
+        # Добавляем человеко-читаемые названия
+        for key, label in self.DIRECTIVE_TYPE_LABELS.items():
+            self.type_combo.addItem(label, key)
         self.type_combo.currentIndexChanged.connect(self.on_type_changed)
         layout.addWidget(self.type_combo, 0, 1)
 
@@ -57,15 +69,15 @@ class DirectiveDialog(QDialog):
         self.on_type_changed(0)
 
     def on_type_changed(self, index: int) -> None:
-        directive_type = self.type_combo.currentText()
-        is_value_needed = "DRAWDOWN" in directive_type
+        directive_key = self.type_combo.currentData()
+        is_value_needed = "DRAWDOWN" in directive_key
         self.value_label.setVisible(is_value_needed)
         self.value_spinbox.setVisible(is_value_needed)
 
     def get_data(self) -> Dict[str, Any]:
         """Возвращает данные директивы."""
         return {
-            "type": self.type_combo.currentText(),
+            "type": self.type_combo.currentData(),  # Возвращаем ключ, а не label
             "reason": self.reason_edit.text(),
             "duration_hours": self.duration_spin.value(),
             "value": self.value_spinbox.value(),

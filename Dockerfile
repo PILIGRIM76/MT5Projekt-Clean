@@ -15,7 +15,12 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH=/app \
-    PYSIDE6_DISABLE_OPENGL=1
+    PYSIDE6_DISABLE_OPENGL=1 \
+    # AI Model Configuration
+    MODEL_DIR=/models \
+    MODEL_FORMAT=keras \
+    ACTIVE_MODEL=lstm_v4 \
+    BACKUP_MODEL=lstm_v3
 
 # ===========================================
 # System Dependencies

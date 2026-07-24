@@ -287,6 +287,12 @@ services:
       - grafana
       - prometheus
 
+  qdrant_storage:
+    driver: local
+  # AI Models Volume — для монтирования внешних моделей
+  models_data:
+    driver: local
+
 # ===========================================
 # Volumes
 # ===========================================

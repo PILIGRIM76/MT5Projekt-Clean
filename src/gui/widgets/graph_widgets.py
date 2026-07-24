@@ -44,56 +44,106 @@ class GraphBackend(QObject):
 
 class CustomCandlestickItem(pg.GraphicsObject):
     """
-    Пользовательский элемент для отрисовки свечей на графике pyqtgraph.
+    Пользовательский элемент для отрисовки свечей в стиле MT5.
+
+    Особенности:
+    - Бычьи свечи: зелёный (#00C853) с зелёной границей
+    - Медвежьи свечи: красный (#FF1744) с красной границей
+    - Фитили (high/low) тонкие (1px)
+    - Тело свечи занимает ~70% ширины бара
+    - Doji (open≈close) отображается как тонкая линия
     """
 
     def __init__(self) -> None:
         pg.GraphicsObject.__init__(self)
         self.data: Optional[List[Tuple[float, float, float, float, float]]] = None
+        # MT5 цвета
+        self.bull_color = QColor("#00C853")  # Зелёный для бычьих
+        self.bear_color = QColor("#FF1744")  # Красный для медвежьих
+        self.wick_width = 1.0  # Ширина фитиля
+        self.body_ratio = 0.7  # Тело занимает 70% бара (как в MT5)
 
     def setData(self, data: Optional[List[Tuple[float, float, float, float, float]]]) -> None:
-        """Устанавливает данные для отрисовки."""
+        """Устанавливает данные для отрисовки.
+
+        Args:
+            data: Список кортежей (timestamp, open, high, low, close)
+        """
         self.data = data
         self.prepareGeometryChange()
         self.informViewBoundsChanged()
         self.update()
 
-    def paint(self, p: QPainter, *args: Any) -> None:
+    def _calculate_bar_width(self) -> float:
+        """Вычисляет ширину одного бара на основе расстояния между барами.
+
+        Работает как с секундами, так и с миллисекундами.
+        """
         if self.data is None or len(self.data) < 2:
+            return 3600000.0  # 1 час в миллисекундах по умолчанию
+
+        # Расстояние между барами в координатах X (мс или секунды)
+        step = float(self.data[1][0] - self.data[0][0])
+
+        if step <= 0:
+            return 3600000.0  # 1 час fallback
+
+        # Тело занимает body_ratio (70%) от шага
+        return step * self.body_ratio
+
+    def paint(self, p: QPainter, *args: Any) -> None:
+        """Отрисовка свечей в стиле MT5."""
+        if self.data is None or len(self.data) == 0:
             return
 
-        if len(self.data) > 1:
-            step = float(self.data[1][0] - self.data[0][0])
-            if step <= 0:
-                step = 1
-            w = max(min(step * 0.25, 8.0), 2.0)
-        else:
-            w = 2.0
+        bar_width = self._calculate_bar_width()
+        half_width = bar_width / 2.0
+
+        # Включаем сглаживание для лучшего качества
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         for t, o, h, l, c in self.data:
-            if c >= o:
-                pen = pg.mkPen("g", width=1)
-                brush = pg.mkBrush("g")
+            # Определяем тип свечи
+            is_bullish = c >= o
+
+            if is_bullish:
+                # Бычья свеча (цена выросла) - MT5 зелёный
+                pen_color = self.bull_color
+                brush_color = self.bull_color
             else:
-                pen = pg.mkPen("r", width=1)
-                brush = pg.mkBrush("r")
+                # Медвежья свеча (цена упала) - MT5 красный
+                pen_color = self.bear_color
+                brush_color = self.bear_color
 
-            p.setPen(pen)
-            p.setBrush(brush)
+            # Рисуем фитиль (high-low) - тонкая линия 1px
+            wick_pen = pg.mkPen(pen_color, width=self.wick_width)
+            p.setPen(wick_pen)
+            p.drawLine(QPointF(t, h), QPointF(t, l))
 
+            # Рисуем тело свечи
             body_top = max(o, c)
             body_bottom = min(o, c)
             body_height = body_top - body_bottom
 
-            p.drawLine(QPointF(t, h), QPointF(t, body_top))
-            p.drawLine(QPointF(t, l), QPointF(t, body_bottom))
+            if body_height > 0.0001:  # Не Doji — есть тело
+                # Граница тела тонкая
+                body_pen = pg.mkPen(pen_color, width=1)
+                body_brush = pg.mkBrush(brush_color)
 
-            if body_height > 0:
-                p.drawRect(QRectF(t - w, body_bottom, w * 2, body_height))
+                p.setPen(body_pen)
+                p.setBrush(body_brush)
+
+                # Прямоугольник тела
+                body_rect = QRectF(t - half_width, body_bottom, bar_width, body_height)
+                p.drawRect(body_rect)
             else:
-                p.drawLine(QPointF(t - w, o), QPointF(t + w, o))
+                # Doji (open ≈ close) — горизонтальная линия
+                doji_pen = pg.mkPen(pen_color, width=2)
+                p.setPen(doji_pen)
+                p.drawLine(QPointF(t - half_width, o), QPointF(t + half_width, o))
 
     def boundingRect(self) -> QRectF:
+        """Вычисляет ограничивающий прямоугольник для всех свечей."""
         if self.data is None or len(self.data) == 0:
             return QRectF()
 
@@ -106,7 +156,8 @@ class CustomCandlestickItem(pg.GraphicsObject):
         min_price = min(lows)
         max_price = max(highs)
 
-        step = (self.data[1][0] - self.data[0][0]) if len(self.data) > 1 else 1
-        w = max(min(step * 0.25, 8.0), 2.0)
+        # Добавляем небольшой отступ
+        bar_width = self._calculate_bar_width()
+        padding = bar_width / 2.0
 
-        return QRectF(min_time - w, min_price, max_time - min_time + 2 * w, max_price - min_price)
+        return QRectF(min_time - padding, min_price, max_time - min_time + bar_width, max_price - min_price)

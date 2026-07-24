@@ -1,7 +1,8 @@
 # src/gui/control_center_widget.py
 import logging
 
-from PySide6.QtCore import Qt, Signal, Slot
+import pyqtgraph as pg
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
@@ -23,6 +24,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.gui.ai_training_widget import AITrainingWidget
+from src.gui.risk_management_widget import RiskManagementWidget
+
+# Импортируем новые виджеты
+from src.gui.trading_settings_widget import TradingSettingsWidget
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,9 +46,9 @@ class ControlCenterWidget(QWidget):
         self.config = config
         self.trading_system = trading_system_adapter
 
-        # --- ИСПРАВЛЕНИЕ: Правильный доступ к стратегиям через core_system ---
-        if self.trading_system and hasattr(self.trading_system, "core_system"):
-            self.strategies = self.trading_system.core_system.strategies
+        # --- Доступ к стратегиям через адаптер (новая архитектура) ---
+        if self.trading_system:
+            self.strategies = getattr(self.trading_system, "strategies", {})
         else:
             self.strategies = {}
         # ---------------------------------------------------------------------
@@ -149,18 +156,26 @@ class ControlCenterWidget(QWidget):
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
-        self.tabs = QTabWidget()
+        main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Вкладка 1: Дашборд
+        # Создаем главный TabWidget для боковых вкладок
+        self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.North)
+
+        # Вкладка 1: Дашборд (сканер рынка)
         self.dashboard_tab = QWidget()
         self._init_dashboard_tab(self.dashboard_tab)
-        self.tabs.addTab(self.dashboard_tab, "Дашборд")
+        self.tabs.addTab(self.dashboard_tab, "📊 Дашборд")
 
-        # Вкладка 2: Управление
+        # Вкладка 2: Настройки Торговли (если есть конфиг)
         if self.config:
+            self.trading_settings_tab = TradingSettingsWidget(self)
+            self.tabs.addTab(self.trading_settings_tab, "⚙️ Настройки Торговли")
+
+            # Вкладка 3: Управление Рисками (старая вкладка с прокруткой)
             self.controls_tab = QWidget()
             self._init_controls_tab(self.controls_tab)
-            self.tabs.addTab(self.controls_tab, "Управление Рисками")
+            self.tabs.addTab(self.controls_tab, "🛡️ Управление Рисками")
 
         main_layout.addWidget(self.tabs)
 
@@ -205,7 +220,8 @@ class ControlCenterWidget(QWidget):
 
         # === ИНФОРМАЦИОННОЕ СООБЩЕНИЕ ===
         info_box = QGroupBox("ℹ️ Управление Настройками Торговли")
-        info_layout = QVBoxLayout(info_box)
+        info_layout = QVBoxLayout()
+        info_box.setLayout(info_layout)
 
         info_label = QLabel(
             "⚙️ <b>Настройки торговли и риск-менеджмента находятся в окне настроек.</b>\n\n"
@@ -252,44 +268,41 @@ class ControlCenterWidget(QWidget):
 
         layout.addWidget(info_box)
 
-        # === КНОПКА ПРИНУДИТЕЛЬНОГО ОБУЧЕНИЯ ===
-        training_box = QGroupBox("🧠 Обучение AI-моделей")
-        training_layout = QVBoxLayout(training_box)
+        # === КНОПКА ПРИНУДИТЕЛЬНОГО ПЕРЕОБУЧЕНИЯ ===
+        retrain_box = QGroupBox("🔄 Принудительное переобучение AI-моделей")
+        retrain_layout = QVBoxLayout()
+        retrain_box.setLayout(retrain_layout)
 
-        training_label = QLabel(
-            "Запустите принудительный цикл переобучения AI-моделей.\n"
-            "Используйте после сбора новых данных или при ухудшении точности."
+        retrain_label = QLabel(
+            "Запустите полное переобучение всех AI-моделей для всех символов.\n"
+            "Используйте при первом запуске или после очистки старых моделей."
         )
-        training_label.setWordWrap(True)
-        training_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
-        training_layout.addWidget(training_label)
+        retrain_label.setWordWrap(True)
+        retrain_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
+        retrain_layout.addWidget(retrain_label)
 
-        self.force_train_btn = QPushButton("🚀 Запустить принудительное обучение")
-        self.force_train_btn.setStyleSheet("""
+        self.force_retrain_btn = QPushButton("🔄 Запустить принудительное переобучение ВСЕХ моделей")
+        self.force_retrain_btn.setStyleSheet("""
             QPushButton {
-                background-color: #50fa7b;
-                color: #282a36;
-                padding: 12px 24px;
+                background-color: #ff5555;
+                color: white;
+                padding: 15px 24px;
                 border-radius: 5px;
-                font-size: 13px;
+                font-size: 14px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #3dd66a;
+                background-color: #ff6e6e;
             }
             QPushButton:disabled {
                 background-color: #6272a4;
                 color: #44475a;
             }
         """)
-        self.force_train_btn.clicked.connect(self._force_training_requested)
-        training_layout.addWidget(self.force_train_btn)
+        self.force_retrain_btn.clicked.connect(self._force_retrain_requested)
+        retrain_layout.addWidget(self.force_retrain_btn)
 
-        self.training_status_label = QLabel("Статус: Ожидание...")
-        self.training_status_label.setStyleSheet("color: #8be9fd; font-size: 12px;")
-        training_layout.addWidget(self.training_status_label)
-
-        layout.addWidget(training_box)
+        retrain_layout.addWidget(retrain_box)
 
         # === ТЕКУЩИЕ ПАРАМЕТРЫ (только для просмотра) ===
         summary_group = QGroupBox("📈 Текущие Параметры (только просмотр)")
@@ -329,10 +342,6 @@ class ControlCenterWidget(QWidget):
         summary_layout.setColumnStretch(1, 1)
         layout.addWidget(summary_group)
 
-        # Стратегии
-        strategy_group = self._create_strategy_config_group()
-        layout.addWidget(strategy_group)
-
         layout.addStretch()
 
     def _open_settings_requested(self):
@@ -345,18 +354,8 @@ class ControlCenterWidget(QWidget):
                 return
             parent = parent.parent()
 
-    def _create_strategy_config_group(self) -> QGroupBox:
-        group_box = QGroupBox("Конфигуратор Стратегий")
-        layout = QVBoxLayout(group_box)
-
-        self.regime_table = QTableWidget()
-        self.regime_table.setColumnCount(2)
-        self.regime_table.setHorizontalHeaderLabels(["Рыночный Режим", "Основная Стратегия"])
-        self.regime_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.regime_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        layout.addWidget(self.regime_table)
-
-        return group_box
+    # УДАЛЕНО: _create_strategy_config_group() больше не используется
+    # Функциональность перенесена в AITrainingWidget
 
     # --- СЛОТЫ ОБНОВЛЕНИЯ ---
 
@@ -588,53 +587,73 @@ class ControlCenterWidget(QWidget):
         if not self.config:
             return
 
-        # Обновляем метки текущих параметров
-        self.current_risk_label.setText(f"{self.config.RISK_PERCENTAGE:.2f}%")
-        self.current_positions_label.setText(str(self.config.MAX_OPEN_POSITIONS))
-        self.current_drawdown_label.setText(f"{self.config.MAX_DAILY_DRAWDOWN_PERCENT:.2f}%")
+        # ОБНОВЛЕНИЕ: Делегируем к TradingSettingsWidget если он существует
+        if hasattr(self, "trading_settings_tab") and self.trading_settings_tab:
+            risk = getattr(self.config, "RISK_PERCENTAGE", 0.5)
+            max_positions = getattr(self.config, "MAX_OPEN_POSITIONS", 5)
+            max_drawdown = getattr(self.config, "MAX_DAILY_DRAWDOWN_PERCENT", 5.0)
 
-        # Загрузка режима торговли
-        if hasattr(self.config, "trading_mode"):
-            trading_mode = self.config.trading_mode
-            current_mode = trading_mode.get("current_mode", "standard")
-            modes_enabled = trading_mode.get("enabled", False)
+            # Определяем режим торговли
+            mode = "standard"
+            if hasattr(self.config, "trading_mode"):
+                trading_mode = self.config.trading_mode
+                mode = trading_mode.get("current_mode", "standard")
 
-            if modes_enabled and current_mode in TRADING_MODES:
-                mode_data = TRADING_MODES[current_mode]
-                self.current_mode_label.setText(f"{mode_data['icon']} {mode_data['name']}")
-                self.current_mode_label.setStyleSheet(f"color: {mode_data['color']}; font-weight: bold; font-size: 14px;")
+            self.trading_settings_tab.update_current_params(risk, max_positions, max_drawdown, mode)
+            logger.info(f"[ControlCenter] Параметры загружены в TradingSettingsWidget: risk={risk}%, mode={mode}")
+
+        # Также обновляем старые метки если они существуют (обратная совместимость)
+        if hasattr(self, "current_risk_label"):
+            self.current_risk_label.setText(f"{self.config.RISK_PERCENTAGE:.2f}%")
+        if hasattr(self, "current_positions_label"):
+            self.current_positions_label.setText(str(self.config.MAX_OPEN_POSITIONS))
+        if hasattr(self, "current_drawdown_label"):
+            self.current_drawdown_label.setText(f"{self.config.MAX_DAILY_DRAWDOWN_PERCENT:.2f}%")
+
+        # Загрузка режима торговли (для старых меток)
+        if hasattr(self, "current_mode_label"):
+            if hasattr(self.config, "trading_mode"):
+                trading_mode = self.config.trading_mode
+                current_mode = trading_mode.get("current_mode", "standard")
+                modes_enabled = trading_mode.get("enabled", False)
+
+                if modes_enabled and current_mode in TRADING_MODES:
+                    mode_data = TRADING_MODES[current_mode]
+                    self.current_mode_label.setText(f"{mode_data['icon']} {mode_data['name']}")
+                    self.current_mode_label.setStyleSheet(f"color: {mode_data['color']}; font-weight: bold; font-size: 14px;")
+                else:
+                    self.current_mode_label.setText("⚙️ Ручной режим")
+                    self.current_mode_label.setStyleSheet("color: #6272a4; font-weight: bold; font-size: 14px;")
             else:
-                self.current_mode_label.setText("⚙️ Ручной режим")
-                self.current_mode_label.setStyleSheet("color: #6272a4; font-weight: bold; font-size: 14px;")
-        else:
-            self.current_mode_label.setText("🟡 Стандартный")
+                self.current_mode_label.setText("🟡 Стандартный")
 
-        # Загрузка конфигурации стратегий
-        regime_mapping = self.config.STRATEGY_REGIME_MAPPING
-        available_strategies = ["AI_Model"]
-
-        # --- ИСПРАВЛЕНИЕ: Безопасная загрузка стратегий ---
-        if self.trading_system and hasattr(self.trading_system, "core_system"):
-            core = self.trading_system.core_system
-            # Проверяем, что strategy_loader уже инициализирован
-            if hasattr(core, "strategy_loader") and core.strategy_loader is not None:
-                try:
-                    # Перезагружаем стратегии, чтобы получить актуальный список
-                    strategies = core.strategy_loader.load_strategies()
-                    available_strategies += [s.__class__.__name__ for s in strategies]
-                except Exception as e:
-                    logger.warning(f"GUI Warning: Не удалось загрузить стратегии: {e}")
+        # --- Безопасная загрузка стратегий ---
+        if self.trading_system:
+            core = getattr(self.trading_system, "core_system", None)
+            if core:
+                # Проверяем, что strategy_loader уже инициализирован
+                if hasattr(core, "strategy_loader") and core.strategy_loader is not None:
+                    try:
+                        # Перезагружаем стратегии, чтобы получить актуальный список
+                        strategies = core.strategy_loader.load_strategies()
+                        available_strategies += [s.__class__.__name__ for s in strategies]
+                    except Exception as e:
+                        logger.warning(f"GUI Warning: Не удалось загрузить стратегии: {e}")
         # --------------------------------------------------
 
-        self.regime_table.setRowCount(len(regime_mapping))
-        for i, (regime, strategy) in enumerate(regime_mapping.items()):
-            self.regime_table.setItem(i, 0, QTableWidgetItem(regime))
-            combo = QComboBox()
-            combo.addItems(available_strategies)
-            if strategy in available_strategies:
-                combo.setCurrentText(strategy)
-            self.regime_table.setCellWidget(i, 1, combo)
-            self.regime_table.item(i, 0).setFlags(Qt.ItemIsEnabled)
+        # ОБНОВЛЕНИЕ: Загрузка таблицы стратегий только если она существует
+        if hasattr(self, "regime_table"):
+            self.regime_table.setRowCount(len(regime_mapping))
+            for i, (regime, strategy) in enumerate(regime_mapping.items()):
+                self.regime_table.setItem(i, 0, QTableWidgetItem(regime))
+                combo = QComboBox()
+                combo.addItems(available_strategies)
+                if strategy in available_strategies:
+                    combo.setCurrentText(strategy)
+                self.regime_table.setCellWidget(i, 1, combo)
+                self.regime_table.item(i, 0).setFlags(Qt.ItemIsEnabled)
+        else:
+            logger.debug("[ControlCenter] regime_table не существует (перенесен в другой виджет)")
 
     def refresh_strategies(self):
         """
@@ -650,13 +669,28 @@ class ControlCenterWidget(QWidget):
         Args:
             settings: Dict с настройками (RISK_PERCENTAGE, MAX_OPEN_POSITIONS, etc.)
         """
-        if "RISK_PERCENTAGE" in settings:
+        # ОБНОВЛЕНИЕ: Делегируем к TradingSettingsWidget если он существует
+        if hasattr(self, "trading_settings_tab") and self.trading_settings_tab:
+            risk = settings.get("RISK_PERCENTAGE", 0.5)
+            max_positions = settings.get("MAX_OPEN_POSITIONS", 5)
+            max_drawdown = settings.get("MAX_DAILY_DRAWDOWN_PERCENT", 5.0)
+            mode = settings.get("trading_mode", {}).get("current_mode", "standard")
+
+            self.trading_settings_tab.update_current_params(risk, max_positions, max_drawdown, mode)
+            logger.info(
+                f"[ControlCenter] Параметры обновлены через update_trading_settings_display: risk={risk}%, mode={mode}"
+            )
+
+        # Также обновляем старые метки если они существуют (обратная совместимость)
+        if hasattr(self, "current_risk_label") and "RISK_PERCENTAGE" in settings:
             self.current_risk_label.setText(f"{settings['RISK_PERCENTAGE']:.2f}%")
-        if "MAX_OPEN_POSITIONS" in settings:
+        if hasattr(self, "current_positions_label") and "MAX_OPEN_POSITIONS" in settings:
             self.current_positions_label.setText(str(settings["MAX_OPEN_POSITIONS"]))
-        if "MAX_DAILY_DRAWDOWN_PERCENT" in settings:
+        if hasattr(self, "current_drawdown_label") and "MAX_DAILY_DRAWDOWN_PERCENT" in settings:
             self.current_drawdown_label.setText(f"{settings['MAX_DAILY_DRAWDOWN_PERCENT']:.2f}%")
-        if "trading_mode" in settings:
+
+        # ОБНОВЛЕНИЕ: Обновляем current_mode_label только если существует
+        if hasattr(self, "current_mode_label") and "trading_mode" in settings:
             mode = settings["trading_mode"]
             current_mode = mode.get("current_mode", "standard")
             modes_enabled = mode.get("enabled", False)
@@ -672,23 +706,225 @@ class ControlCenterWidget(QWidget):
     def _force_training_requested(self):
         """Запуск принудительного обучения AI-моделей."""
         if not self.trading_system:
-            self.training_status_label.setText("❌ Торговая система не подключена")
-            self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
+            if hasattr(self, "training_status_label"):
+                self.training_status_label.setText("❌ Торговая система не подключена")
+                self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
             return
 
-        self.force_train_btn.setEnabled(False)
-        self.training_status_label.setText("⏳ Запуск цикла обучения...")
-        self.training_status_label.setStyleSheet("color: #f1fa8c; font-size: 12px;")
+        if hasattr(self, "force_train_btn"):
+            self.force_train_btn.setEnabled(False)
+        if hasattr(self, "training_status_label"):
+            self.training_status_label.setText("⏳ Запуск цикла обучения...")
+            self.training_status_label.setStyleSheet("color: #f1fa8c; font-size: 12px;")
 
         try:
             self.trading_system.force_training_cycle()
-            self.training_status_label.setText("✅ Цикл обучения запущен (следите за графиками)")
-            self.training_status_label.setStyleSheet("color: #50fa7b; font-size: 12px;")
+            if hasattr(self, "training_status_label"):
+                self.training_status_label.setText("✅ Цикл обучения запущен (следите за графиками)")
+                self.training_status_label.setStyleSheet("color: #50fa7b; font-size: 12px;")
         except Exception as e:
-            self.training_status_label.setText(f"❌ Ошибка: {e}")
-            self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
+            if hasattr(self, "training_status_label"):
+                self.training_status_label.setText(f"❌ Ошибка: {e}")
+                self.training_status_label.setStyleSheet("color: #ff5555; font-size: 12px;")
         finally:
             # Разблокируем кнопку через 5 секунд
             from PySide6.QtCore import QTimer
 
-            QTimer.singleShot(5000, lambda: self.force_train_btn.setEnabled(True))
+            def enable_button():
+                if hasattr(self, "force_train_btn"):
+                    self.force_train_btn.setEnabled(True)
+
+            QTimer.singleShot(5000, enable_button)
+
+    def _force_retrain_requested(self):
+        """Запуск принудительного переобучения ВСЕХ AI-моделей."""
+        logger.info("[GUI-Action] Пользователь нажал кнопку 'Принудительное переобучение ВСЕХ моделей'")
+
+        if not self.trading_system:
+            logger.error("[Retrain] Торговая система не подключена")
+            return
+
+        if hasattr(self, "force_retrain_btn"):
+            self.force_retrain_btn.setEnabled(False)
+            self.force_retrain_btn.setText("⏳ Переобучение запущено...")
+
+        try:
+            # Вызываем метод принудительного переобучения всех моделей
+            if hasattr(self.trading_system, "force_retrain_all_models"):
+                self.trading_system.force_retrain_all_models()
+                logger.info("[Retrain] Запущено переобучение всех моделей")
+            elif hasattr(self.trading_system, "auto_trainer") and self.trading_system.auto_trainer:
+                # Запускаем smart_retrain для всех символов
+                from smart_retrain import smart_retrain_models
+
+                smart_retrain_models(self.trading_system)
+                logger.info("[Retrain] Запущен smart_retrain для всех символов")
+            else:
+                logger.warning("[Retrain] Метод переобучения не найден")
+        except Exception as e:
+            logger.error(f"[Retrain] Ошибка: {e}", exc_info=True)
+        finally:
+            # Разблокируем кнопку через 10 секунд
+            from PySide6.QtCore import QTimer
+
+            def enable_button():
+                if hasattr(self, "force_retrain_btn"):
+                    self.force_retrain_btn.setEnabled(True)
+                    self.force_retrain_btn.setText("🔄 Запустить принудительное переобучение ВСЕХ моделей")
+
+            QTimer.singleShot(10000, enable_button)
+
+    def _update_countdown(self):
+        """Обновляет таймер обратного отсчёта до следующего автообучения."""
+        try:
+            if not hasattr(self, "trading_system") or not self.trading_system:
+                return
+
+            if not hasattr(self, "next_training_label"):
+                return
+
+            # Получаем TrainingScheduler через адаптер
+            scheduler = getattr(self.trading_system, "training_scheduler", None)
+            if not scheduler:
+                self.next_training_label.setText("⏸️ Автообучение не запущено")
+                self.next_training_label.setStyleSheet("color: #6272a4; font-size: 14px; font-weight: bold; padding: 5px;")
+                return
+
+            # Вычисляем время следующего запуска
+            from datetime import datetime
+
+            import schedule
+
+            next_job = schedule.next_run()
+            if next_job:
+                now = datetime.now()
+                time_diff = next_job - now
+                total_seconds = int(time_diff.total_seconds())
+
+                if total_seconds > 0:
+                    hours = total_seconds // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    seconds = total_seconds % 60
+
+                    if hours > 0:
+                        countdown_text = f"{hours}ч {minutes:02d}м"
+                    elif minutes > 0:
+                        countdown_text = f"{minutes}м {seconds:02d}с"
+                    else:
+                        countdown_text = f"{seconds}с"
+
+                    self.next_training_label.setText(f"⏳ Следующее обучение: {countdown_text}")
+
+                    # Цвет меняется в зависимости от времени
+                    if total_seconds < 300:  # Меньше 5 минут
+                        self.next_training_label.setStyleSheet(
+                            "color: #ff5555; font-size: 14px; font-weight: bold; padding: 5px;"
+                        )
+                    elif total_seconds < 1800:  # Меньше 30 минут
+                        self.next_training_label.setStyleSheet(
+                            "color: #ffb86c; font-size: 14px; font-weight: bold; padding: 5px;"
+                        )
+                    else:
+                        self.next_training_label.setStyleSheet(
+                            "color: #50fa7b; font-size: 14px; font-weight: bold; padding: 5px;"
+                        )
+                else:
+                    self.next_training_label.setText("🔄 Обучение запускается...")
+                    self.next_training_label.setStyleSheet("color: #ff5555; font-size: 14px; font-weight: bold; padding: 5px;")
+            else:
+                self.next_training_label.setText("📅 Расписание не определено")
+                self.next_training_label.setStyleSheet("color: #6272a4; font-size: 14px; font-weight: bold; padding: 5px;")
+
+        except Exception as e:
+            if hasattr(self, "next_training_label"):
+                self.next_training_label.setText(f"⚠️ Ошибка: {str(e)[:20]}")
+                self.next_training_label.setStyleSheet("color: #ff5555; font-size: 12px; padding: 5px;")
+
+    def update_retrain_progress_chart(self, progress_data: dict):
+        """Обновляет график прогресса переобучения."""
+        try:
+            if not hasattr(self, "retrain_progress_bars"):
+                return
+
+            if not progress_data:
+                self.retrain_progress_bars.setOpts(x=[], height=[])
+                return
+
+            # Проверяем формат данных - новый формат от get_retrain_progress() или старый
+            if "total_symbols" in progress_data and "symbols_needing_retrain" in progress_data:
+                # НОВЫЙ ФОРМАТ от AutoTrainer.get_retrain_progress()
+                total = progress_data["total_symbols"]
+                needs_count = progress_data["count_needing_retrain"]
+                needs_percent = progress_data["progress_percent"]
+                threshold = progress_data["threshold_percent"]
+                can_retrain = progress_data["can_start_retrain"]
+                symbols_needing = progress_data["symbols_needing_retrain"]
+
+                # Показываем ВСЕ символы в whitelist
+                # Получаем доступ к config через bridge
+                all_symbols = []
+                try:
+                    cfg = getattr(self.bridge, "config", None)
+                    if cfg and hasattr(cfg, "SYMBOLS_WHITELIST"):
+                        all_symbols = cfg.SYMBOLS_WHITELIST
+                except Exception:
+                    pass
+
+                if not all_symbols:
+                    # Fallback: берём из прогресса
+                    all_symbols = list(set(symbols_needing))
+
+                # Строим график: для символов требующих - 1.0, для остальных - 0.0
+                hours = []
+                colors = []
+                symbols = []
+
+                for symbol in all_symbols:
+                    symbols.append(symbol)
+                    if symbol in symbols_needing:
+                        hours.append(1.0)  # Требует переобучения
+                        colors.append("#ff5555")  # Красный
+                    else:
+                        hours.append(0.0)  # Не требует
+                        colors.append("#50fa7b")  # Зелёный
+
+                x_positions = list(range(len(symbols)))
+                self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
+
+                # Обновляем заголовок с процентом и порогом
+                status_icon = "⚠️" if can_retrain else "✅"
+                self.retrain_progress_widget.setTitle(
+                    f"{status_icon} Прогресс переобучения: {needs_count}/{total} ({needs_percent:.0%}) / {threshold:.0%} порог"
+                )
+
+                self.retrain_progress_data = progress_data
+
+            else:
+                # СТАРЫЙ ФОРМАТ: {symbol: hours_since_training}
+                symbols = list(progress_data.keys())
+                hours = [max(0, progress_data[s]) for s in symbols]
+
+                # Цветовое кодирование: адаптивные пороги
+                colors = []
+                for h in hours:
+                    if h >= 0.5:  # 30 минут
+                        colors.append("#ff5555")  # Красный
+                    elif h >= 0.25:  # 15 минут
+                        colors.append("#ffb86c")  # Оранжевый
+                    else:
+                        colors.append("#50fa7b")  # Зелёный
+
+                x_positions = list(range(len(symbols)))
+                self.retrain_progress_bars.setOpts(x=x_positions, height=hours, brushes=[pg.mkBrush(c) for c in colors])
+
+                # Обновляем заголовок с процентом
+                total = len(symbols)
+                symbols_older_30min = sum(1 for h in hours if h >= 0.5)
+                percent = (symbols_older_30min / total * 100) if total > 0 else 0
+                self.retrain_progress_widget.setTitle(
+                    f"⏰ До переобучения (ч) — {symbols_older_30min}/{total} ({percent:.0f}%)"
+                )
+
+                self.retrain_progress_data = progress_data
+        except Exception as e:
+            logging.error(f"Ошибка обновления графика прогресса: {e}")

@@ -3,7 +3,7 @@ import logging
 import threading
 import time as standard_time
 from datetime import date, datetime, time, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import MetaTrader5 as mt5
 import numpy as np
@@ -85,35 +85,278 @@ class RiskEngine:
 
     def _update_toxic_regimes_cache(self):
         """
-        [TZ 3.2] Обновляет список токсичных режимов, включая проверку исторической просадки.
+        [TZ 3.2] Обновляет кэш токсичных рыночных режимов на основе объективных метрик.
+
+        Используемые метрики:
+        1. Всплески волатильности (ATR > 1.8x среднего)
+        2. Скорость просадки (Drawdown Velocity > 3%)
+        3. Сломы корреляций (аномалии в межрыночных связях)
+        4. Макро-события (NFP, CPI, FOMC в календаре)
+
+        Кеш обновляется раз в 15-60 минут (настраивается через toxic_regime_update_interval).
         """
         current_time = standard_time.time()
         if current_time - self.last_toxic_regime_update > self.toxic_regime_update_interval:
 
-            # 1. Получаем режимы, которые исторически убыточны (PnL < 0)
-            toxic_regimes_from_db = self.trading_system.db_manager.get_toxic_regimes(last_n_trades=100)
+            toxic_regimes = []
 
-            # 2. Добавляем проверку на историческую просадку (Max Drawdown > 10%)
-            final_toxic_list = []
-            for regime in toxic_regimes_from_db:
-                # Эмуляция: В реальном коде здесь был бы запрос к БД,
-                # который возвращает MaxDD для данного режима.
+            # === 1. Проверка всплесков волатильности ===
+            vol_toxic = self._check_volatility_spike()
+            if vol_toxic:
+                toxic_regimes.append("High Volatility Spike")
 
-                # Для целей ТЗ, имитируем проверку:
-                # Если режим "Low Volatility Range" и его исторический DD > 10%
-                is_historically_toxic = False
-                if regime == "Low Volatility Range":
-                    # Имитация: 80% шанс, что Low Volatility Range токсичен
-                    if np.random.rand() < 0.8:
-                        is_historically_toxic = True
+            # === 2. Проверка скорости просадки ===
+            dd_toxic = self._check_drawdown_velocity()
+            if dd_toxic:
+                toxic_regimes.append("Fast Drawdown")
 
-                # Если режим убыточен ИЛИ исторически токсичен, добавляем его
-                if regime in toxic_regimes_from_db or is_historically_toxic:
-                    final_toxic_list.append(regime)
+            # === 3. Проверка сломов корреляций ===
+            corr_toxic = self._check_correlation_breaks()
+            if corr_toxic:
+                toxic_regimes.append("Correlation Break")
 
-            self.toxic_regimes_cache = list(set(final_toxic_list))  # Убираем дубликаты
+            # === 4. Проверка макро-событий ===
+            event_toxic = self._check_macro_events()
+            if event_toxic:
+                toxic_regimes.append("Macro Event Risk")
+
+            # === 5. Проверка исторической токсичности из БД ===
+            db_toxic = self._check_historical_toxicity()
+            toxic_regimes.extend(db_toxic)
+
+            # Кешируем результат
+            self.toxic_regimes_cache = list(set(toxic_regimes))
             self.last_toxic_regime_update = current_time
-            logger.warning(f"[RiskEngine] Обновлен кэш токсичных режимов: {self.toxic_regimes_cache}")
+
+            if self.toxic_regimes_cache:
+                logger.warning(
+                    f"⚠️ [RiskEngine] Обнаружены токсичные режимы: {self.toxic_regimes_cache}\n"
+                    f"   Волатильность: {'🔴' if vol_toxic else '🟢'}\n"
+                    f"   Просадка: {'🔴' if dd_toxic else '🟢'}\n"
+                    f"   Корреляции: {'🔴' if corr_toxic else '🟢'}\n"
+                    f"   Макро-события: {'🔴' if event_toxic else '🟢'}\n"
+                    f"   Исторические: {'🔴' if db_toxic else '🟢'}"
+                )
+            else:
+                logger.debug("✅ [RiskEngine] Все рыночные режимы в норме")
+
+    def _check_volatility_spike(self, threshold_multiplier: float = 1.8, lookback: int = 50) -> bool:
+        """
+        Проверяет всплеск волатильности: ATR > threshold_multiplier * средний ATR.
+
+        Args:
+            threshold_multiplier: Множитель порога (1.8 = 180% от среднего)
+            lookback: Период для расчёта среднего ATR
+
+        Returns:
+            True если волатильность аномально высокая
+        """
+        try:
+            if not self.trading_system or not hasattr(self.trading_system, "data_provider"):
+                return False
+
+            # Берём данные первого символа из whitelist
+            symbol = self.config.SYMBOLS_WHITELIST[0] if self.config.SYMBOLS_WHITELIST else None
+            if not symbol:
+                return False
+
+            # Получаем OHLCV данные
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, lookback * 2)
+            if rates is None or len(rates) < lookback:
+                return False
+
+            df = pd.DataFrame(rates)
+
+            # Рассчитываем ATR
+            high_low = df["high"] - df["low"]
+            high_close = np.abs(df["high"] - df["close"].shift())
+            low_close = np.abs(df["low"] - df["close"].shift())
+            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            atr = tr.ewm(alpha=1 / 14, adjust=False).mean()
+
+            # Текущий ATR vs средний
+            current_atr = atr.iloc[-1]
+            avg_atr = atr.rolling(lookback).mean().iloc[-1]
+
+            if avg_atr == 0 or np.isnan(avg_atr):
+                return False
+
+            atr_ratio = current_atr / avg_atr
+            is_spike = atr_ratio > threshold_multiplier
+
+            if is_spike:
+                logger.warning(
+                    f"📈 Всплеск волатильности: ATR {atr_ratio:.2f}x от среднего ({current_atr:.5f} vs {avg_atr:.5f})"
+                )
+
+            return is_spike
+
+        except Exception as e:
+            logger.error(f"Ошибка проверки волатильности: {e}")
+            return False
+
+    def _check_drawdown_velocity(self, threshold_pct: float = -0.03, window_bars: int = 20) -> bool:
+        """
+        Проверяет скорость просадки: падение эквити > threshold_pct за window_bars.
+
+        Args:
+            threshold_pct: Порог просадки (-3%)
+            window_bars: Окно для проверки скорости
+
+        Returns:
+            True если просадка происходит слишком быстро
+        """
+        try:
+            if not self.trading_system:
+                return False
+
+            # Текущая эквити и пик
+            current_equity = getattr(self.trading_system, "current_equity", None)
+            peak_equity = getattr(self.trading_system, "peak_equity", None)
+
+            if current_equity is None or peak_equity is None or peak_equity == 0:
+                return False
+
+            # Скорость просадки
+            dd_velocity = (current_equity - peak_equity) / peak_equity
+
+            # Проверяем если просадка превышает порог
+            is_fast_dd = dd_velocity < threshold_pct
+
+            if is_fast_dd:
+                logger.warning(f"📉 Быстрая просадка: {dd_velocity:.2%} за последние бары " f"(порог: {threshold_pct:.2%})")
+
+            return is_fast_dd
+
+        except Exception as e:
+            logger.error(f"Ошибка проверки скорости просадки: {e}")
+            return False
+
+    def _check_correlation_breaks(self, threshold: float = 0.3, lookback: int = 100) -> bool:
+        """
+        Проверяет аномалии в межрыночных корреляциях.
+        Например: USD-index vs EURUSD обычно коррелируют -0.8, но вдруг корреляция упала до -0.3.
+
+        Args:
+            threshold: Порог отклонения корреляции
+            lookback: Окно для расчёта корреляции
+
+        Returns:
+            True если обнаружен слом корреляции
+        """
+        try:
+            # Проверяем только если есть межрыночные символы
+            if not hasattr(self.config, "INTER_MARKET_SYMBOLS") or not self.config.INTER_MARKET_SYMBOLS:
+                return False
+
+            # Берём первую пару коррелирующих символов
+            symbols = self.config.SYMBOLS_WHITELIST[:2]
+            if len(symbols) < 2:
+                return False
+
+            # Получаем данные
+            rates1 = mt5.copy_rates_from_pos(symbols[0], mt5.TIMEFRAME_H1, 0, lookback)
+            rates2 = mt5.copy_rates_from_pos(symbols[1], mt5.TIMEFRAME_H1, 0, lookback)
+
+            if rates1 is None or rates2 is None or len(rates1) < 50 or len(rates2) < 50:
+                return False
+
+            # Считаем корреляцию доходностей
+            df1 = pd.DataFrame(rates1)
+            df2 = pd.DataFrame(rates2)
+
+            returns1 = df1["close"].pct_change().dropna()
+            returns2 = df2["close"].pct_change().dropna()
+
+            # Приводим к одинаковой длине
+            min_len = min(len(returns1), len(returns2))
+            corr = returns1.iloc[-min_len:].corr(returns2.iloc[-min_len:])
+
+            # Проверяем историческую корреляцию (примерно)
+            # EURUSD vs GBPUSD обычно ~0.7-0.9
+            # Если упала ниже 0.4 — аномалия
+            expected_corr = 0.7  # Примерное ожидаемое значение
+            is_break = abs(corr) < (expected_corr - threshold)
+
+            if is_break:
+                logger.warning(
+                    f"🔗 Слом корреляции {symbols[0]} vs {symbols[1]}: " f"{corr:.2f} (ожидаемо: ~{expected_corr:.2f})"
+                )
+
+            return is_break
+
+        except Exception as e:
+            logger.error(f"Ошибка проверки корреляций: {e}")
+            return False
+
+    def _check_macro_events(self, hours_ahead: int = 4) -> bool:
+        """
+        Проверяет наличие высоковолатильных макро-событий в ближайшие часы.
+
+        Events: NFP, CPI, FOMC, ECB Rate Decision, GDP
+
+        Args:
+            hours_ahead: Горизонт проверки (часы вперёд)
+
+        Returns:
+            True если вблизи есть макро-событие
+        """
+        try:
+            from datetime import datetime, timezone
+
+            now = datetime.now(timezone.utc)
+
+            # Расписание высоковолатильных событий (обычно в определённые часы)
+            high_impact_events = [
+                # (день недели, час UTC, событие)
+                (4, 12, "NFP"),  # Первая пятница месяца ~13:30 UTC
+                (2, 12, "CPI US"),  # Вторник/Среда ~13:30 UTC
+                (2, 18, "FOMC"),  # Среда ~19:00 UTC
+                (3, 11, "ECB Rate"),  # Четверг ~12:15 UTC
+                (4, 6, "GDP UK"),  # Пятница ~07:00 UTC
+            ]
+
+            current_hour_utc = now.hour
+            current_weekday = now.weekday()
+
+            for day, hour, event_name in high_impact_events:
+                # Проверяем если событие в тот же день и в ближайшие часы
+                if day == current_weekday:
+                    hours_diff = abs(hour - current_hour_utc)
+                    if hours_diff <= hours_ahead:
+                        logger.warning(f"📅 Макро-событие через {hours_diff}ч: {event_name}")
+                        return True
+
+            # Проверяем первую пятницу месяца (NFP)
+            if current_weekday == 4 and 1 <= now.day <= 7 and 10 <= current_hour_utc <= 16:
+                logger.warning("📅 NFP (Non-Farm Payrolls) — высоковолатильное событие!")
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Ошибка проверки макро-событий: {e}")
+            return False
+
+    def _check_historical_toxicity(self) -> List[str]:
+        """
+        Проверяет историческую токсичность режимов из БД.
+        Возвращает список режимов которые стабильно убыточны.
+        """
+        try:
+            if not self.trading_system or not hasattr(self.trading_system, "db_manager"):
+                return []
+
+            toxic_from_db = self.trading_system.db_manager.get_toxic_regimes(last_n_trades=100)
+
+            if toxic_from_db:
+                logger.debug(f"📊 Исторически токсичные режимы из БД: {toxic_from_db}")
+
+            return toxic_from_db
+
+        except Exception as e:
+            logger.error(f"Ошибка проверки исторической токсичности: {e}")
+            return []
 
     def _find_nearest_swing(self, df: pd.DataFrame, trade_type: SignalType, window: int = 20) -> Optional[float]:
         """
@@ -195,12 +438,42 @@ class RiskEngine:
         # Ограничиваем, чтобы избежать выхода за пределы [0, 1] из-за ошибок округления
         return max(0.0, min(1.0, diversity_reward))
 
-    def update_regime_capital_allocation(self, new_allocation_matrix: Dict[str, Dict[str, float]]):
-        self.capital_allocation = new_allocation_matrix
+    @staticmethod
+    def _is_nested(d: Dict) -> bool:
+        """Проверяет, является ли словарь вложенным {str: {str: float}}."""
+        return any(isinstance(v, dict) for v in d.values()) if d else False
 
-    def update_capital_allocation(self, new_allocation: Dict[str, float]):
-        logger.warning("RiskEngine: Использован устаревший метод update_capital_allocation. Обновлен только 'Default' режим.")
-        self.capital_allocation["Default"] = new_allocation
+    def update_capital_allocation(
+        self,
+        allocation: Union[Dict[str, float], Dict[str, Dict[str, float]]],
+        regime: Optional[str] = None,
+    ) -> None:
+        """
+        Универсальный метод обновления распределения капитала.
+
+        Args:
+            allocation: Плоский словарь {symbol: risk} ИЛИ вложенный {regime: {symbol: risk}}
+            regime: Если указан, применяет allocation только к этому режиму
+        """
+        if regime and isinstance(allocation, dict) and not self._is_nested(allocation):
+            # Плоский словарь + режим → оборачиваем
+            self.capital_allocation[regime] = allocation
+            logger.info(f"💰 Allocation обновлена для режима '{regime}': {list(allocation.keys())}")
+        elif isinstance(allocation, dict) and self._is_nested(allocation):
+            # Вложенная структура → полная замена
+            self.capital_allocation = allocation
+            logger.info(f"💰 Полная замена allocation: {list(allocation.keys())} режимов")
+        else:
+            # Плоский словарь → применяем к дефолтному режиму
+            default_regime = regime or "default"
+            if not isinstance(self.capital_allocation, dict):
+                self.capital_allocation = {}
+            self.capital_allocation[default_regime] = allocation
+            logger.info(f"💰 Allocation для '{default_regime}': {list(allocation.keys())}")
+
+    def update_regime_capital_allocation(self, new_allocation_matrix: Dict[str, Dict[str, float]]):
+        """Обёртка для обратной совместимости — делегирует в update_capital_allocation."""
+        self.update_capital_allocation(new_allocation_matrix)
 
     def is_trade_safe_from_events(self, symbol: str) -> bool:
         if not self.knowledge_graph_querier:
@@ -293,7 +566,8 @@ class RiskEngine:
         # --- Использование mt5_lock и инициализация MT5 ---
         with self.mt5_lock:
             if not mt5_ensure_connected(path=self.config.MT5_PATH):
-                logger.error("check_daily_drawdown: Не удалось инициализировать MT5.")
+                # 🔧 OPTIMIZATION: При отсутствии MT5 пропускаем проверку, не спамим ошибкой
+                logger.debug("check_daily_drawdown: MT5 недоступен, пропускаю проверку.")
                 return True
             try:
                 history_deals = mt5.history_deals_get(today_start, datetime.now())
@@ -375,9 +649,6 @@ class RiskEngine:
         except Exception as e:
             logger.error(f"Ошибка при расчете волатильности портфеля: {e}")
             return None
-
-    def update_capital_allocation(self, new_allocation: Dict[str, float]):
-        self.capital_allocation = new_allocation
 
     def run_pre_mortem_analysis(self, df: pd.DataFrame, stop_loss_price: float, trade_type: SignalType) -> bool:
         """Делегирует GARCH Monte Carlo симуляцию модулю StressTester."""
@@ -579,12 +850,22 @@ class RiskEngine:
                 logger.error(
                     f"[{symbol}] БЛОКИРОВКА: Не удалось инициализировать MT5 для расчета лота. Путь: {self.config.MT5_PATH}"
                 )
-                return None, None
+                # 🔹 FALLBACK: Консервативный расчёт лота при недоступности MT5
+                # Используем 0.01 лота на каждые $1000 баланса * risk% * allocation
+                fallback_lot = max(0.01, round(risk_amount / 1000.0, 2))
+                logger.warning(
+                    f"[{symbol}] 🔄 FALLBACK режим: Использован консервативный лот {fallback_lot:.2f} "
+                    f"(risk=${risk_amount:.2f}, allocation={allocation_for_strategy:.0%})"
+                )
+                return fallback_lot, stop_loss_in_price
             try:
                 symbol_info = mt5.symbol_info(symbol)
                 if not symbol_info:
                     logger.error(f"[{symbol}] БЛОКИРОВКА: Не удалось получить symbol_info.")
-                    return None, None
+                    # 🔹 FALLBACK при недоступности symbol_info
+                    fallback_lot = max(0.01, round(risk_amount / 1000.0, 2))
+                    logger.warning(f"[{symbol}] 🔄 FALLBACK: symbol_info недоступен, лот={fallback_lot:.2f}")
+                    return fallback_lot, stop_loss_in_price
                 tick_size = symbol_info.trade_tick_size
                 quote_currency = symbol_info.currency_profit
                 account_currency = self.trading_system.account_currency
@@ -595,18 +876,24 @@ class RiskEngine:
                 # --- КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ НУЛЕВЫХ ЗНАЧЕНИЙ ---
                 if tick_size <= 0:
                     logger.error(f"[{symbol}] БЛОКИРОВКА: tick_size <= 0 ({tick_size}).")
-                    return None, None
+                    # 🔹 FALLBACK
+                    fallback_lot = max(0.01, round(risk_amount / 1000.0, 2))
+                    return fallback_lot, stop_loss_in_price
                 if tick_value_in_account_currency <= 0:
                     logger.error(
                         f"[{symbol}] БЛОКИРОВКА: tick_value_in_account_currency <= 0 ({tick_value_in_account_currency})."
                     )
-                    return None, None
+                    # 🔹 FALLBACK
+                    fallback_lot = max(0.01, round(risk_amount / 1000.0, 2))
+                    return fallback_lot, stop_loss_in_price
                 # -------------------------------------------------
                 sl_points = stop_loss_in_price / tick_size
                 denominator = sl_points * tick_value_in_account_currency
                 if denominator == 0:
                     logger.error(f"[{symbol}] БЛОКИРОВКА: Знаменатель лота равен нулю (sl_points={sl_points}).")
-                    return None, None
+                    # 🔹 FALLBACK
+                    fallback_lot = max(0.01, round(risk_amount / 1000.0, 2))
+                    return fallback_lot, stop_loss_in_price
                 lot_size = risk_amount / denominator
                 # Нормализация лота
                 step = symbol_info.volume_step

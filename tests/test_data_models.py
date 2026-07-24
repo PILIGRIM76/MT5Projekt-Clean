@@ -7,7 +7,8 @@
 """
 
 import pytest
-from src.data_models import TradeSignal, SignalType
+
+from src.data_models import SignalType, TradeSignal
 
 
 class TestTradeSignal:
@@ -171,7 +172,7 @@ class TestTradeSignal:
         """Неверный формат символа отклоняется."""
         with pytest.raises(Exception):
             TradeSignal(
-                symbol="eurusd",  # lowercase
+                symbol="12",  # слишком короткий, только цифры
                 type=SignalType.BUY,
                 confidence=0.8,
                 stop_loss=1.0800,

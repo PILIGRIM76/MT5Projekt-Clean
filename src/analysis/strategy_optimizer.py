@@ -4,7 +4,10 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Type
 
-import optuna
+try:
+    import optuna
+except ImportError:
+    optuna = None
 import pandas as pd
 
 from src.analysis.backtester import StrategyBacktester
@@ -16,7 +19,8 @@ from src.strategies.moving_average_crossover import MovingAverageCrossoverStrate
 from src.strategies.StrategyInterface import BaseStrategy
 
 logger = logging.getLogger(__name__)
-optuna.logging.set_verbosity(optuna.logging.WARNING)
+if optuna is not None:
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 PARAMS_FILE = Path("configs/optimized_params.json")
 
@@ -45,6 +49,9 @@ class StrategyOptimizer:
         logger.warning(f"Найдены новые оптимальные параметры для '{strategy_name}': {params}. Сохранено.")
 
     def optimize(self, strategy_name: str, symbol: str, timeframe: int, history_days: int = 90):
+        if optuna is None:
+            logger.error("Optuna не установлена. Оптимизация стратегий отключена.")
+            return
         if strategy_name not in self.optimizable_strategies:
             logger.error(f"Стратегия '{strategy_name}' не найдена в списке оптимизируемых.")
             return
@@ -57,7 +64,7 @@ class StrategyOptimizer:
             logger.error(f"Не удалось получить данные для оптимизации {strategy_name} на {symbol}.")
             return
 
-        def objective(trial: optuna.trial.Trial) -> float:
+        def objective(trial) -> float:
             params = {}
             if strategy_name == "MeanReversionStrategy":
                 params["window"] = trial.suggest_int("window", 20, 200)

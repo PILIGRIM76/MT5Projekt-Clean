@@ -22,6 +22,38 @@ from src.core.secure_config import SecureConfigLoader
 logger = logging.getLogger(__name__)
 
 
+def _normalize_path(path_value: str, project_root: Path) -> Path:
+    path = Path(path_value)
+    if not path.is_absolute():
+        return (project_root / path).resolve()
+    return path
+
+
+def _is_writable_dir(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        test_file = path / ".write_test"
+        with open(test_file, "w", encoding="utf-8") as f:
+            f.write("ok")
+        try:
+            test_file.unlink()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def _select_writable_dir(primary: Path, fallback: Path, label: str) -> Path:
+    if _is_writable_dir(primary):
+        return primary
+    logger.warning(f"{label} недоступен для записи: {primary}. Переключаюсь на {fallback}")
+    if _is_writable_dir(fallback):
+        return fallback
+    logger.error(f"{label} также недоступен для записи: {fallback}. Оставляю исходный путь: {primary}")
+    return primary
+
+
 def _get_default_settings_dict() -> dict:
     """Возвращает словарь с настройками по умолчанию."""
     return {
@@ -167,6 +199,22 @@ def load_config() -> Settings:
     except ValueError as e:
         logger.warning(f"Учётные данные MT5 не загружены: {e}")
         # Не прерываем выполнение, позволяя системе работать в режиме без MT5
+
+    # 4.5. Уточнение путей хранения (с проверкой записи)
+    default_db = project_root / "database"
+    raw_db = config_dict.get("DATABASE_FOLDER", "database")
+    db_path = _normalize_path(str(raw_db), project_root)
+    db_path = _select_writable_dir(db_path, default_db, "DATABASE_FOLDER")
+    config_dict["DATABASE_FOLDER"] = str(db_path)
+
+    raw_logs = config_dict.get("LOGS_FOLDER")
+    if raw_logs:
+        logs_path = _normalize_path(str(raw_logs), project_root)
+    else:
+        logs_path = db_path / "logs"
+    logs_fallback = db_path / "logs"
+    logs_path = _select_writable_dir(logs_path, logs_fallback, "LOGS_FOLDER")
+    config_dict["LOGS_FOLDER"] = str(logs_path)
 
     # 5. Валидация и создание объекта Settings
     try:

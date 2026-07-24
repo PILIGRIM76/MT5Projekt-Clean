@@ -213,18 +213,34 @@ class ConsensusEngine:
             if total_count > 0:
                 classic_score = (buy_count - sell_count) / total_count
 
+        # === AI-ONLY FALLBACK ===
+        # Если классические стратегии молчат, перераспределяем их вес в пользу AI
+        has_classic_signals = len(classic_signals) > 0
+        dynamic_ai_weight = weights.ai_forecast
+        dynamic_classic_weight = weights.classic_strategies
+        
+        if not has_classic_signals:
+            # Классика молчит — AI получает 70% веса вместо 40%
+            dynamic_ai_weight = weights.ai_forecast + weights.classic_strategies * 0.7
+            dynamic_classic_weight = weights.classic_strategies * 0.3  # Оставляем минимальный вес
+            logger.debug(
+                f"[{ai_signal.symbol}] Классика молчит — AI вес увеличен: "
+                f"{weights.ai_forecast:.2f} → {dynamic_ai_weight:.2f}"
+            )
+        # =========================
+
         # 1.3. Сентимент KG (уже в диапазоне -1.0 до 1.0)
         # kg_score уже определен
 
         # 1.4. On-Chain данные
         on_chain_factor = on_chain_score
 
-        # 2. Применяем веса
+        # 2. Применяем динамические веса
         weighted_sum = (
-            (ai_score * weights.ai_forecast) + (classic_score * weights.classic_strategies) + (kg_score * weights.sentiment_kg)
+            (ai_score * dynamic_ai_weight) + (classic_score * dynamic_classic_weight) + (kg_score * weights.sentiment_kg)
         )
 
-        total_weight = weights.ai_forecast + weights.classic_strategies + weights.sentiment_kg
+        total_weight = dynamic_ai_weight + dynamic_classic_weight + weights.sentiment_kg
         if is_crypto:
             weighted_sum += on_chain_score * weights.on_chain_data
             total_weight += weights.on_chain_data

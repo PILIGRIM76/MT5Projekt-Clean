@@ -121,7 +121,8 @@ class AIBacktester:
             prediction_scaled = None
 
             if isinstance(self.model, nn.Module):  # Если это PyTorch
-                with torch.no_grad():
+                # ИНФЕРЕНС: Используем inference_mode для оптимизации
+                with torch.inference_mode():
                     prediction_input_tensor = torch.from_numpy(last_sequence_scaled).unsqueeze(0).float()
                     prediction_scaled_tensor = self.model(prediction_input_tensor)
                     prediction_scaled = prediction_scaled_tensor.cpu().numpy()

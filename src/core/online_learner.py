@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from src.core.config_models import Settings
+from src.utils.torch_utils import get_torch_device
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class OnlineLearner:
         self.learning_rate = self.config_online.learning_rate
         self.adjustment_factor = self.config_online.adjustment_factor
         self.max_expected_profit = self.config_online.max_expected_profit
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(get_torch_device())
 
         if self.enabled:
             logger.info(f"Модуль онлайн-обучения (PyTorch) АКТИВИРОВАН. Устройство: {self.device}")

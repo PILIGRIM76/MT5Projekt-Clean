@@ -1,5 +1,11 @@
 # src/gui/styles.py
 
+import logging
+import os
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
 # --- 1. Светлая тема (улучшенная стандартная) ---
 LIGHT_STYLE = """
     QWidget {
@@ -168,3 +174,46 @@ DARK_STYLE = """
         border: 1px solid #f8f8f2;
     }
 """
+
+
+# --- 3. Функция загрузки QSS из файла ---
+
+
+def load_qss_file(file_path: str) -> str:
+    """
+    Загружает QSS файл и возвращает его содержимое.
+    Если файл не найден, возвращает пустую строку.
+    """
+    try:
+        path = Path(file_path)
+        if path.exists():
+            content = path.read_text(encoding="utf-8")
+            logger.info(f"[QSS] Загружен файл стилей: {file_path} ({len(content)} байт)")
+            return content
+        else:
+            logger.warning(f"[QSS] Файл стилей не найден: {file_path}")
+            return ""
+    except Exception as e:
+        logger.error(f"[QSS] Ошибка загрузки файла стилей {file_path}: {e}")
+        return ""
+
+
+def get_light_theme_qss() -> str:
+    """
+    Возвращает содержимое light_theme.qss.
+    Автоматически ищет файл в директории src/gui/.
+    Приоритет: light_theme_safe.qss -> light_theme.qss
+    """
+    # Определяем путь к директории styles.py
+    styles_dir = Path(__file__).parent
+
+    # Сначала пробуем безопасную версию
+    safe_path = styles_dir / "light_theme_safe.qss"
+    if safe_path.exists():
+        content = safe_path.read_text(encoding="utf-8")
+        logger.info(f"[QSS] Загружен безопасный файл стилей: {safe_path} ({len(content)} байт)")
+        return content
+
+    # Fallback на полный файл
+    qss_path = styles_dir / "light_theme.qss"
+    return load_qss_file(str(qss_path))

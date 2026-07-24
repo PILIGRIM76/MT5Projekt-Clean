@@ -49,18 +49,18 @@ class TradeSignalBase(BaseModel):
         if not v:
             raise ValueError("Символ не может быть пустым")
 
-        # Разрешаем стандартные Forex пары (6 букв)
-        if re.match(r"^[A-Z]{6}$", v):
-            return v
+        v_upper = v.upper()
 
-        # Разрешаем специальные символы
-        allowed_special = ["BITCOIN", "GOLD", "SILVER", "XAUUSD", "XAGUSD", "BTCUSD"]
-        if v.upper() in allowed_special:
-            return v.upper()
+        # Разрешаем стандартные Forex пары (6 букв)
+        if re.match(r"^[A-Z]{6}$", v_upper):
+            return v_upper
+
+        # Разрешаем индексы, товары, криптовалюты (буквы + цифры, 3-10 символов)
+        if re.match(r"^[A-Z0-9]{3,10}$", v_upper):
+            return v_upper
 
         raise ValueError(
-            f"Неверный формат символа: {v}. "
-            f'Ожидается 6 заглавных букв (например, EURUSD) или один из: {", ".join(allowed_special)}'
+            f"Неверный формат символа: {v}. Ожидается 3-10 заглавных букв/цифр (например, EURUSD, GER40, BTCUSDT)"
         )
 
     @validator("confidence")
@@ -115,8 +115,8 @@ class TradeRequest(BaseModel):
     def validate_symbol(cls, v):
         """Проверка формата символа."""
         v = v.upper()
-        if not re.match(r"^[A-Z]{4,10}$", v) and v not in ["BITCOIN", "GOLD", "SILVER"]:
-            raise ValueError(f"Неверный формат символа: {v}. " f"Ожидается 4-10 заглавных букв (например, EURUSD)")
+        if not re.match(r"^[A-Z0-9]{3,10}$", v):
+            raise ValueError(f"Неверный формат символа: {v}. Ожидается 3-10 заглавных букв/цифр (например, EURUSD, GER40)")
         return v
 
     @validator("lot")

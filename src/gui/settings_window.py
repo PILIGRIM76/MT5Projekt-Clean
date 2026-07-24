@@ -435,6 +435,10 @@ class SettingsWindow(QDialog):
     settings_saved = Signal()
     scheduler_status_updated = Signal(dict)
     database_path_changed = Signal(str)  # Сигнал об изменении пути к базе данных
+    theme_preview_requested = Signal(str)  # Сигнал для предпросмотра темы
+    gui_settings_changed = Signal(dict)  # Сигнал для мгновенного применения настроек GUI
+    optimization_applied = Signal(dict)  # Сигнал для применения оптимизаций без перезапуска
+    memory_cleanup_requested = Signal()  # Сигнал для принудительной очистки памяти
 
     def __init__(self, scheduler_manager: SchedulerManager, config: Settings, trading_system=None, parent=None):
 
@@ -501,6 +505,8 @@ class SettingsWindow(QDialog):
         updates_tab = self._create_updates_tab()
 
         self.tab_widget.addTab(mt5_tab, self.create_icon("🔌"), "Подключение MT5")
+        gui_tab = self._create_gui_interface_tab()  # НОВОЕ: Вкладка интерфейса
+        self.tab_widget.addTab(gui_tab, self.create_icon("🎨"), "Интерфейс (GUI)")
         self.tab_widget.addTab(crypto_tab, self.create_icon("₿"), "Криптовалюты")  # НОВОЕ
         self.tab_widget.addTab(api_tab, self.create_icon("🔑"), "API Ключи")
         self.tab_widget.addTab(trading_tab, self.create_icon("💹"), "Торговля")
@@ -509,6 +515,8 @@ class SettingsWindow(QDialog):
         self.tab_widget.addTab(news_scheduler_tab, self.create_icon("📰"), "Планировщик Новостей")
         self.tab_widget.addTab(notifications_tab, self.create_icon("🔔"), "Уведомления")
         self.tab_widget.addTab(updates_tab, self.create_icon("🔄"), "Обновления")
+        optimization_tab = self._create_optimization_tab()  # НОВОЕ: Вкладка оптимизации
+        self.tab_widget.addTab(optimization_tab, self.create_icon("⚡"), "Оптимизация")
 
         # НОВОЕ: Вкладка Копирование Сделок (в самом конце для заметности)
         try:
@@ -522,6 +530,286 @@ class SettingsWindow(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         self.layout().addWidget(button_box)
+
+        # НОВАЯ ВКЛАДКА: Автообучение моделей (после Оптимизации)
+        auto_retraining_tab = self._create_auto_retraining_tab()
+        self.tab_widget.addTab(auto_retraining_tab, self.create_icon("🧠"), "Автообучение")
+
+        # НОВАЯ ВКЛАДКА: Championship (валидация моделей)
+        championship_tab = self._create_auto_retraining_championship_tab()
+        self.tab_widget.addTab(championship_tab, self.create_icon("🏆"), "Championship")
+
+    def _create_auto_retraining_tab(self):
+        """Создание отдельной вкладки автообучения моделей."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content_widget = QWidget()
+        scroll.setWidget(content_widget)
+        layout = QGridLayout(content_widget)
+        layout.setSpacing(10)
+
+        # Заголовок
+        title_label = QLabel("<h2>🧠 Автоматическое переобучение AI-моделей</h2>")
+        layout.addWidget(title_label, 0, 0, 1, 3)
+
+        # Описание
+        description = QLabel(
+            "Автоматическое переобучение AI-моделей (LSTM, LightGBM) по расписанию.\n"
+            "Система анализирует производительность моделей и автоматически обновляет их."
+        )
+        description.setWordWrap(True)
+        description.setStyleSheet("color: #8be9fd; padding: 10px; background: #282a36; border-radius: 5px;")
+        layout.addWidget(description, 1, 0, 1, 3)
+
+        # === ОСНОВНЫЕ НАСТРОЙКИ ===
+        layout.addWidget(QLabel("\n<b>Основные настройки</b>"), 2, 0, 1, 3)
+
+        self.auto_retrain_checkbox = QCheckBox("Включить автообучение")
+        self.auto_retrain_checkbox.setToolTip(
+            "Автоматически переобучает AI-модели по расписанию.\n"
+            "Система сама выбирает лучшие символы из всех доступных в MT5."
+        )
+        layout.addWidget(self.auto_retrain_checkbox, 3, 0)
+
+        layout.addWidget(QLabel("Время запуска:"), 4, 0)
+        self.auto_retrain_time_edit = QTimeEdit()
+        self.auto_retrain_time_edit.setTime(QTime(2, 0))  # По умолчанию 02:00
+        self.auto_retrain_time_edit.setDisplayFormat("HH:mm")  # 24-часовой формат
+        self.auto_retrain_time_edit.setButtonSymbols(QTimeEdit.ButtonSymbols.UpDownArrows)  # Кнопки вверх/вниз
+        self.auto_retrain_time_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.auto_retrain_time_edit.setToolTip(
+            "Ежедневное время запуска обучения.\n" "Рекомендуется: 02:00-04:00 (ночные часы)\n" "Для демо-счета работает 24/7"
+        )
+        layout.addWidget(self.auto_retrain_time_edit, 4, 1)
+
+        layout.addWidget(QLabel("Интервал (часов):"), 5, 0)
+        self.auto_retrain_interval_spin = QDoubleSpinBox()
+        self.auto_retrain_interval_spin.setRange(0.25, 168)  # От 15 минут до 7 дней
+        self.auto_retrain_interval_spin.setSingleStep(0.25)  # Шаг 15 минут
+        self.auto_retrain_interval_spin.setDecimals(2)
+        self.auto_retrain_interval_spin.setValue(0.5)  # По умолчанию 30 минут
+        self.auto_retrain_interval_spin.setToolTip(
+            "Интервал автоматического переобучения в часах.\n"
+            "0.25 = 15 мин, 0.5 = 30 мин, 1.0 = 1 час, 24.0 = 1 день\n"
+            "Рекомендуется: 0.5 (30 минут) для демо-счета"
+        )
+        self.auto_retrain_interval_spin.setEnabled(True)
+        layout.addWidget(self.auto_retrain_interval_spin, 5, 1)
+
+        layout.addWidget(QLabel("Макс. символов:"), 6, 0)
+        self.auto_retrain_max_symbols_spin = QSpinBox()
+        self.auto_retrain_max_symbols_spin.setRange(5, 200)
+        self.auto_retrain_max_symbols_spin.setValue(30)
+        self.auto_retrain_max_symbols_spin.setToolTip(
+            "Максимальное количество символов для обучения.\n" "Система автоматически отберёт лучшие из всех доступных."
+        )
+        layout.addWidget(self.auto_retrain_max_symbols_spin, 6, 1)
+
+        layout.addWidget(QLabel("Параллельных потоков:"), 7, 0)
+        self.auto_retrain_max_workers_spin = QSpinBox()
+        self.auto_retrain_max_workers_spin.setRange(1, 10)
+        self.auto_retrain_max_workers_spin.setValue(3)
+        self.auto_retrain_max_workers_spin.setToolTip(
+            "Количество параллельных потоков для обучения.\n" "Рекомендуется: CPU/2 (например, 3-4 для 8-ядерного процессора)"
+        )
+        layout.addWidget(self.auto_retrain_max_workers_spin, 7, 1)
+
+        # Пояснение
+        optimization_note = QLabel(
+            "⚡ <b>Рекомендация:</b> Автообучение каждые <b>0.5 ч (30 минут)</b> + ежедневно в 02:00.\n"
+            "Для демо-счета работает 24/7. Для реального счета — только в тихие часы (00:00-06:00, 22:00-23:59)."
+        )
+        optimization_note.setStyleSheet("color: #50fa7b; padding: 8px; background: #1e1f29; border-radius: 5px;")
+        optimization_note.setWordWrap(True)
+        layout.addWidget(optimization_note, 8, 0, 1, 3)
+
+        # === РУЧНОЙ ЗАПУСК ===
+        layout.addWidget(QLabel("\n<b>Ручное управление</b>"), 9, 0, 1, 3)
+
+        self.manual_retrain_button = QPushButton("▶ Запустить обучение сейчас")
+        self.manual_retrain_button.setToolTip(
+            "Запустить переобучение моделей вручную.\n" "Полезно для тестирования или внепланового обновления стратегий."
+        )
+        self.manual_retrain_button.clicked.connect(self._trigger_manual_retraining)
+        self.manual_retrain_button.setStyleSheet(
+            "QPushButton { background: #bd93f9; color: white; padding: 10px; border-radius: 5px; font-weight: bold; }"
+            "QPushButton:hover { background: #ffb86c; }"
+            "QPushButton:pressed { background: #ff5555; }"
+        )
+        layout.addWidget(self.manual_retrain_button, 10, 0, 1, 2)
+
+        self.auto_retrain_status_label = QLabel("Статус: не запланировано")
+        self.auto_retrain_status_label.setStyleSheet("color: #f1fa8c; font-size: 12px;")
+        layout.addWidget(self.auto_retrain_status_label, 10, 2)
+
+        # === ИНФОРМАЦИЯ ===
+        layout.addWidget(QLabel("\n<b>Как работает автообучение</b>"), 11, 0, 1, 3)
+
+        info_text = QLabel(
+            "1️⃣ <b>По расписанию:</b> каждые 30 минут (настраивается)\n"
+            "2️⃣ <b>Ежедневно:</b> в 02:00 (гарантированное обучение)\n"
+            "3️⃣ <b>Адаптивно:</b> если >30% моделей старше 30 мин → требуется переобучение\n\n"
+            "📊 <b>Процесс:</b>\n"
+            "• Загрузка данных из MT5/БД\n"
+            "• Генерация признаков (RSI, MACD, ATR, и др.)\n"
+            "• Обучение LSTM + LightGBM\n"
+            "• Валидация через Championship\n"
+            "• Сохранение лучшей модели как чемпиона\n\n"
+            "🎯 <b>Прогресс отображается:</b>\n"
+            "• 🔄 Прогресс обучения (Loss) — кривая loss по эпохам\n"
+            "• ⏰ До переобучения (ч) — сколько часов прошло с последнего обучения\n"
+            "• 📊 Точность — точность моделей по символам"
+        )
+        info_text.setWordWrap(True)
+        info_text.setStyleSheet(
+            "color: #f8f8f2; padding: 12px; background: #282a36; border-radius: 5px; border-left: 3px solid #bd93f9;"
+        )
+        layout.addWidget(info_text, 12, 0, 1, 3)
+
+        layout.setRowStretch(13, 1)
+
+        return scroll
+
+    def _create_auto_retraining_championship_tab(self):
+        """Создание вкладки настроек Championship (валидация моделей)."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content_widget = QWidget()
+        scroll.setWidget(content_widget)
+        layout = QGridLayout(content_widget)
+        layout.setSpacing(10)
+
+        # Заголовок
+        title_label = QLabel("<h2>🏆 Championship — Валидация и отбор моделей</h2>")
+        layout.addWidget(title_label, 0, 0, 1, 3)
+
+        # Описание
+        description = QLabel(
+            "Система Championship автоматически сравнивает новые модели с текущими чемпионами.\n"
+            "Только лучшие модели попадают в продакшен через walk-forward валидацию."
+        )
+        description.setWordWrap(True)
+        description.setStyleSheet("color: #8be9fd; padding: 10px; background: #282a36; border-radius: 5px;")
+        layout.addWidget(description, 1, 0, 1, 3)
+
+        # === ОСНОВНЫЕ НАСТРОЙКИ ===
+        layout.addWidget(QLabel("\n<b>Основные настройки</b>"), 2, 0, 1, 3)
+
+        self.championship_enabled_checkbox = QCheckBox("Включить Championship")
+        self.championship_enabled_checkbox.setToolTip(
+            "Автоматическая валидация новых моделей через чемпионат.\n"
+            "Новая модель должна победить текущего чемпиона чтобы стать активной."
+        )
+        layout.addWidget(self.championship_enabled_checkbox, 3, 0)
+
+        layout.addWidget(QLabel("Интервал чемпионата (дней):"), 4, 0)
+        self.championship_interval_spin = QSpinBox()
+        self.championship_interval_spin.setRange(1, 30)
+        self.championship_interval_spin.setValue(7)
+        self.championship_interval_spin.setToolTip("Как часто проводится чемпионат моделей.\n" "7 дней = раз в неделю")
+        layout.addWidget(self.championship_interval_spin, 4, 1)
+
+        layout.addWidget(QLabel("Окно оценки (баров):"), 5, 0)
+        self.championship_window_spin = QSpinBox()
+        self.championship_window_spin.setRange(500, 10000)
+        self.championship_window_spin.setValue(2000)
+        self.championship_window_spin.setToolTip("Размер данных для оценки модели.\n" "2000 баров H1 ≈ 3 месяца данных")
+        layout.addWidget(self.championship_window_spin, 5, 1)
+
+        layout.addWidget(QLabel("Walk-forward сплитов:"), 6, 0)
+        self.championship_splits_spin = QSpinBox()
+        self.championship_splits_spin.setRange(3, 10)
+        self.championship_splits_spin.setValue(5)
+        self.championship_splits_spin.setToolTip(
+            "Количество разбиений для walk-forward валидации.\n" "Больше = точнее оценка, но дольше"
+        )
+        layout.addWidget(self.championship_splits_spin, 6, 1)
+
+        # === ПОРОГИ ВАЛИДАЦИИ ===
+        layout.addWidget(QLabel("\n<b>Пороги валидации модели</b>"), 7, 0, 1, 3)
+
+        layout.addWidget(QLabel("Мин. Sharpe Ratio:"), 8, 0)
+        self.championship_sharpe_spin = QDoubleSpinBox()
+        self.championship_sharpe_spin.setRange(0.0, 5.0)
+        self.championship_sharpe_spin.setSingleStep(0.1)
+        self.championship_sharpe_spin.setDecimals(2)
+        self.championship_sharpe_spin.setValue(0.3)
+        self.championship_sharpe_spin.setToolTip(
+            "Минимальный Sharpe ratio для прохождения.\n" "0.3 = минимальный, 1.0 = хороший, 2.0+ = отличный"
+        )
+        layout.addWidget(self.championship_sharpe_spin, 8, 1)
+
+        layout.addWidget(QLabel("Мин. Win Rate (%):"), 9, 0)
+        self.championship_wr_spin = QSpinBox()
+        self.championship_wr_spin.setRange(30, 80)
+        self.championship_wr_spin.setValue(40)
+        self.championship_wr_spin.setToolTip("Минимальный процент прибыльных сделок.\n" "40% = минимум, 55%+ = хороший")
+        layout.addWidget(self.championship_wr_spin, 9, 1)
+
+        layout.addWidget(QLabel("Макс. просадка (%):"), 10, 0)
+        self.championship_dd_spin = QSpinBox()
+        self.championship_dd_spin.setRange(5, 50)
+        self.championship_dd_spin.setValue(20)
+        self.championship_dd_spin.setToolTip("Максимально допустимая просадка.\n" "20% = стандарт, меньше = лучше")
+        layout.addWidget(self.championship_dd_spin, 10, 1)
+
+        layout.addWidget(QLabel("Мин. Profit Factor:"), 11, 0)
+        self.championship_pf_spin = QDoubleSpinBox()
+        self.championship_pf_spin.setRange(0.5, 3.0)
+        self.championship_pf_spin.setSingleStep(0.1)
+        self.championship_pf_spin.setDecimals(2)
+        self.championship_pf_spin.setValue(0.8)
+        self.championship_pf_spin.setToolTip("Минимальное отношение прибыли к убыткам.\n" "1.0 = безубыток, 1.5+ = хороший")
+        layout.addWidget(self.championship_pf_spin, 11, 1)
+
+        layout.addWidget(QLabel("Карантин (дней):"), 12, 0)
+        self.championship_quarantine_spin = QSpinBox()
+        self.championship_quarantine_spin.setRange(1, 14)
+        self.championship_quarantine_spin.setValue(3)
+        self.championship_quarantine_spin.setToolTip(
+            "Дней карантина для новой модели перед промоушеном.\n" "3 дня = проверка стабильности"
+        )
+        layout.addWidget(self.championship_quarantine_spin, 12, 1)
+
+        # === СИМУЛЯЦИЯ ТОРГОВЛИ ===
+        layout.addWidget(QLabel("\n<b>Параметры симуляции торговли</b>"), 13, 0, 1, 3)
+
+        layout.addWidget(QLabel("Комиссия за сделку:"), 14, 0)
+        self.championship_commission_spin = QDoubleSpinBox()
+        self.championship_commission_spin.setRange(0.0, 0.001)
+        self.championship_commission_spin.setSingleStep(0.0001)
+        self.championship_commission_spin.setDecimals(4)
+        self.championship_commission_spin.setValue(0.0001)
+        self.championship_commission_spin.setToolTip("Комиссия за одну сделку.\n" "0.0001 = 0.01% (стандарт для Forex)")
+        layout.addWidget(self.championship_commission_spin, 14, 1)
+
+        layout.addWidget(QLabel("Проскальзывание:"), 15, 0)
+        self.championship_slippage_spin = QDoubleSpinBox()
+        self.championship_slippage_spin.setRange(0.0, 0.001)
+        self.championship_slippage_spin.setSingleStep(0.0001)
+        self.championship_slippage_spin.setDecimals(4)
+        self.championship_slippage_spin.setValue(0.0002)
+        self.championship_slippage_spin.setToolTip("Проскальзывание цены.\n" "0.0002 = 0.02% (стандарт)")
+        layout.addWidget(self.championship_slippage_spin, 15, 1)
+
+        # Пояснение
+        championship_note = QLabel(
+            "🏆 <b>Как работает Championship:</b><br><br>"
+            "1️⃣ Новая модель обучается на данных<br>"
+            "2️⃣ Проводится walk-forward валидация<br>"
+            "3️⃣ Считаются метрики: Sharpe, WinRate, Profit Factor, Drawdown<br>"
+            "4️⃣ Сравнивается с текущим чемпионом<br>"
+            "5️⃣ Если новая модель лучше → становится чемпионом<br>"
+            "6️⃣ Период карантина для проверки стабильности<br>"
+            "7️⃣ Hot-reload — новая модель сразу загружается"
+        )
+        championship_note.setStyleSheet("color: #f1fa8c; padding: 12px; background: #282a36; border-radius: 5px;")
+        championship_note.setWordWrap(True)
+        layout.addWidget(championship_note, 16, 0, 1, 3)
+
+        layout.setRowStretch(17, 1)
+
+        return scroll
 
     def _create_news_scheduler_tab(self):
         """Создание вкладки планировщика новостей."""
@@ -1335,14 +1623,12 @@ class SettingsWindow(QDialog):
         try:
             # self.trading_system это MainWindow
             # MainWindow.trading_system это PySideTradingSystem
-            # PySideTradingSystem.core_system это TradingSystem
-            # TradingSystem.hot_reload_manager это HotReloadManager
+            # PySideTradingSystem это адаптер
             if self.trading_system:
                 if hasattr(self.trading_system, "trading_system") and self.trading_system.trading_system:
                     main_window = self.trading_system
                     adapter = main_window.trading_system
-                    if hasattr(adapter, "core_system") and adapter.core_system:
-                        return adapter.core_system.hot_reload_manager
+                    return getattr(adapter, "hot_reload_manager", None)
         except Exception as e:
             logger.error(f"[SettingsWindow] Ошибка получения HotReloadManager: {e}")
         return None
@@ -1725,6 +2011,9 @@ class SettingsWindow(QDialog):
 
         self._update_scheduler_status()
 
+        # Загрузка настроек GUI
+        self._load_gui_settings()
+
         # Загрузка настроек автообучения
         if hasattr(self.full_config, "auto_retraining"):
             self.auto_retrain_checkbox.setChecked(self.full_config.auto_retraining.enabled)
@@ -1737,9 +2026,37 @@ class SettingsWindow(QDialog):
             # Значения по умолчанию
             self.auto_retrain_checkbox.setChecked(True)
             self.auto_retrain_time_edit.setTime(QTime(2, 0))
-            self.auto_retrain_interval_spin.setValue(24)
+            self.auto_retrain_interval_spin.setValue(0.5)  # 30 минут
             self.auto_retrain_max_symbols_spin.setValue(30)
             self.auto_retrain_max_workers_spin.setValue(3)
+
+        # Загрузка настроек Championship
+        if hasattr(self.full_config, "championship"):
+            champ = self.full_config.championship
+            self.championship_enabled_checkbox.setChecked(champ.enabled)
+            self.championship_interval_spin.setValue(champ.interval_days)
+            self.championship_window_spin.setValue(champ.evaluation_window)
+            self.championship_splits_spin.setValue(champ.walk_forward_splits)
+            self.championship_sharpe_spin.setValue(champ.min_sharpe_ratio)
+            self.championship_wr_spin.setValue(int(champ.min_win_rate * 100))
+            self.championship_dd_spin.setValue(int(champ.max_drawdown_percent))
+            self.championship_pf_spin.setValue(champ.min_profit_factor)
+            self.championship_quarantine_spin.setValue(champ.quarantine_days)
+            self.championship_commission_spin.setValue(champ.commission_per_trade)
+            self.championship_slippage_spin.setValue(champ.slippage_percent)
+        else:
+            # Значения по умолчанию
+            self.championship_enabled_checkbox.setChecked(True)
+            self.championship_interval_spin.setValue(7)
+            self.championship_window_spin.setValue(2000)
+            self.championship_splits_spin.setValue(5)
+            self.championship_sharpe_spin.setValue(0.3)
+            self.championship_wr_spin.setValue(40)
+            self.championship_dd_spin.setValue(20)
+            self.championship_pf_spin.setValue(0.8)
+            self.championship_quarantine_spin.setValue(3)
+            self.championship_commission_spin.setValue(0.0001)
+            self.championship_slippage_spin.setValue(0.0002)
 
         # Загрузка настроек контроля прибыли
         self.profit_target_mode_combo.setCurrentText(getattr(self.full_config, "PROFIT_TARGET_MODE", "auto"))
@@ -2134,6 +2451,10 @@ class SettingsWindow(QDialog):
                     },
                 },
             }
+
+            # Настройки GUI
+            self._save_gui_settings(settings_to_update)
+
             settings_to_update.update(
                 {
                     "GP_POPULATION_SIZE": safe_val(self.gp_pop_spin, self.full_config.GP_POPULATION_SIZE),
@@ -2156,6 +2477,22 @@ class SettingsWindow(QDialog):
                 "max_symbols": self.auto_retrain_max_symbols_spin.value(),
                 "max_workers": self.auto_retrain_max_workers_spin.value(),
             }
+
+            # Настройки Championship
+            settings_to_update["championship"] = {
+                "enabled": self.championship_enabled_checkbox.isChecked(),
+                "interval_days": self.championship_interval_spin.value(),
+                "evaluation_window": self.championship_window_spin.value(),
+                "walk_forward_splits": self.championship_splits_spin.value(),
+                "min_sharpe_ratio": self.championship_sharpe_spin.value(),
+                "min_win_rate": self.championship_wr_spin.value() / 100.0,
+                "max_drawdown_percent": self.championship_dd_spin.value(),
+                "min_profit_factor": self.championship_pf_spin.value(),
+                "quarantine_days": self.championship_quarantine_spin.value(),
+                "commission_per_trade": self.championship_commission_spin.value(),
+                "slippage_percent": self.championship_slippage_spin.value(),
+            }
+
             settings_to_update["trading_mode"] = {
                 "current_mode": self.trading_mode_toggle.get_mode() if hasattr(self, "trading_mode_toggle") else "paper",
                 "enabled": True,
@@ -2267,6 +2604,14 @@ class SettingsWindow(QDialog):
                         if hasattr(self.trading_system, "alert_manager"):
                             self.trading_system.alert_manager.config = self.full_config
                             logger.info("Alert Manager обновлён")
+
+                        # ОБНОВЛЕНИЕ НАСТРОЕК АВТООБУЧЕНИЯ НА ЛЕТУ
+                        if hasattr(self.trading_system, "training_scheduler") and self.trading_system.training_scheduler:
+                            success = self.trading_system.training_scheduler.update_settings(self.full_config)
+                            if success:
+                                logger.info("✅ TrainingScheduler обновлён на лету")
+                            else:
+                                logger.debug("TrainingScheduler: настройки не изменились")
                     except Exception as e:
                         logger.warning(f"Не удалось обновить trading_system: {e}")
 
@@ -2276,6 +2621,15 @@ class SettingsWindow(QDialog):
     def accept(self):
         # Сначала сохраняем настройки, пока виджеты живы
         self.save_settings()
+
+        # Отправляем новые настройки GUI для мгновенного применения
+        new_gui_settings = {
+            "GUI_THEME": self.gui_theme_combo.currentText(),
+            "ALWAYS_ON_TOP": self.gui_always_on_top_checkbox.isChecked(),
+            "USE_CUSTOM_TITLE_BAR": self.gui_custom_titlebar_checkbox.isChecked(),
+            "ANIMATIONS_ENABLED": self.gui_animations_checkbox.isChecked(),
+        }
+        self.gui_settings_changed.emit(new_gui_settings)
 
         # Останавливаем все активные тестеры перед закрытием
         self._stop_all_testers()
@@ -2380,55 +2734,7 @@ class SettingsWindow(QDialog):
         layout.addWidget(self.optimization_time_edit, 3, 1)
         layout.addWidget(self.optimization_status_label, 3, 2)
 
-        # --- НОВАЯ СЕКЦИЯ: Автоматическое переобучение моделей ---
-        layout.addWidget(QLabel("\n<b>Автоматическое переобучение моделей</b>"), 4, 0, 1, 3)
-
-        self.auto_retrain_checkbox = QCheckBox("Включить автообучение")
-        self.auto_retrain_checkbox.setToolTip(
-            "Автоматически переобучает AI-модели по расписанию.\n"
-            "Система сама выбирает лучшие символы из всех доступных в MT5."
-        )
-        layout.addWidget(self.auto_retrain_checkbox, 5, 0)
-
-        layout.addWidget(QLabel("Время запуска:"), 6, 0)
-        self.auto_retrain_time_edit = QTimeEdit()
-        self.auto_retrain_time_edit.setDisplayFormat("hh:mm")
-        self.auto_retrain_time_edit.setToolTip("Время суток для автоматического запуска обучения (рекомендуется ночью)")
-        layout.addWidget(self.auto_retrain_time_edit, 6, 1)
-
-        layout.addWidget(QLabel("Интервал (часов):"), 7, 0)
-        self.auto_retrain_interval_spin = QSpinBox()
-        self.auto_retrain_interval_spin.setRange(1, 168)  # От 1 часа до недели
-        self.auto_retrain_interval_spin.setToolTip("Интервал между запусками обучения (в часах)")
-        layout.addWidget(self.auto_retrain_interval_spin, 7, 1)
-
-        layout.addWidget(QLabel("Макс. символов:"), 8, 0)
-        self.auto_retrain_max_symbols_spin = QSpinBox()
-        self.auto_retrain_max_symbols_spin.setRange(5, 200)
-        self.auto_retrain_max_symbols_spin.setToolTip(
-            "Максимальное количество символов для обучения.\n" "Система автоматически отберёт лучшие из всех доступных."
-        )
-        layout.addWidget(self.auto_retrain_max_symbols_spin, 8, 1)
-
-        layout.addWidget(QLabel("Параллельных потоков:"), 9, 0)
-        self.auto_retrain_max_workers_spin = QSpinBox()
-        self.auto_retrain_max_workers_spin.setRange(1, 10)
-        self.auto_retrain_max_workers_spin.setToolTip(
-            "Количество параллельных потоков для обучения.\n" "Рекомендуется: CPU/2 (например, 3-4 для 8-ядерного процессора)"
-        )
-        layout.addWidget(self.auto_retrain_max_workers_spin, 9, 1)
-
-        # Кнопка для ручного запуска
-        self.manual_retrain_button = QPushButton("▶ Запустить обучение сейчас")
-        self.manual_retrain_button.setToolTip(
-            "Запустить переобучение моделей вручную.\n" "Полезно для тестирования или внепланового обновления стратегий."
-        )
-        self.manual_retrain_button.clicked.connect(self._trigger_manual_retraining)
-        layout.addWidget(self.manual_retrain_button, 10, 0, 1, 2)
-
-        self.auto_retrain_status_label = QLabel("Статус: не запланировано")
-        self.auto_retrain_status_label.setToolTip("Текущий статус задачи автоматического переобучения.")
-        layout.addWidget(self.auto_retrain_status_label, 10, 2)
+        # ПЕРЕНОСЕНО: Настройки автообучения теперь во вкладке "🧠 Автообучение"
 
         info_label = QLabel(
             "\n<b>Внимание:</b> Для управления задачами программу необходимо запустить <b>от имени Администратора</b>."
@@ -2438,10 +2744,10 @@ class SettingsWindow(QDialog):
             "Без прав администратора задачи не будут созданы."
         )
         info_label.setWordWrap(True)
-        layout.addWidget(info_label, 11, 0, 1, 3)
+        layout.addWidget(info_label, 5, 0, 1, 3)
 
         # --- НОВАЯ СЕКЦИЯ: Целевая прибыль ---
-        layout.addWidget(QLabel("\n<b>Контроль прибыли сделок</b>"), 12, 0, 1, 3)
+        layout.addWidget(QLabel("\n<b>Контроль прибыли сделок</b>"), 6, 0, 1, 3)
 
         self.profit_target_mode_combo = QComboBox()
         self.profit_target_mode_combo.addItems(["auto", "manual"])
@@ -3375,6 +3681,109 @@ class SettingsWindow(QDialog):
         layout.addLayout(test_layout, 4, 1)
         return self._create_scrollable_widget(content_widget)
 
+    def _create_gui_interface_tab(self):
+        """Создание вкладки настроек интерфейса (GUI)."""
+        content_widget = QWidget()
+        layout = QGridLayout(content_widget)
+        layout.setSpacing(12)
+
+        row = 0
+
+        # --- Тема интерфейса ---
+        layout.addWidget(QLabel("Тема оформления:"), row, 0)
+        self.gui_theme_combo = QComboBox()
+        self.gui_theme_combo.addItems(["Темная", "Светлая", "Стандартная"])
+        # Значение будет установлено при загрузке настроек
+        layout.addWidget(self.gui_theme_combo, row, 1)
+        row += 1
+
+        # --- Always on Top ---
+        layout.addWidget(QLabel("Всегда поверх окон:"), row, 0)
+        self.gui_always_on_top_checkbox = QCheckBox()
+        layout.addWidget(self.gui_always_on_top_checkbox, row, 1)
+        row += 1
+
+        # --- Кастомная рамка окна ---
+        layout.addWidget(QLabel("Кастомная рамка окна:"), row, 0)
+        self.gui_custom_titlebar_checkbox = QCheckBox()
+        layout.addWidget(self.gui_custom_titlebar_checkbox, row, 1)
+        row += 1
+
+        # --- Анимации ---
+        layout.addWidget(QLabel("Анимации интерфейса:"), row, 0)
+        self.gui_animations_checkbox = QCheckBox()
+        layout.addWidget(self.gui_animations_checkbox, row, 1)
+        row += 1
+
+        # --- Разделитель ---
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line, row, 0, 1, 2)
+        row += 1
+
+        # --- Описание ---
+        description_label = QLabel(
+            "💡 <b>Тема оформления:</b> Переключайте между светлой и тёмной темой.\n"
+            "📌 <b>Всегда поверх окон:</b> Окно Genesis будет поверх всех остальных окон.\n"
+            "🖼️ <b>Кастомная рамка:</b> Убирает системные рамки, добавляет кастомную с перетаскиванием.\n"
+            "✨ <b>Анимации:</b> Плавные переходы при переключении вкладок и уведомлениях.\n"
+            "   Отключаются автоматически при высокой нагрузке CPU (>85%)."
+        )
+        description_label.setWordWrap(True)
+        description_label.setStyleSheet(
+            "color: #5F6980; font-size: 9pt; padding: 8px; background: #F7F9FC; border-radius: 6px;"
+        )
+        layout.addWidget(description_label, row, 0, 1, 2)
+
+        # --- Кнопка предпросмотра ---
+        row += 1
+        preview_button = QPushButton("🔄 Применить тему сейчас")
+        preview_button.clicked.connect(self._apply_gui_theme_preview)
+        layout.addWidget(preview_button, row, 0, 1, 2)
+
+        return self._create_scrollable_widget(content_widget)
+
+    def _apply_gui_theme_preview(self):
+        """Применяет выбранную тему в режиме предпросмотра."""
+        theme = self.gui_theme_combo.currentText()
+        # Сигнал для MainWindow (подключается извне)
+        self.theme_preview_requested.emit(theme)
+
+    def _load_gui_settings(self):
+        """Загружает настройки GUI из конфига."""
+        try:
+            cfg = self.full_config
+            # Тема
+            theme = getattr(cfg, "GUI_THEME", "Темная")
+            idx = self.gui_theme_combo.findText(theme)
+            if idx >= 0:
+                self.gui_theme_combo.setCurrentIndex(idx)
+
+            # Always on Top
+            self.gui_always_on_top_checkbox.setChecked(getattr(cfg, "ALWAYS_ON_TOP", False))
+
+            # Custom Title Bar
+            self.gui_custom_titlebar_checkbox.setChecked(getattr(cfg, "USE_CUSTOM_TITLE_BAR", False))
+
+            # Animations
+            self.gui_animations_checkbox.setChecked(getattr(cfg, "ANIMATIONS_ENABLED", True))
+
+            logger.info(
+                f"[GUI Settings] Загружены: тема={theme}, on_top={self.gui_always_on_top_checkbox.isChecked()}, "
+                f"custom_tb={self.gui_custom_titlebar_checkbox.isChecked()}, anim={self.gui_animations_checkbox.isChecked()}"
+            )
+        except Exception as e:
+            logger.warning(f"[GUI Settings] Ошибка загрузки настроек: {e}")
+
+    def _save_gui_settings(self, settings_to_update: dict) -> None:
+        """Сохраняет настройки GUI в словарь для последующей записи."""
+        settings_to_update["GUI_THEME"] = self.gui_theme_combo.currentText()
+        settings_to_update["ALWAYS_ON_TOP"] = self.gui_always_on_top_checkbox.isChecked()
+        settings_to_update["USE_CUSTOM_TITLE_BAR"] = self.gui_custom_titlebar_checkbox.isChecked()
+        settings_to_update["ANIMATIONS_ENABLED"] = self.gui_animations_checkbox.isChecked()
+        logger.info(f"[GUI Settings] Подготовлены к сохранению: тема={settings_to_update['GUI_THEME']}")
+
     def _create_api_tab(self):
         content_widget = QWidget()
         layout = QVBoxLayout(content_widget)
@@ -3629,6 +4038,223 @@ class SettingsWindow(QDialog):
 
         # Возвращаем кнопку в активное состояние
         self.manual_retrain_button.setEnabled(True)
+
+    def _create_optimization_tab(self) -> QWidget:
+        """Создание вкладки оптимизации системы."""
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
+        layout.setAlignment(Qt.AlignTop)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # Заголовок
+        title = QLabel("<b>⚡ Оптимизация Системы</b>")
+        title.setStyleSheet("color: #f8f8f2; font-size: 16px; padding: 10px;")
+        layout.addWidget(title)
+
+        desc = QLabel("Применяйте оптимизации без перезапуска системы")
+        desc.setStyleSheet("color: #aaaaaa; padding: 5px;")
+        layout.addWidget(desc)
+
+        # === GPU УСКОРЕНИЕ ===
+        gpu_group = QGroupBox("🚀 GPU Ускорение (LightGBM)")
+        gpu_layout = QFormLayout(gpu_group)
+
+        self.gpu_enabled_check = QCheckBox("Включить GPU для обучения моделей")
+        self.gpu_enabled_check.setToolTip("Использовать видеокарту NVIDIA для ускорения LightGBM")
+        gpu_layout.addRow(self.gpu_enabled_check)
+
+        # Информация о GPU
+        self.gpu_info_label = QLabel("Проверка GPU...")
+        self.gpu_info_label.setStyleSheet("color: #8be9fd; padding: 5px;")
+        self._check_gpu_availability()
+        gpu_layout.addRow("Статус GPU:", self.gpu_info_label)
+
+        # Кнопка применения
+        self.apply_gpu_button = QPushButton("⚡ Применить GPU настройки")
+        self.apply_gpu_button.clicked.connect(self._apply_gpu_settings)
+        self.apply_gpu_button.setStyleSheet("""
+            QPushButton {
+                background-color: #50fa7b;
+                color: #282a36;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #43d667;
+            }
+        """)
+        gpu_layout.addRow(self.apply_gpu_button)
+
+        layout.addWidget(gpu_group)
+
+        # === ПАМЯТЬ ===
+        memory_group = QGroupBox("🧹 Оптимизация Памяти")
+        memory_layout = QFormLayout(memory_group)
+
+        self.gc_enabled_check = QCheckBox("Включить агрессивный сборщик мусора")
+        self.gc_enabled_check.setChecked(True)
+        self.gc_enabled_check.setToolTip("Более частая очистка циклических ссылок")
+        memory_layout.addRow(self.gc_enabled_check)
+
+        self.memory_threshold_spin = QSpinBox()
+        self.memory_threshold_spin.setRange(2, 8)
+        self.memory_threshold_spin.setValue(4)
+        self.memory_threshold_spin.setSuffix(" ГБ")
+        self.memory_threshold_spin.setToolTip("Порог предупреждения о нехватке памяти")
+        memory_layout.addRow("Порог предупреждения:", self.memory_threshold_spin)
+
+        self.apply_memory_button = QPushButton("🧹 Применить настройки памяти")
+        self.apply_memory_button.clicked.connect(self._apply_memory_settings)
+        self.apply_memory_button.setStyleSheet("""
+            QPushButton {
+                background-color: #bd93f9;
+                color: #282a36;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #a371f7;
+            }
+        """)
+        memory_layout.addRow(self.apply_memory_button)
+
+        layout.addWidget(memory_group)
+
+        # === ЛОГИ ===
+        log_group = QGroupBox("📝 Управление Логами")
+        log_layout = QFormLayout(log_group)
+
+        self.account_log_check = QCheckBox("Включить логи AccountManager (DEBUG)")
+        self.account_log_check.setChecked(False)
+        self.account_log_check.setToolTip("Показывать обновления баланса в логах")
+        log_layout.addRow(self.account_log_check)
+
+        self.apply_log_button = QPushButton("📝 Применить настройки логов")
+        self.apply_log_button.clicked.connect(self._apply_log_settings)
+        self.apply_log_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ffb86c;
+                color: #282a36;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f0a040;
+            }
+        """)
+        log_layout.addRow(self.apply_log_button)
+
+        layout.addWidget(log_group)
+
+        # === КНОПКА ПРИМЕНИТЬ ВСЁ ===
+        apply_all_btn = QPushButton("🚀 Применить Все Оптимизации")
+        apply_all_btn.clicked.connect(self._apply_all_optimizations)
+        apply_all_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff79c6;
+                color: #282a36;
+                padding: 15px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #e060a0;
+            }
+        """)
+        layout.addWidget(apply_all_btn)
+
+        # Статус
+        self.optimization_status_label = QLabel("Готово к оптимизации")
+        self.optimization_status_label.setStyleSheet("color: #50fa7b; padding: 10px; font-weight: bold;")
+        layout.addWidget(self.optimization_status_label)
+
+        layout.addStretch()
+        return content_widget
+
+    def _check_gpu_availability(self) -> None:
+        """Проверяет доступность GPU."""
+        import subprocess
+
+        try:
+            result = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+                text=True,
+            )
+            gpu_info = result.strip()
+            self.gpu_info_label.setText(f"✅ {gpu_info}")
+            self.gpu_info_label.setStyleSheet("color: #50fa7b; padding: 5px;")
+            self.gpu_enabled_check.setEnabled(True)
+        except Exception:
+            self.gpu_info_label.setText("❌ GPU не обнаружен")
+            self.gpu_info_label.setStyleSheet("color: #ff5555; padding: 5px;")
+            self.gpu_enabled_check.setEnabled(False)
+
+    def _apply_gpu_settings(self) -> None:
+        """Применяет настройки GPU без перезапуска."""
+        if not self.gpu_enabled_check.isEnabled():
+            self.optimization_status_label.setText("❌ GPU недоступен")
+            self.optimization_status_label.setStyleSheet("color: #ff5555;")
+            return
+
+        self.optimization_applied.emit(
+            {
+                "type": "gpu",
+                "enabled": self.gpu_enabled_check.isChecked(),
+            }
+        )
+
+        self.optimization_status_label.setText("✅ GPU настройки применены (вступят в силу при следующем обучении)")
+        self.optimization_status_label.setStyleSheet("color: #50fa7b;")
+
+    def _apply_memory_settings(self) -> None:
+        """Применяет настройки памяти без перезапуска."""
+        import gc
+
+        # Применяем GC настройки
+        if self.gc_enabled_check.isChecked():
+            gc.set_threshold(500, 5, 5)
+
+        # Принудительная очистка памяти — выгрузка неиспользуемых моделей
+        self.memory_cleanup_requested.emit()
+
+        self.optimization_applied.emit(
+            {
+                "type": "memory",
+                "gc_enabled": self.gc_enabled_check.isChecked(),
+                "threshold_gb": self.memory_threshold_spin.value(),
+            }
+        )
+
+        self.optimization_status_label.setText(
+            f"✅ Настройки памяти применены: порог {self.memory_threshold_spin.value()}ГБ, память очищена"
+        )
+        self.optimization_status_label.setStyleSheet("color: #50fa7b;")
+
+    def _apply_log_settings(self) -> None:
+        """Применяет настройки логов без перезапуска."""
+        self.optimization_applied.emit(
+            {
+                "type": "logging",
+                "account_manager_debug": self.account_log_check.isChecked(),
+            }
+        )
+
+        self.optimization_status_label.setText("✅ Настройки логов применены")
+        self.optimization_status_label.setStyleSheet("color: #50fa7b;")
+
+    def _apply_all_optimizations(self) -> None:
+        """Применяет все оптимизации сразу."""
+        self._apply_gpu_settings()
+        self._apply_memory_settings()
+        self._apply_log_settings()
+
+        self.optimization_status_label.setText("🚀 Все оптимизации применены успешно!")
+        self.optimization_status_label.setStyleSheet("color: #ff79c6; font-size: 14px;")
 
     def _scroll_to_risk_settings(self):
         """Информирование пользователя о настройках риск-менеджмента."""

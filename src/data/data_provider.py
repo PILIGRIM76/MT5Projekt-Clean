@@ -128,8 +128,8 @@ class DataProvider:
                 logger.error(f"[DATA] Некорректный MT5_LOGIN: {self.config.MT5_LOGIN}, ошибка: {e}")
                 mt5_login = None
 
-            # Передаём полные учётные данные для reconnect
-            mt5.initialize(
+            # 🔧 OPTIMIZATION: Используем безопасную обертку вместо прямого mt5.initialize()
+            mt5_initialize(
                 path=self.config.MT5_PATH,
                 login=mt5_login,
                 password=self.config.MT5_PASSWORD,
@@ -435,7 +435,8 @@ class DataProvider:
         symbol_info = None
         with self.mt5_lock:
             if not mt5_ensure_connected(path=self.config.MT5_PATH):
-                logger.error(f"[{symbol}] Не удалось инициализировать MT5 для проверки символа.")
+                # 🔧 OPTIMIZATION: При ошибке -10004 логируем только один раз, не для каждого символа
+                logger.debug(f"[{symbol}] MT5 недоступен, пропускаю проверку символа.")
                 return None
             try:
                 mt5.symbol_select(real_symbol, True)
@@ -487,10 +488,14 @@ class DataProvider:
         logger.info(f"[DATA] Загрузка {symbol} {timeframe}...")
 
         try:
-            # Пытаемся захватить mt5_lock с увеличенным таймаутом для обучения (60 сек)
-            acquired = self.mt5_lock.acquire(timeout=60)  # Ждем максимум 60 сек для обучения
+            # Пытаемся захватить mt5_lock с УВЕЛИЧЕННЫМ таймаутом для обучения (180 сек)
+            # Обучение моделей - долгая операция, требует стабильного доступа к MT5
+            acquired = self.mt5_lock.acquire(timeout=180)  # 3 минуты для обучения
             if not acquired:
-                logger.error(f"[DATA] Таймаут захвата mt5_lock для {symbol} (60 сек). Пропуск.")
+                logger.error(
+                    f"[DATA] ТАЙМАУТ захвата mt5_lock для {symbol} (180 сек). "
+                    f"Возможно торговый цикл выполняет длительную операцию. Пропуск."
+                )
                 return None
 
             try:

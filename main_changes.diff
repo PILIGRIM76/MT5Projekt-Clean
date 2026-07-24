@@ -1,0 +1,222 @@
+diff --git a/main_pyside.py b/main_pyside.py
+index f38e2e8..cb606d0 100644
+--- a/main_pyside.py
++++ b/main_pyside.py
+@@ -363,6 +363,63 @@ class MainWindow(QMainWindow):
+         self.notification_timer.setSingleShot(True)
+         self.notification_timer.timeout.connect(lambda: self.notification_bar.setVisible(False))
+
++    def _safe_async_call(self, async_method, *args, **kwargs):
++        """
++        Безопасный вызов async метода из синхронного GUI кода.
++
++        Создаёт новый event loop и запускает async метод в отдельном потоке.
++        """
++        import asyncio
++        import threading
++
++        def run_async():
++            try:
++                # Проверяем, есть ли уже running loop в этом потоке
++                try:
++                    loop = asyncio.get_running_loop()
++                    # Если loop уже есть — создаём task
++                    asyncio.create_task(async_method(*args, **kwargs))
++                except RuntimeError:
++                    # Нет running loop — создаём новый
++                    loop = asyncio.new_event_loop()
++                    loop.run_until_complete(async_method(*args, **kwargs))
++                    loop.close()
++            except Exception as e:
++                logger.error(f"Ошибка в async вызове {async_method.__name__}: {e}", exc_info=True)
++
++        # Запускаем в отдельном потоке чтобы не блокировать GUI
++        thread = threading.Thread(target=run_async, daemon=True)
++        thread.start()
++
++    def _safe_async_call_with_callback(self, async_method, callback, *args, **kwargs):
++        """
++        Безопасный вызов async метода с callback для результата.
++        """
++        import asyncio
++        import threading
++        from PySide6.QtCore import QTimer
++
++        def run_async():
++            try:
++                try:
++                    loop = asyncio.get_running_loop()
++                    task = asyncio.create_task(async_method(*args, **kwargs))
++                    # Ждём результат
++                    result = loop.run_until_complete(task)
++                except RuntimeError:
++                    loop = asyncio.new_event_loop()
++                    result = loop.run_until_complete(async_method(*args, **kwargs))
++                    loop.close()
++
++                # Вызываем callback в главном потоке через QTimer
++                QTimer.singleShot(0, lambda: callback(result))
++            except Exception as e:
++                logger.error(f"Ошибка в async вызове {async_method.__name__}: {e}", exc_info=True)
++                QTimer.singleShot(0, lambda: callback({}))
++
++        thread = threading.Thread(target=run_async, daemon=True)
++        thread.start()
++
+         # Настройка GUI и сигналов
+         self.is_graph_ready = False
+         self.graph_data_queue = []
+@@ -557,34 +614,46 @@ class MainWindow(QMainWindow):
+         return widget
+
+     def _refresh_vector_db_stats(self):
+-        """Запрашивает статистику у ядра."""
++        """Запрашивает статистику у ядра через async вызов."""
+         logger.info("[VectorDB-GUI] Запрос статистики VectorDB")
+-        if hasattr(self.trading_system, "get_vector_db_stats"):
+-            stats = self.trading_system.get_vector_db_stats()
+-            count = stats.get("count", 0)
+-            ready = stats.get("is_ready", False)
+-            has_embedding = stats.get("has_embedding_model", False)
+-            reason = stats.get("reason", "")
+-
+-            logger.info(f"[VectorDB-GUI] Статистика получена: готов={ready}, документов={count}, embedding={has_embedding}")
+-
+-            self.vdb_count_label.setText(f"Документов в индексе: {count}")
+-
+-            if ready:
+-                status_text = "АКТИВНА"
+-                color = "#50fa7b"
+-            elif reason:
+-                status_text = f"ОШИБКА: {reason}"
+-                color = "#ff5555"
+-            elif not has_embedding:
+-                status_text = "НЕТ EMBEDDING МОДЕЛИ"
+-                color = "#ff5555"
++
++        def handle_stats(stats):
++            """Callback для обработки результатов"""
++            if isinstance(stats, dict):
++                count = stats.get("count", 0)
++                ready = stats.get("is_ready", False)
++                has_embedding = stats.get("has_embedding_model", False)
++                reason = stats.get("reason", "")
++
++                logger.info(f"[VectorDB-GUI] Статистика получена: готов={ready}, документов={count}, embedding={has_embedding}")
++
++                self.vdb_count_label.setText(f"Документов в индексе: {count}")
++
++                if ready:
++                    status_text = "АКТИВНА"
++                    color = "#50fa7b"
++                elif reason:
++                    status_text = f"ОШИБКА: {reason}"
++                    color = "#ff5555"
++                elif not has_embedding:
++                    status_text = "НЕТ EMBEDDING МОДЕЛИ"
++                    color = "#ff5555"
++                else:
++                    status_text = "НЕ ГОТОВА"
++                    color = "#ff5555"
++
++                self.vdb_status_label.setText(status_text)
++                self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+             else:
+-                status_text = "НЕ ГОТОВА"
+-                color = "#ff5555"
++                logger.warning(f"[VectorDB-GUI] Неожиданный тип результата: {type(stats)}")
+
+-            self.vdb_status_label.setText(f"Статус: {status_text}")
+-            self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
++        if hasattr(self.trading_system, "get_vector_db_stats"):
++            self._safe_async_call_with_callback(
++                self.trading_system.get_vector_db_stats,
++                handle_stats
++            )
++
++        return widget
+
+     def _on_vector_db_search(self):
+         query = self.vdb_query_edit.text().strip()
+@@ -1411,8 +1480,11 @@ class MainWindow(QMainWindow):
+                     self.bt_strategy_combo.addItem(s.__class__.__name__)
+
+         elif test_type == "AI Модель":
+-            all_models = self.trading_system.get_all_models()
+-            pytorch_models = [m for m in all_models if "PyTorch" in m.get("type", "")]
++            # TODO: async вызов get_all_models() — пока заглушка
++            logger.warning("[Backtest] get_all_models() требует async выз — временно отключено")
++            self.bt_strategy_combo.addItem("Загрузка моделей... (async вызов в процессе)")
++            # all_models = self.trading_system.get_all_models()  # Требует async
++            pytorch_models = []  # Пока пусто
+             if not pytorch_models:
+                 self.bt_strategy_combo.addItem("Нет совместимых PyTorch моделей")
+                 self.bt_strategy_combo.setEnabled(False)
+@@ -2076,13 +2148,13 @@ class MainWindow(QMainWindow):
+
+             if reply == QMessageBox.Yes:
+                 # Пользователь подтвердил -> Выключаем
+-                self.trading_system.set_observer_mode(False)
++                self._safe_async_call(self.trading_system.set_observer_mode, False)
+             else:
+                 # Пользователь отменил -> Возвращаем галочку обратно (Включено)
+                 self.observer_checkbox.setChecked(True)
+         else:
+             # Пользователь ставит галочку -> Включаем без вопросов
+-            self.trading_system.set_observer_mode(True)
++            self._safe_async_call(self.trading_system.set_observer_mode, True)
+
+     def _delete_selected_directive(self):
+         selected_indexes = self.directives_table.selectionModel().selectedRows()
+@@ -2202,8 +2274,20 @@ class MainWindow(QMainWindow):
+         threading.Thread(target=self._fetch_and_update_models, daemon=True).start()
+
+     def _fetch_and_update_models(self):
+-        models = self.trading_system.get_all_models()
+-        self.bridge.model_list_updated.emit(models)
++        """Получение списка моделей через async вызов."""
++        import asyncio
++
++        def handle_models(models):
++            if isinstance(models, list):
++                self.bridge.model_list_updated.emit(models)
++            else:
++                logger.warning(f"[GUI-Models] Неожиданный тип результата: {type(models)}")
++                self.bridge.model_list_updated.emit([])
++
++        self._safe_async_call_with_callback(
++            self.trading_system.get_all_models,
++            handle_models
++        )
+
+     def update_models_table(self, models: list):
+         logger.info(f"[GUI-Models] Обновление таблицы моделей: {len(models)} моделей")
+@@ -2614,7 +2698,7 @@ class MainWindow(QMainWindow):
+             if reply == QMessageBox.Yes:
+                 logger.warning("[GUI-Action] Подтверждено закрытие ВСЕХ позиций")
+                 self.sound_manager.play("error")
+-                self.trading_system.emergency_close_all_positions()
++                self._safe_async_call(self.trading_system.emergency_close_all_positions)
+                 self.close_pos_button.setEnabled(False)
+                 self.close_all_pos_button.setEnabled(False)
+                 self.bridge.status_updated.emit("Команда на закрытие всех позиций отправлена...", False)
+@@ -2652,7 +2736,7 @@ class MainWindow(QMainWindow):
+             )
+             if reply == QMessageBox.Yes:
+                 logger.info(f"[GUI-Action] Подтверждено закрытие позиции #{ticket}")
+-                self.trading_system.emergency_close_position(ticket)
++                self._safe_async_call(self.trading_system.emergency_close_position, ticket)
+             else:
+                 logger.info(f"[GUI-Action] Закрытие позиции #{ticket} отменено пользователем")
+         except Exception as e:
+@@ -3496,8 +3580,8 @@ class MainWindow(QMainWindow):
+     def force_training(self):
+         logger.info("[GUI-Action] Пользователь нажал кнопку 'Запустить цикл обучения'")
+         try:
+-            # Теперь вызываем прокси-метод
+-            self.trading_system.force_training_cycle()
++            # Теперь вызываем прокси-метод через async
++            self._safe_async_call(self.trading_system.force_training_cycle)
+             QMessageBox.information(self, "Запрос отправлен", "Команда на запуск цикла обучения отправлена в фоновый поток.")
+             logger.info("[GUI-Action] Команда на запуск цикла обучения отправлена")
+         except Exception as e:

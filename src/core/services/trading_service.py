@@ -159,10 +159,10 @@ class TradingService(BaseService):
     def _check_mt5_connection(self) -> bool:
         """Проверить подключение к MT5"""
         try:
-            import MetaTrader5 as mt5
+            from src.core.mt5_connection_manager import mt5_initialize
 
             with self.trading_system.mt5_lock:
-                return mt5.initialize(path=self.trading_system.config.MT5_PATH)
+                return mt5_initialize(path=self.trading_system.config.MT5_PATH)
         except Exception:
             return False
 

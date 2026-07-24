@@ -63,12 +63,14 @@ class ModelRepository:
                     model = SimpleLSTM(input_dim=len(model_record.features_list))
                     buffer = io.BytesIO(model_record.model_data)
                     model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
-                    model.eval()
+                    model.eval()  # Eval-режим для инференса
+                    logger.debug(f"✅ LSTM модель загружена для {symbol}")
                 elif model_type == "Transformer_PyTorch":
                     model = TimeSeriesTransformer(input_dim=len(model_record.features_list))
                     buffer = io.BytesIO(model_record.model_data)
                     model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
-                    model.eval()
+                    model.eval()  # Eval-режим для инференса
+                    logger.debug(f"✅ Transformer модель загружена для {symbol}")
                 elif model_type == "LightGBM":
                     import lightgbm as lgb
 
@@ -106,12 +108,14 @@ class ModelRepository:
                 model = SimpleLSTM(input_dim=len(model_record.features_list))
                 buffer = io.BytesIO(model_record.model_data)
                 model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
-                model.eval()
+                model.eval()  # Eval-режим для инференса
+                logger.debug(f"✅ LSTM модель загружена (ID: {model_id})")
             elif model_record.model_type == "Transformer_PyTorch":
                 model = TimeSeriesTransformer(input_dim=len(model_record.features_list))
                 buffer = io.BytesIO(model_record.model_data)
                 model.load_state_dict(torch.load(buffer, map_location="cpu", weights_only=True))
-                model.eval()
+                model.eval()  # Eval-режим для инференса
+                logger.debug(f"✅ Transformer модель загружена (ID: {model_id})")
             elif model_record.model_type == "LightGBM":
                 import lightgbm as lgb
 
@@ -331,7 +335,11 @@ class ModelRepository:
     def _update_model_metadata_file(self, champion_model):
         """Обновить JSON файл метаданных модели."""
         try:
-            metadata_dir = Path(self.config.DATABASE_FOLDER) / "ai_models"
+            # Используем MODEL_DIR если доступен, иначе fallback
+            if hasattr(self.config, "MODEL_DIR") and self.config.MODEL_DIR:
+                metadata_dir = Path(self.config.MODEL_DIR)
+            else:
+                metadata_dir = Path(self.config.DATABASE_FOLDER) / "ai_models"
             metadata_dir.mkdir(parents=True, exist_ok=True)
 
             metadata_file = metadata_dir / f"{champion_model.symbol}_metadata.json"

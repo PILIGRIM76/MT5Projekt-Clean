@@ -1,0 +1,74 @@
+﻿{
+  "dashboard": {
+    "id": null,
+    "uid": "mt5projekt-main",
+    "title": "MT5Projekt-Clean Overview",
+    "tags": ["trading", "mt5", "ai"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "title": "Pipeline Latency (ms)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(pipeline_latency_ms_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(pipeline_latency_ms_bucket[5m]))",
+            "legendFormat": "p50"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms",
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 50},
+                {"color": "red", "value": 100}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "title": "Orders Executed vs Failed",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(orders_executed_total[5m])",
+            "legendFormat": "Executed"
+          },
+          {
+            "expr": "rate(orders_failed_total[5m])",
+            "legendFormat": "Failed"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+        "title": "Live Logs (ERROR/CRITICAL)",
+        "type": "logs",
+        "targets": [
+          {
+            "expr": "{job=\"mt5projekt_logs\"} |= \"ERROR\" or |= \"CRITICAL\"",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showLabels": true,
+          "showTime": true,
+          "wrapLogMessage": true
+        }
+      }
+    ],
+    "time": {"from": "now-1h", "to": "now"},
+    "refresh": "10s"
+  }
+}

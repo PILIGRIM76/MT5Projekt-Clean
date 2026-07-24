@@ -41,6 +41,11 @@ class MT5ConnectionManager:
         self._path: Optional[str] = None
         self._lock = threading.RLock()  # Reentrant lock для вложенных вызовов
 
+        # 🔧 OPTIMIZATION: Защита от частых переподключений
+        self._last_reconnect_time = 0.0
+        self._reconnect_cooldown = 5.0  # Минимальная задержка между переподключениями (сек)
+        self._consecutive_failures = 0  # Счетчик неудачных переподключений
+
         MT5ConnectionManager._instance = self
 
     @classmethod
@@ -75,14 +80,31 @@ class MT5ConnectionManager:
         Returns:
             True если подключение успешно
         """
+        import time
+
         with self._lock:
             # Если уже подключены — проверяем связь
             if self._initialized:
                 if self._is_connected():
                     return True
                 else:
-                    logger.warning("[MT5] Соединение потеряно. Переподключение...")
+                    # 🔧 OPTIMIZATION: Защита от частых переподключений
+                    current_time = time.time()
+                    time_since_last_reconnect = current_time - self._last_reconnect_time
+
+                    if time_since_last_reconnect < self._reconnect_cooldown:
+                        logger.debug(
+                            f"[MT5] Пропуск переподключения (cooldown: {self._reconnect_cooldown - time_since_last_reconnect:.1f}с)"
+                        )
+                        return False
+
+                    logger.warning(f"[MT5] Соединение потеряно. Переподключение...")
                     self._force_shutdown()
+
+                    # Увеличиваем счетчик неудач и задержку
+                    self._consecutive_failures += 1
+                    self._reconnect_cooldown = min(5.0 * (2 ** min(self._consecutive_failures - 1, 3)), 60.0)
+
                     # Восстанавливаем сохранённые параметры
                     path = path or self._path
                     login = login or self._login
@@ -105,6 +127,7 @@ class MT5ConnectionManager:
 
                 if has_all_params:
                     # Полная авторизация
+                    logger.info(f"[MT5] Полная авторизация: server={server}, login={login}, path={path}")
                     result = mt5.initialize(
                         path=path,
                         login=login,
@@ -114,9 +137,11 @@ class MT5ConnectionManager:
                     )
                 elif has_path_only:
                     # Только путь — подключаемся к уже запущенному терминалу
+                    logger.info(f"[MT5] Подключение к терминалу по пути: {path}")
                     result = mt5.initialize(path=path, timeout=timeout)
                 elif has_login_only:
                     # Только логин — используем сохранённые параметры
+                    logger.info(f"[MT5] Авторизация по логину: {login}")
                     result = mt5.initialize(
                         login=login,
                         password=self._password,
@@ -130,6 +155,14 @@ class MT5ConnectionManager:
 
                 if result:
                     self._initialized = True
+
+                    # 🔧 OPTIMIZATION: Сброс счетчика неудач при успешном подключении
+                    if self._consecutive_failures > 0:
+                        logger.info(f"[MT5] Счетчик неудач сброшен (было: {self._consecutive_failures})")
+                    self._consecutive_failures = 0
+                    self._reconnect_cooldown = 5.0  # Возврат к базовой задержке
+                    self._last_reconnect_time = time.time()
+
                     account_info = mt5.account_info()
                     if account_info:
                         logger.info(
@@ -140,7 +173,25 @@ class MT5ConnectionManager:
                     return True
                 else:
                     error = mt5.last_error()
-                    logger.error(f"[MT5] ❌ Ошибка инициализации: {error}")
+                    error_code, error_msg = error
+
+                    # Детальная диагностика ошибок
+                    if error_code == -6:
+                        logger.error(
+                            f"[MT5] ❌ Ошибка авторизации (код {error_code}): {error_msg}\n"
+                            f"  → Терминал MT5 уже запущен с другим логином/паролем.\n"
+                            f"  → Решение:\n"
+                            f"     1) Закройте MT5 терминал вручную\n"
+                            f"     2) Или укажите MT5_PATH в configs/settings.json\n"
+                            f"     3) Или проверьте правильность MT5_LOGIN/MT5_PASSWORD/MT5_SERVER"
+                        )
+                    elif error_code == -1:
+                        logger.error(
+                            f"[MT5] ❌ Ошибка инициализации (код {error_code}): {error_msg}\n"
+                            f"  → Проверьте путь к terminal64.exe"
+                        )
+                    else:
+                        logger.error(f"[MT5] ❌ Ошибка инициализации: {error}")
                     return False
 
             except Exception as e:
@@ -173,14 +224,16 @@ class MT5ConnectionManager:
     def _is_connected(self) -> bool:
         """Внутренняя проверка без блокировки (вызывать внутри with self._lock)."""
         try:
-            # Проверяем не только версию, но и реальные данные
+            # Легкая проверка: только version и account_info
+            # symbols_get() слишком тяжелый и может возвращать None при нагрузке
             version = mt5.version()
             if version is None:
                 return False
-            # Дополнительная проверка — запрашиваем символы
-            symbols = mt5.symbols_get()
-            if symbols is None or len(symbols) == 0:
+
+            account = mt5.account_info()
+            if account is None:
                 return False
+
             return True
         except Exception:
             return False
@@ -245,12 +298,71 @@ def mt5_shutdown():
     pass
 
 
-def mt5_ensure_connected(**kwargs) -> bool:
+def mt5_ensure_connected(max_retries: int = 5, base_delay: float = 0.5, **kwargs) -> bool:
     """
-    Гарантировать подключение перед выполнением операции.
-    Если не подключено — инициализирует.
+    Гарантировать подключение к MT5 перед выполнением операции.
+    Использует экспоненциальную задержку для надёжности.
+
+    Args:
+        max_retries: Максимальное количество попыток (по умолчанию 5)
+        base_delay: Базовая задержка в секундах (по умолчанию 0.5)
+        **kwargs: Дополнительные параметры для initialize()
+
+    Returns:
+        bool: True если подключение успешно, False иначе
+
+    Пример:
+        # Попытки: 0.5s → 1s → 2s → 4s → 8s (всего ~16s)
+        if mt5_ensure_connected(max_retries=5, base_delay=0.5):
+            # Безопасно работаем с MT5
+            rates = mt5.copy_rates_from_pos(...)
     """
+    import time
+
     manager = MT5ConnectionManager.get_instance()
-    if not manager.is_connected():
-        return manager.initialize(**kwargs)
-    return True
+
+    for attempt in range(max_retries):
+        try:
+            # Проверяем текущее подключение
+            if manager.is_connected():
+                # Дополнительная проверка что соединение живо
+                try:
+                    account = mt5.account_info()
+                    if account is not None:
+                        logger.debug(f"[MT5] Соединение активно (попытка {attempt + 1}/{max_retries})")
+                        return True
+                except Exception as e:
+                    logger.debug(f"[MT5] account_info не доступен: {e}")
+
+            # Пытаемся инициализировать
+            logger.info(f"[MT5] Попытка подключения {attempt + 1}/{max_retries}...")
+            result = manager.initialize(**kwargs)
+
+            if result and manager.is_connected():
+                # Финальная проверка
+                account = mt5.account_info()
+                if account is not None:
+                    logger.info(f"[MT5] ✅ Подключение успешно (попытка {attempt + 1}/{max_retries})")
+                    return True
+                else:
+                    logger.warning(f"[MT5] Инициализация прошла, но account_info недоступен")
+            else:
+                logger.warning(f"[MT5] Инициализация не удалась (попытка {attempt + 1}/{max_retries})")
+
+            # Переподключение не удалосьась — закрываем и пробуем снова
+            try:
+                manager.shutdown()
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.warning(f"[MT5] Ошибка при попытке подключения: {e}")
+
+        # Экспоненциальная задержка перед следующей попыткой
+        if attempt < max_retries - 1:
+            delay = base_delay * (2**attempt)  # 0.5s → 1s → 2s → 4s → 8s
+            logger.info(f"[MT5] Ожидание {delay:.1f}s перед следующей попыткой...")
+            time.sleep(delay)
+
+    logger.critical(f"[MT5] ❌ Не удалось подключиться после {max_retries} попыток")
+    return False

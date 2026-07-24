@@ -211,9 +211,9 @@
     "lookahead_hours": 24,
     "lookahead_hours_for_impact": 3
   },
-  "DATABASE_FOLDER": "F:/Enjen/database",
+  "DATABASE_FOLDER": "F:\\Enjen\\database",
   "DATABASE_NAME": "trading_system.db",
-  "LOGS_FOLDER": "F:/Enjen/database\\logs",
+  "LOGS_FOLDER": "F:\\Enjen\\database\\logs",
   "TRADE_INTERVAL_SECONDS": 30,
   "TRAINING_INTERVAL_SECONDS": 172800,
   "EXCLUDED_SYMBOLS": [
@@ -371,7 +371,7 @@
     "decision_interval_seconds": 28800,
     "training_interval_seconds": 86400
   },
-  "ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION": false,
+  "ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION": true,
   "concept_drift": {
     "enabled": true,
     "adwin_delta": 0.002,
@@ -386,9 +386,9 @@
   "auto_retraining": {
     "enabled": true,
     "schedule_time": "18:19",
-    "interval_hours": 1,
+    "interval_hours": 0.5,
     "max_symbols": 30,
-    "max_workers": 3
+    "max_workers": 10
   },
   "PROFIT_MODE": "auto",
   "TRADE_INTENSITY": "medium",
@@ -531,7 +531,7 @@
       "twitter_enabled": false,
       "telegram_news_enabled": false,
       "yahoo_news_enabled": true,
-      "google_trends_enabled": false
+      "google_trends_enabled": true
     },
     "keywords": [],
     "symbols": [],
@@ -539,5 +539,26 @@
     "sentiment_threshold": -0.9,
     "defi_enabled": true,
     "defi_interval_hours": 1
+  },
+  "MODEL_DIR": "F:/Enjen/database/ai_models",
+  "MODEL_FORMAT": "joblib",
+  "ACTIVE_MODEL": "EURUSD_model",
+  "BACKUP_MODEL": "GBPUSD_model",
+  "GUI_THEME": "Темная",
+  "ALWAYS_ON_TOP": true,
+  "USE_CUSTOM_TITLE_BAR": true,
+  "ANIMATIONS_ENABLED": true,
+  "championship": {
+    "enabled": true,
+    "interval_days": 7,
+    "evaluation_window": 2000,
+    "walk_forward_splits": 5,
+    "min_sharpe_ratio": 0.3,
+    "min_win_rate": 0.4,
+    "max_drawdown_percent": 20,
+    "min_profit_factor": 0.8,
+    "quarantine_days": 3,
+    "commission_per_trade": 0.0001,
+    "slippage_percent": 0.0002
   }
 }

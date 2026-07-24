@@ -235,9 +235,35 @@ class AutoRetrainingSettings(BaseModel):
 
     enabled: bool = Field(default=True, description="Включить автоматическое переобучение моделей.")
     schedule_time: str = Field(default="02:00", description="Время запуска обучения в формате HH:MM.")
-    interval_hours: int = Field(default=24, description="Интервал между запусками в часах.")
+    interval_hours: float = Field(default=0.5, description="Интервал между запусками в часах (0.5 = 30 мин).")
     max_symbols: int = Field(default=30, description="Макс. кол-во символов для обучения.")
     max_workers: int = Field(default=3, description="Кол-во параллельных потоков обучения.")
+    threshold_percent: float = Field(
+        default=0.30,
+        description="Порог запуска переобучения (0.30 = 30% символов должны требовать переобучения)",
+        ge=0.0,
+        le=1.0,
+    )
+
+
+class ChampionshipSettings(BaseModel):
+    """Настройки чемпионата моделей (автоматический отбор лучших)."""
+
+    enabled: bool = Field(default=True, description="Включить чемпионат моделей")
+    evaluation_window: int = Field(default=2000, description="Размер окна данных для оценки (в барах)")
+    min_sharpe_ratio: float = Field(default=0.3, description="Минимальный Sharpe ratio для прохождения порога")
+    min_win_rate: float = Field(default=0.40, description="Минимальный Win Rate")
+    max_drawdown_percent: float = Field(default=20.0, description="Максимальная просадка в %")
+    min_profit_factor: float = Field(default=0.8, description="Минимальный Profit Factor")
+    interval_days: int = Field(default=7, description="Интервал проведения чемпионата (в днях)")
+    quarantine_days: int = Field(default=3, description="Период карантина для новой модели (в днях)")
+    commission_per_trade: float = Field(default=0.0001, description="Комиссия за сделку (для симуляции)")
+    slippage_percent: float = Field(default=0.0002, description="Проскальзывание (для симуляции)")
+    walk_forward_splits: int = Field(default=5, description="Количество сплитов для walk-forward валидации")
+    candidate_models: List[str] = Field(
+        default_factory=lambda: ["EURUSD_model", "GBPUSD_model", "XAUUSD_model"],
+        description="Список моделей-кандидатов для участия в чемпионате",
+    )
 
 
 # === НАСТРОЙКИ УВЕДОМЛЕНИЙ ===
@@ -398,6 +424,23 @@ class Settings(BaseModel):
     screener_liquidity: ScreenerLiquiditySettings = Field(default_factory=ScreenerLiquiditySettings)
     screener_weights: ScreenerWeightsSettings = Field(default_factory=ScreenerWeightsSettings)
 
+    # --- ML Model Path Settings ---
+    MODEL_DIR: str = Field(
+        default="",
+        description="Путь к директории с AI-моделями. Поддерживает абсолютные/относительные пути и переопределение через env MODEL_DIR.",
+    )
+    MODEL_FORMAT: str = Field(
+        default="keras",
+        description="Формат моделей: 'keras' (.h5/.keras), 'pytorch' (.pt), 'onnx' (.onnx).",
+    )
+    ACTIVE_MODEL: str = Field(
+        default="lstm_v4",
+        description="Имя активной модели (без расширения). Используется для загрузки при старте.",
+    )
+    BACKUP_MODEL: str = Field(
+        default="lstm_v3",
+        description="Имя резервной модели для fallback при повреждении активной модели.",
+    )
     # --- ML Settings ---
     INPUT_LAYER_SIZE: int = Field(default=60, description="Размер входной последовательности (кол-во баров) для нейросетей.")
     TRAINING_DATA_POINTS: int = Field(default=2000, description="Кол-во баров для набора данных при обучении моделей.")
@@ -520,6 +563,24 @@ class Settings(BaseModel):
         default=False, description="Включает/отключает отрисовку Графа Знаний в GUI."
     )
 
+    # --- GUI Settings ---
+    GUI_THEME: str = Field(
+        default="Темная",
+        description="Тема интерфейса: 'Светлая' или 'Темная'",
+    )
+    ALWAYS_ON_TOP: bool = Field(
+        default=False,
+        description="Режим Always on Top — окно всегда поверх остальных",
+    )
+    USE_CUSTOM_TITLE_BAR: bool = Field(
+        default=False,
+        description="Использовать кастомную рамку окна без системных декораций",
+    )
+    ANIMATIONS_ENABLED: bool = Field(
+        default=True,
+        description="Включить анимации интерфейса (переключения, уведомления, пульсации)",
+    )
+
     EVENT_BLOCK_WINDOW_HOURS: int
     ALLOW_WEEKEND_TRADING: bool
     WEEKEND_CLASSIC_STRATEGIES_ENABLED: bool = Field(default=True, description="Разрешить классические стратегии в выходные")
@@ -550,6 +611,9 @@ class Settings(BaseModel):
     model_config = {"case_sensitive": False, "coerce_numbers_to_str": True}
 
     auto_retraining: AutoRetrainingSettings = Field(default_factory=AutoRetrainingSettings)
+    championship: ChampionshipSettings = Field(
+        default_factory=ChampionshipSettings, description="Настройки чемпионата моделей"
+    )
     alerting: AlertingSettings = Field(default_factory=AlertingSettings, description="Настройки системы уведомлений")
     crypto_exchanges: CryptoExchangesSettings = Field(
         default_factory=CryptoExchangesSettings, description="Настройки крипто-бирж (ccxt)"
@@ -557,6 +621,4 @@ class Settings(BaseModel):
     social_trading: Dict[str, Any] = Field(
         default_factory=dict, description="Настройки социальной торговли (копирование сделок)"
     )
-    news_scheduler: Dict[str, Any] = Field(
-        default_factory=dict, description="Настройки планировщика загрузки новостей"
-    )
+    news_scheduler: Dict[str, Any] = Field(default_factory=dict, description="Настройки планировщика загрузки новостей")
