@@ -2,30 +2,11 @@
 """
 GUI компоненты для Genesis Trading System.
 
-Модули:
-- models: Модели данных для Qt (QAbstractTableModel)
-- bridges: Мосты между GUI и ядром (Bridge, GUIBridge)
-- backtest: Компоненты для бэктестинга
-- charts: Графические компоненты (CustomCandlestickItem, GraphBackend)
+ПРИМЕЧАНИЕ: Этот модуль устарел. Все компоненты перенесены в:
+- src/gui/widgets/ — виджеты и мосты
+- src/gui/models/ — модели данных
+- src/gui/backtest_process.py — запуск бэктестов
+- src/gui/dialogs/ — диалоги
+
+Не импортируйте из этого модуля.
 """
-
-from .backtest import DirectiveDialog, run_backtest_process
-from .bridges import Bridge, GUIBridge
-from .charts import CustomCandlestickItem, GraphBackend
-from .models import DictTableModel, GenericTableModel, RDTableModel
-
-__all__ = [
-    # Models
-    "DictTableModel",
-    "GenericTableModel",
-    "RDTableModel",
-    # Bridges
-    "Bridge",
-    "GUIBridge",
-    # Backtest
-    "run_backtest_process",
-    "DirectiveDialog",
-    # Charts
-    "CustomCandlestickItem",
-    "GraphBackend",
-]
