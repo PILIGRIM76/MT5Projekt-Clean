@@ -40,6 +40,7 @@ from urllib3.exceptions import InsecureRequestWarning
 
 from src.core.config_loader import load_config
 from src.core.config_models import Settings
+from src.core.mt5_connection_manager import mt5_initialize
 from src.core.trading_system import TradingSystem
 from src.gui.log_utils import setup_qt_logging
 from src.gui.main_window_parts import PanelsMixin, ChartsMixin, SignalsMixin
@@ -316,8 +317,94 @@ class MainWindow(PanelsMixin, ChartsMixin, SignalsMixin, QMainWindow):
 
         def worker():
             try:
+                # 1. Загрузка AI-моделей
                 self.trading_system.core_system.initialize_heavy_components()
-                self.bridge.status_updated.emit("AI-модели загружены. Система готова к запуску.", False)
+                self.bridge.status_updated.emit("AI-модели загружены. Проверка MT5...", False)
+
+                # 2. Авто-проверка и запуск MT5
+                mt5_path = self.config.MT5_PATH
+                mt5_login = int(self.config.MT5_LOGIN) if self.config.MT5_LOGIN else None
+                mt5_password = self.config.MT5_PASSWORD
+                mt5_server = self.config.MT5_SERVER
+
+                if mt5_path:
+                    import subprocess
+                    import os
+
+                    # Проверяем, запущен ли уже MT5
+                    mt5_running = False
+                    try:
+                        import socket
+                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        s.settimeout(1)
+                        # MT5 Python API использует локальное соединение
+                        info = mt5.terminal_info()
+                        if info is not None:
+                            mt5_running = True
+                    except Exception:
+                        pass
+
+                    if not mt5_running:
+                        self.bridge.status_updated.emit("MT5 не запущен. Запуск терминала...", False)
+                        logger.info(f"[MT5-Auto] Терминал не запущен. Запуск: {mt5_path}")
+
+                        # Проверяем существование файла
+                        if os.path.exists(mt5_path):
+                            try:
+                                subprocess.Popen(
+                                    [mt5_path],
+                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                                )
+                                # Ждем запуска терминала
+                                for i in range(15):
+                                    standard_time.sleep(1)
+                                    try:
+                                        info = mt5.terminal_info()
+                                        if info is not None:
+                                            mt5_running = True
+                                            logger.info(f"[MT5-Auto] Терминал запущен через {i+1} сек")
+                                            break
+                                    except Exception:
+                                        pass
+
+                                if not mt5_running:
+                                    logger.warning("[MT5-Auto] Терминал не запустился за 15 сек, пробуем подключиться...")
+                            except Exception as e:
+                                logger.error(f"[MT5-Auto] Ошибка запуска MT5: {e}")
+                        else:
+                            logger.error(f"[MT5-Auto] Файл не найден: {mt5_path}")
+                            self.bridge.status_updated.emit(f"MT5 не найден: {mt5_path}", True)
+
+                    # Подключаемся к MT5
+                    if mt5_login and mt5_password and mt5_server:
+                        self.bridge.status_updated.emit(f"Подключение к MT5 (счет #{mt5_login})...", False)
+                        connected = mt5_initialize(
+                            path=mt5_path,
+                            login=mt5_login,
+                            password=mt5_password,
+                            server=mt5_server,
+                            timeout=15000,
+                        )
+                        if connected:
+                            account_info = mt5.account_info()
+                            if account_info:
+                                balance = account_info.balance
+                                server = account_info.server
+                                login = account_info.login
+                                self.bridge.status_updated.emit(
+                                    f"MT5 подключен: счет #{login} ({server}), баланс: {balance}", False
+                                )
+                                logger.info(f"[MT5-Auto] ✅ Подключен: #{login} @ {server}, баланс: {balance}")
+                            else:
+                                self.bridge.status_updated.emit("MT5 подключен (данные счета недоступны)", False)
+                        else:
+                            error = mt5.last_error()
+                            self.bridge.status_updated.emit(f"MT5: ошибка подключения — {error}", True)
+                            logger.warning(f"[MT5-Auto] Подключение не удалось: {error}")
+                    else:
+                        logger.info("[MT5-Auto] Данные авторизации не указаны, пропуск подключения")
+
+                self.bridge.status_updated.emit("Система готова к запуску.", False)
                 self.bridge.heavy_initialization_finished.emit()
                 self.start_button.setEnabled(True)
             except Exception as e:
