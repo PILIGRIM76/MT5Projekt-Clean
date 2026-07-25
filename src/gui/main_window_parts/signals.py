@@ -511,12 +511,60 @@ class SignalsMixin:
             logger.info("[GUI-Action] Запуск торгового цикла...")
             self.start_button.setEnabled(False)
             self.stop_button.setEnabled(False)
-            self.status_label.setText("Подключение к торговому терминалу и запуск системы...")
+            self.status_label.setText("Запуск системы...")
             QApplication.processEvents()
 
             def _run_async():
                 import asyncio
-                asyncio.run(self.trading_system.start_all_threads())
+
+                async def _start_all():
+                    # 1. Запуск ядра (EventBus, подписки)
+                    await self.trading_system.core_system.start()
+                    logger.info("[Core] TradingSystem started")
+
+                    # 2. Запуск обучения
+                    config = self.trading_system.config
+                    try:
+                        from src.core.training_scheduler import TrainingScheduler
+                        scheduler = TrainingScheduler(config)
+                        scheduler.start()
+                        logger.info("[Training] TrainingScheduler started")
+                    except Exception as e:
+                        logger.warning(f"[Training] Failed to start: {e}")
+
+                    # 3. Запуск ML сервиса
+                    try:
+                        from src.core.services.ml_service import MLService
+                        from src.db.database_manager import DatabaseManager
+                        from src.ml.feature_engineer import FeatureEngineer
+                        from src.data.knowledge_graph_querier import KnowledgeGraphQuerier
+
+                        db = DatabaseManager(config, __import__('queue').Queue())
+                        kg = KnowledgeGraphQuerier(db)
+                        fe = FeatureEngineer(config, kg)
+                        ml_service = MLService(config, fe, db, kg)
+                        await ml_service.start()
+                        logger.info("[ML] MLService started")
+                    except Exception as e:
+                        logger.warning(f"[ML] Failed to start: {e}")
+
+                    # 4. Запуск оркестратора
+                    try:
+                        from src.core.services.orchestrator_service import OrchestratorService
+                        orch = OrchestratorService(self.trading_system.core_system)
+                        await orch.start()
+                        logger.info("[Orchestrator] Started")
+                    except Exception as e:
+                        logger.warning(f"[Orchestrator] Failed to start: {e}")
+
+                    # 5. Статус
+                    self.bridge.status_updated.emit("Система запущена. Торговля активна.", False)
+                    self.bridge.trading_started.emit(True)
+                    self.start_button.setEnabled(True)
+                    self.stop_button.setEnabled(True)
+                    logger.info("[GUI-Action] Все сервисы запущены")
+
+                asyncio.run(_start_all())
 
             threading.Thread(target=_run_async, daemon=True).start()
             logger.info("[GUI-Action] Торговая система запускается в фоновом потоке")

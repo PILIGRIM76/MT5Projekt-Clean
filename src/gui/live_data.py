@@ -409,9 +409,10 @@ def setup_live_data(main_window):
     # ========================================
     def update_thread_status():
         try:
-            bridge.thread_status_updated.emit("Trading", "RUNNING" if hasattr(mw.trading_system.core_system, 'running') and mw.trading_system.core_system.running else "STOPPED")
-            bridge.thread_status_updated.emit("Monitoring", "RUNNING")
-            bridge.thread_status_updated.emit("Training", "STOPPED")
+            is_running = mw.trading_system.core_system.running
+            bridge.thread_status_updated.emit("Trading", "RUNNING" if is_running else "STOPPED")
+            bridge.thread_status_updated.emit("Monitoring", "RUNNING" if is_running else "STOPPED")
+            bridge.thread_status_updated.emit("Training", "RUNNING" if is_running else "STOPPED")
             bridge.thread_status_updated.emit("NLP", "RUNNING")
         except Exception as e:
             logger.debug(f"Thread status update: {e}")
