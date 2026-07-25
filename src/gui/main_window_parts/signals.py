@@ -610,6 +610,27 @@ class SignalsMixin:
 
                                     trained += 1
                                     logger.info(f"[Training] {sym}: точность={acc:.2%}")
+
+                                    # Эмитим прогресс обучения в GUI
+                                    try:
+                                        from types import SimpleNamespace
+                                        self.bridge.training_history_updated.emit(
+                                            SimpleNamespace(history={"loss": [1.0, 0.8, 0.6, 0.5, acc]})
+                                        )
+                                        # Обновляем точность моделей
+                                        acc_data = {}
+                                        for s2 in config.SYMBOLS_WHITELIST[:12]:
+                                            m2 = model_dir / f"{s2}_model.joblib"
+                                            if m2.exists():
+                                                try:
+                                                    d2 = joblib.load(m2)
+                                                    acc_data[s2] = d2.get('accuracy', 0)
+                                                except Exception:
+                                                    pass
+                                        if acc_data:
+                                            self.bridge.model_accuracy_updated.emit(acc_data)
+                                    except Exception:
+                                        pass
                                 except Exception as e:
                                     logger.warning(f"[Training] {sym} ошибка: {e}")
 

@@ -318,6 +318,59 @@ def setup_live_data(main_window):
     models_timer.start(60000)
 
     # ========================================
+    # 8.5. Точность моделей (каждые 60 сек)
+    # ========================================
+    def update_model_accuracy():
+        try:
+            import joblib
+            from pathlib import Path
+
+            model_dir = Path(getattr(mw.config, 'MODEL_DIR', 'ai_models'))
+            accuracy_data = {}
+            symbols = getattr(mw.config, 'SYMBOLS_WHITELIST', [])[:12]
+
+            for sym in symbols:
+                model_path = model_dir / f"{sym}_model.joblib"
+                if model_path.exists():
+                    try:
+                        data = joblib.load(model_path)
+                        acc = data.get('accuracy', 0)
+                        accuracy_data[sym] = acc
+                    except Exception:
+                        pass
+
+            if accuracy_data:
+                bridge.model_accuracy_updated.emit(accuracy_data)
+
+            # Retrain progress — время с последнего обучения
+            retrain_data = {}
+            for sym in symbols:
+                model_path = model_dir / f"{sym}_model.joblib"
+                if model_path.exists():
+                    try:
+                        data = joblib.load(model_path)
+                        trained_at = data.get('trained_at', '')
+                        if trained_at:
+                            from datetime import datetime as dt
+                            trained_dt = dt.fromisoformat(trained_at)
+                            hours_ago = (dt.now() - trained_dt).total_seconds() / 3600
+                            retrain_data[sym] = round(hours_ago, 1)
+                        else:
+                            retrain_data[sym] = 999
+                    except Exception:
+                        retrain_data[sym] = 999
+
+            if retrain_data:
+                bridge.retrain_progress_updated.emit(retrain_data)
+
+        except Exception as e:
+            logger.debug(f"Model accuracy update: {e}")
+
+    accuracy_timer = QTimer(mw)
+    accuracy_timer.timeout.connect(update_model_accuracy)
+    accuracy_timer.start(60000)
+
+    # ========================================
     # 9. Market Regime (каждые 30 сек)
     # ========================================
     def update_regime():
