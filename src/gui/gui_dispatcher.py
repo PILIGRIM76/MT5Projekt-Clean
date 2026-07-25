@@ -118,11 +118,41 @@ class GUIDispatcher(QObject):
         }
 
     def _on_equity_timer(self):
-        """Таймер эквити — запрос свежих данных из ядра."""
-        # Этот метод может быть переопределён или подключён к сигналу запроса
-        pass
+        """Таймер эквити — запрос свежих данных из MT5."""
+        try:
+            import MetaTrader5 as mt5
+            account = mt5.account_info()
+            if account:
+                self.push_equity_data({
+                    "balance": account.balance,
+                    "equity": account.equity,
+                    "profit": account.profit,
+                    "margin_free": account.margin_free,
+                    "margin_level": account.margin_level,
+                    "login": account.login,
+                    "server": account.server,
+                    "currency": account.currency,
+                })
+        except Exception as e:
+            logger.debug(f"Equity timer error: {e}")
 
     def _on_chart_timer(self):
-        """Таймер графика — запрос обновления из ядра."""
-        # Этот метод может быть переопределён или подключён к сигналу запроса
-        pass
+        """Таймер графика — запрос свежих свечей из MT5."""
+        try:
+            import MetaTrader5 as mt5
+            import pandas as pd
+            from datetime import datetime, timedelta
+
+            # Берём основной символ из конфига или EURUSD по умолчанию
+            symbol = getattr(self, '_chart_symbol', 'EURUSD')
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 100)
+            if rates is not None and len(rates) > 0:
+                df = pd.DataFrame(rates)
+                df['time'] = pd.to_datetime(df['time'], unit='s')
+                self.push_chart_data({
+                    "symbol": symbol,
+                    "df": df,
+                    "timeframe": "H1",
+                })
+        except Exception as e:
+            logger.debug(f"Chart timer error: {e}")

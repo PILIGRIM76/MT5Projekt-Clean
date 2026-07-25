@@ -232,6 +232,16 @@ class MainWindow(PanelsMixin, ChartsMixin, SignalsMixin, QMainWindow):
         self.chart_trade_history = []
         self.temp_html_file = None
 
+        # GUIDispatcher — автообновление данных из MT5
+        from src.gui.gui_dispatcher import GUIDispatcher
+        self.gui_dispatcher = GUIDispatcher(equity_interval_ms=3000, chart_interval_ms=5000)
+        self.gui_dispatcher.equity_data_ready.connect(
+            lambda d: self.bridge.balance_updated.emit(d.get("balance", 0), d.get("equity", 0))
+        )
+        self.gui_dispatcher.chart_data_ready.connect(
+            lambda d: self.bridge.candle_chart_updated.emit(d.get("df"), d.get("symbol", "EURUSD"))
+        )
+
         self.drift_data_points = []
         self.drift_alert_points = []
 
@@ -285,6 +295,14 @@ class MainWindow(PanelsMixin, ChartsMixin, SignalsMixin, QMainWindow):
         self.update_info_timer = QTimer(self)
         self.update_info_timer.timeout.connect(self._update_version_and_monitoring_info)
         self.update_info_timer.start(30 * 1000)
+
+        # Таймер обновления позиций и истории из MT5
+        self.mt5_data_timer = QTimer(self)
+        self.mt5_data_timer.timeout.connect(self._update_mt5_data)
+        self.mt5_data_timer.start(5000)
+
+        # Обновить данные сразу при запуске
+        QTimer.singleShot(2000, self._update_mt5_data)
 
         self.kg_enabled_checkbox.setChecked(self.trading_system.config.ENABLE_KNOWLEDGE_GRAPH_VISUALIZATION)
         self.on_kg_toggle()
@@ -420,6 +438,78 @@ class MainWindow(PanelsMixin, ChartsMixin, SignalsMixin, QMainWindow):
         for task_name, status in scheduler_summary.items():
             display_name = task_name.replace("Genesis", "")
             status_text += f"  {display_name}: {status}\n"
+
+    def _update_mt5_data(self):
+        """Периодическое обновление данных из MT5: баланс, позиции, история, свечи."""
+        try:
+            import MetaTrader5 as mt5
+            import pandas as pd
+
+            # 1. Баланс и эквити
+            account = mt5.account_info()
+            if account:
+                self.bridge.balance_updated.emit(account.balance, account.equity)
+
+            # 2. Открытые позиции
+            positions = mt5.positions_get()
+            if positions is not None:
+                pos_list = []
+                for p in positions:
+                    pos_list.append({
+                        "ticket": p.ticket,
+                        "symbol": p.symbol,
+                        "type": "BUY" if p.type == 0 else "SELL",
+                        "volume": p.volume,
+                        "price_open": p.price_open,
+                        "price_current": p.price_current,
+                        "profit": p.profit,
+                        "sl": p.sl,
+                        "tp": p.tp,
+                        "time": datetime.fromtimestamp(p.time).strftime("%Y-%m-%d %H:%M"),
+                    })
+                self.bridge.positions_updated.emit(pos_list)
+
+            # 3. История сделок (последние 50)
+            from datetime import timedelta
+            now = datetime.now()
+            deals = mt5.history_deals_get(now - timedelta(days=30), now)
+            if deals is not None:
+                history = []
+                for d in deals[-50:]:
+                    if d.entry == 0:
+                        continue
+                    history.append({
+                        "ticket": d.ticket,
+                        "symbol": d.symbol,
+                        "type": "BUY" if d.type == 0 else "SELL",
+                        "volume": d.volume,
+                        "price": d.price,
+                        "profit": d.profit,
+                        "time": datetime.fromtimestamp(d.time).strftime("%Y-%m-%d %H:%M"),
+                    })
+                self.bridge.history_updated.emit(history)
+
+            # 4. Свечи для графика
+            symbol = "EURUSD"
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 100)
+            if rates is not None and len(rates) > 0:
+                df = pd.DataFrame(rates)
+                df['time'] = pd.to_datetime(df['time'], unit='s')
+                self.bridge.candle_chart_updated.emit(df, symbol)
+
+            # 5. P&L данные
+            if deals is not None:
+                trade_history = []
+                for d in deals:
+                    if d.entry != 0 and d.profit != 0:
+                        trade_history.append(type('Trade', (), {
+                            'profit': d.profit,
+                            'time_close': datetime.fromtimestamp(d.time),
+                        })())
+                self.bridge.pnl_updated.emit(trade_history)
+
+        except Exception as e:
+            logger.debug(f"MT5 data update error: {e}")
 
     def _handle_long_task_status(self, task_id: str, message: str, is_finished: bool):
         self.notification_timer.stop()
