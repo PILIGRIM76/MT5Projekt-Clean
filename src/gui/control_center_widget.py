@@ -595,14 +595,16 @@ class ControlCenterWidget(QWidget):
             max_positions = getattr(self.config, "MAX_OPEN_POSITIONS", 5)
             max_drawdown = getattr(self.config, "MAX_DAILY_DRAWDOWN_PERCENT", 5.0)
 
-            # Определяем режим торговли
+            # Определяем режим торговли (config — Pydantic Settings, trading_mode может быть dict)
             mode = "standard"
-            if hasattr(self.config, "trading_mode"):
-                trading_mode = self.config.trading_mode
+            trading_mode = getattr(self.config, "trading_mode", None)
+            if trading_mode is None and hasattr(self.config, '__dict__'):
+                trading_mode = self.config.__dict__.get("trading_mode")
+            if isinstance(trading_mode, dict):
                 mode = trading_mode.get("current_mode", "standard")
 
             self.trading_settings_tab.update_current_params(risk, max_positions, max_drawdown, mode)
-            logger.info(f"[ControlCenter] Параметры загружены в TradingSettingsWidget: risk={risk}%, mode={mode}")
+            logger.info(f"[ControlCenter] Параметры загружены: risk={risk}%, positions={max_positions}, mode={mode}")
 
         # Также обновляем старые метки если они существуют (обратная совместимость)
         if hasattr(self, "current_risk_label"):

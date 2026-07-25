@@ -188,22 +188,22 @@ class ChartsMixin:
 
     def update_candle_chart(self: MainWindow, df: pd.DataFrame, symbol: str):
         logger.info(
-            f"[GUI-Chart] update_candle_chart вызван: symbol={symbol}, df is None={df is None}, df.empty={df.empty if df is not None else 'N/A'}, len={len(df) if df is not None else 0}"
+            f"[GUI-Chart] update_candle_chart: symbol={symbol}, len={len(df) if df is not None else 0}"
         )
         if df is None or df.empty or len(df) < 2:
-            logger.warning(f"[GUI-Chart] Данные недостаточны для отображения графика {symbol}")
             return
         try:
-            df = df.sort_index()
-            logger.info(f"[GUI-Chart] Обновление графика для {symbol}, баров: {len(df)}")
             self.price_plot.setTitle(f"График {symbol}")
             if len(df) > 200:
                 df_chart = df.tail(200)
-                logger.debug(f"[GUI-Chart] График обрезан до 200 баров из {len(df)}")
             else:
                 df_chart = df
 
-            timestamps = (pd.to_datetime(df_chart.index).astype(np.int64) / 1e9).astype(np.float64)
+            # Используем колонку time как timestamps
+            if 'time' in df_chart.columns:
+                timestamps = (df_chart['time'].astype(np.int64) / 1e9).astype(np.float64)
+            else:
+                timestamps = (pd.to_datetime(df_chart.index).astype(np.int64) / 1e9).astype(np.float64)
             open_vals = df_chart["open"].values.astype(np.float64)
             high_vals = df_chart["high"].values.astype(np.float64)
             low_vals = df_chart["low"].values.astype(np.float64)
