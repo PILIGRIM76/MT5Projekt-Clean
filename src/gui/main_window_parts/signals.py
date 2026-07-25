@@ -528,9 +528,97 @@ class SignalsMixin:
                     config = self.trading_system.config
                     try:
                         from src.core.training_scheduler import TrainingScheduler
-                        scheduler = TrainingScheduler(config)
+                        import joblib
+                        from pathlib import Path
+
+                        def training_callback(max_symbols=30, max_workers=3):
+                            """Callback для автоматического переобучения моделей."""
+                            import MetaTrader5 as mt5_train
+                            import numpy as np
+                            import pandas as pd
+                            import lightgbm as lgb
+                            from sklearn.model_selection import train_test_split
+                            from sklearn.metrics import accuracy_score
+
+                            logger.info(f"[Training] Запуск переобучения: {max_symbols} символов")
+
+                            mt5_train.initialize(
+                                path=r"C:\Program Files\Alpari MT5\terminal64.exe",
+                                login=53057252, password="Zk*xS7Cc",
+                                server="Alpari-MT5-Demo", timeout=30000
+                            )
+
+                            symbols = config.SYMBOLS_WHITELIST[:max_symbols]
+                            model_dir = Path(config.MODEL_DIR)
+                            model_dir.mkdir(parents=True, exist_ok=True)
+
+                            trained = 0
+                            for sym in symbols:
+                                try:
+                                    rates = mt5_train.copy_rates_from_pos(sym, mt5_train.TIMEFRAME_H1, 0, 1000)
+                                    if rates is None or len(rates) < 200:
+                                        continue
+
+                                    df = pd.DataFrame(rates)
+                                    df['returns'] = df['close'].pct_change()
+                                    df['ma_5'] = df['close'].rolling(5).mean()
+                                    df['ma_20'] = df['close'].rolling(20).mean()
+                                    df['ma_50'] = df['close'].rolling(50).mean()
+                                    df['volatility_20'] = df['returns'].rolling(20).std()
+                                    df['atr_14'] = df['tr'].rolling(14).mean() if 'tr' in df else 0
+                                    df['tr'] = np.maximum(df['high'] - df['low'],
+                                        np.maximum(np.abs(df['high'] - df['close'].shift(1)),
+                                                   np.abs(df['low'] - df['close'].shift(1))))
+                                    df['atr_14'] = df['tr'].rolling(14).mean()
+                                    delta = df['close'].diff()
+                                    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+                                    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+                                    rs = gain / (loss + 1e-10)
+                                    df['rsi_14'] = 100 - (100 / (1 + rs))
+                                    ema12 = df['close'].ewm(span=12).mean()
+                                    ema26 = df['close'].ewm(span=26).mean()
+                                    df['macd'] = ema12 - ema26
+                                    df['macd_signal'] = df['macd'].ewm(span=9).mean()
+                                    df['macd_hist'] = df['macd'] - df['macd_signal']
+                                    df['bb_middle'] = df['close'].rolling(20).mean()
+                                    df['bb_std'] = df['close'].rolling(20).std()
+                                    df['bb_width'] = (df['bb_middle'] + 2*df['bb_std'] - (df['bb_middle'] - 2*df['bb_std'])) / (df['bb_middle'] + 1e-10)
+                                    df['volume_ma'] = df['tick_volume'].rolling(20).mean()
+                                    df['volume_ratio'] = df['tick_volume'] / (df['volume_ma'] + 1e-10)
+                                    df['target'] = (df['close'].shift(-5) > df['close']).astype(int)
+                                    df = df.dropna()
+
+                                    if len(df) < 100:
+                                        continue
+
+                                    feat_cols = ['returns', 'ma_5', 'ma_20', 'ma_50', 'volatility_20',
+                                                'atr_14', 'rsi_14', 'macd', 'macd_signal', 'macd_hist',
+                                                'bb_width', 'volume_ratio']
+                                    X = df[feat_cols].values
+                                    y = df['target'].values
+                                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+
+                                    model = lgb.LGBMClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, verbose=-1)
+                                    model.fit(X_train, y_train)
+                                    acc = accuracy_score(y_test, model.predict(X_test))
+
+                                    joblib.dump({
+                                        'model': model, 'features': feat_cols, 'symbol': sym,
+                                        'accuracy': acc, 'trained_at': datetime.now().isoformat(),
+                                        'train_size': len(X_train), 'test_size': len(X_test),
+                                    }, model_dir / f"{sym}_model.joblib")
+
+                                    trained += 1
+                                    logger.info(f"[Training] {sym}: точность={acc:.2%}")
+                                except Exception as e:
+                                    logger.warning(f"[Training] {sym} ошибка: {e}")
+
+                            mt5_train.shutdown()
+                            logger.info(f"[Training] Переобучено {trained}/{len(symbols)} моделей")
+
+                        scheduler = TrainingScheduler(config, training_callback=training_callback)
                         scheduler.start()
-                        logger.info("[Training] TrainingScheduler started")
+                        logger.info("[Training] TrainingScheduler started with callback")
                     except Exception as e:
                         logger.warning(f"[Training] Failed to start: {e}")
 
@@ -880,6 +968,8 @@ class SignalsMixin:
             label = self.thread_status_labels[thread_name]
             status_colors = {
                 "RUNNING": ("#50fa7b", "РАБОТАЕТ"),
+                "READY": ("#8be9fd", "ГОТОВ"),
+                "STARTING": ("#f1fa8c", "ЗАПУСК..."),
                 "STOPPING": ("#f1fa8c", "ОСТАНОВКА..."),
                 "STOPPED": ("#ff5555", "ОСТАНОВЛЕН"),
             }
