@@ -201,9 +201,9 @@ class ChartsMixin:
 
             # Используем колонку time как timestamps
             if 'time' in df_chart.columns:
-                timestamps = (df_chart['time'].astype(np.int64) / 1e9).astype(np.float64)
+                timestamps = (df_chart['time'].astype(np.int64) / 1e9).to_numpy().astype(np.float64)
             else:
-                timestamps = (pd.to_datetime(df_chart.index).astype(np.int64) / 1e9).astype(np.float64)
+                timestamps = (pd.to_datetime(df_chart.index).astype(np.int64) / 1e9).to_numpy().astype(np.float64)
             open_vals = df_chart["open"].values.astype(np.float64)
             high_vals = df_chart["high"].values.astype(np.float64)
             low_vals = df_chart["low"].values.astype(np.float64)
@@ -211,16 +211,15 @@ class ChartsMixin:
 
             candlestick_data = np.column_stack((timestamps, open_vals, high_vals, low_vals, close_vals))
             self.candlestick_item.setData(candlestick_data)
-            logger.debug(f"[GUI-Chart] Данные свечей установлены: {len(candlestick_data)} баров")
 
             volume_vals = df_chart["tick_volume"].values
             self.volume_item.setOpts(x=timestamps, height=volume_vals)
 
             if len(timestamps) > 1:
-                time_span = timestamps[-1] - timestamps[0]
+                time_span = float(timestamps[-1] - timestamps[0])
                 x_padding = max(time_span * 0.1, 3600)
-                x_min = timestamps[0] - x_padding
-                x_max = timestamps[-1] + x_padding
+                x_min = float(timestamps[0]) - x_padding
+                x_max = float(timestamps[-1]) + x_padding
 
                 price_range = max(high_vals) - min(low_vals)
                 y_padding = max(price_range * 0.1, 1.0)

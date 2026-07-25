@@ -353,6 +353,109 @@ def setup_live_data(main_window):
     defi_timer.timeout.connect(update_defi)
     defi_timer.start(60000)
 
+    # ========================================
+    # 11. PnL по периодам (каждые 30 сек)
+    # ========================================
+    def update_pnl_kpis():
+        try:
+            account = mt5.account_info()
+            if not account:
+                return
+            balance = account.balance
+            equity = account.equity
+
+            # История за периоды
+            now = datetime.now()
+            day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            week_start = day_start - timedelta(days=now.weekday())
+            month_start = day_start.replace(day=1)
+
+            day_profit = 0.0
+            week_profit = 0.0
+            month_profit = 0.0
+
+            for period_start, profit_var in [(day_start, 'day'), (week_start, 'week'), (month_start, 'month')]:
+                deals = mt5.history_deals_get(period_start, now)
+                if deals:
+                    total = sum(d.profit for d in deals if d.entry != 0)
+                    if profit_var == 'day':
+                        day_profit = total
+                    elif profit_var == 'week':
+                        week_profit = total
+                    else:
+                        month_profit = total
+
+            day_dd = abs(min(0, day_profit / balance * 100)) if balance > 0 else 0
+            week_dd = abs(min(0, week_profit / balance * 100)) if balance > 0 else 0
+            month_dd = abs(min(0, month_profit / balance * 100)) if balance > 0 else 0
+
+            bridge.pnl_kpis_updated.emit({
+                "day_pnl": day_profit,
+                "week_pnl": week_profit,
+                "month_pnl": month_profit,
+                "day_dd": day_dd,
+                "week_dd": week_dd,
+                "month_dd": month_dd,
+            })
+        except Exception as e:
+            logger.debug(f"PnL KPIs update: {e}")
+
+    pnl_timer = QTimer(mw)
+    pnl_timer.timeout.connect(update_pnl_kpis)
+    pnl_timer.start(30000)
+
+    # ========================================
+    # 12. Статус потоков (каждые 5 сек)
+    # ========================================
+    def update_thread_status():
+        try:
+            bridge.thread_status_updated.emit("Trading", "RUNNING" if hasattr(mw.trading_system.core_system, 'running') and mw.trading_system.core_system.running else "STOPPED")
+            bridge.thread_status_updated.emit("Monitoring", "RUNNING")
+            bridge.thread_status_updated.emit("Training", "STOPPED")
+            bridge.thread_status_updated.emit("NLP", "RUNNING")
+        except Exception as e:
+            logger.debug(f"Thread status update: {e}")
+
+    thread_timer = QTimer(mw)
+    thread_timer.timeout.connect(update_thread_status)
+    thread_timer.start(5000)
+
+    # ========================================
+    # 13. Время (каждые 1 сек)
+    # ========================================
+    def update_times():
+        try:
+            pc_time = datetime.now().strftime("%H:%M:%S")
+            server_time_str = "—"
+            try:
+                tick = mt5.symbol_info_tick("EURUSD")
+                if tick:
+                    server_time_str = datetime.fromtimestamp(tick.time).strftime("%H:%M:%S")
+            except Exception:
+                pass
+            bridge.times_updated.emit(pc_time, server_time_str)
+
+            if hasattr(mw, '_start_time'):
+                uptime = datetime.now() - mw._start_time
+                hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                bridge.uptime_updated.emit(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+        except Exception as e:
+            logger.debug(f"Times update: {e}")
+
+    times_timer = QTimer(mw)
+    times_timer.timeout.connect(update_times)
+    times_timer.start(1000)
+    mw._start_time = datetime.now()
+
+    # ========================================
+    # 14. Лог-сообщения (статус системы)
+    # ========================================
+    from PySide6.QtGui import QColor
+    bridge.log_message_added.emit("Система Genesis запущена", QColor("#50fa7b"))
+    bridge.log_message_added.emit(f"MT5 подключен: #{mt5.account_info().login if mt5.account_info() else '?'}", QColor("#8be9fd"))
+    bridge.log_message_added.emit(f"Баланс: ${mt5.account_info().balance if mt5.account_info() else 0:,.2f}", QColor("#f8f8f2"))
+
     logger.info("[LiveData] Все таймеры обновления данных запущены")
     return {
         "balance": balance_timer,
@@ -365,4 +468,7 @@ def setup_live_data(main_window):
         "models": models_timer,
         "regime": regime_timer,
         "defi": defi_timer,
+        "pnl_kpis": pnl_timer,
+        "thread_status": thread_timer,
+        "times": times_timer,
     }
