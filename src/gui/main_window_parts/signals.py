@@ -63,6 +63,8 @@ class SignalsMixin:
         self.bridge.pnl_updated.connect(self.update_pnl_chart)
         self.bridge.market_scan_updated.connect(self.update_market_scanner_view)
         logger.info("[GUI] Сигнал market_scan_updated подключен к update_market_scanner_view")
+        if hasattr(self.bridge, 'trading_stopped'):
+            self.bridge.trading_stopped.connect(self._on_trading_stopped)
         self.bridge.uptime_updated.connect(self.update_uptime)
         self.bridge.rd_progress_updated.connect(self.update_rd_view)
         self.history_table.clicked.connect(self.on_history_trade_clicked)
@@ -620,6 +622,8 @@ class SignalsMixin:
                 self.sound_manager.play("system_stop")
                 self.trading_system.stop()
                 self.update_status("Команда на остановку отправлена...", is_error=False)
+                if hasattr(self.bridge, 'trading_stopped'):
+                    self.bridge.trading_stopped.emit(True)
                 logger.info("[GUI-Action] Команда на остановку торговой системы отправлена")
             else:
                 logger.warning("[GUI-Action] Система уже остановлена")
@@ -630,6 +634,11 @@ class SignalsMixin:
             self.uptime_label.setText("Время работы: остановлено")
         except Exception as e:
             logger.error(f"[GUI-Action] Ошибка при остановке торговли: {e}", exc_info=True)
+
+    def _on_trading_stopped(self: MainWindow, success: bool):
+        logger.info(f"[GUI] Торговля остановлена: success={success}")
+        self.start_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
 
     def close_all_positions(self: MainWindow):
         logger.info("[GUI-Action] Пользователь нажал кнопку 'Закрыть все позиции'")

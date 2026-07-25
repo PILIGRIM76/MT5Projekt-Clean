@@ -86,7 +86,9 @@ def setup_live_data(main_window):
                         'strategy': '—',
                         'trade_type': "BUY" if d.type == 0 else "SELL",
                         'volume': d.volume,
+                        'price_open': d.price,
                         'price_close': d.price,
+                        'time_open': datetime.fromtimestamp(d.time),
                         'time_close': datetime.fromtimestamp(d.time),
                         'profit': d.profit,
                         'timeframe': '—',
@@ -203,13 +205,22 @@ def setup_live_data(main_window):
                     trend = "—"
 
                 scanner_data.append({
-                    "Symbol": sym,
-                    "Bid": f"{bid:.5f}",
-                    "Ask": f"{ask:.5f}",
-                    "Spread": spread,
-                    "Volatility": f"{vol:.2f}%",
-                    "Trend": trend,
-                    "Trade Mode": "FULL" if info.trade_mode == 0 else "CLOSE" if info.trade_mode == 1 else "FORBIDDEN",
+                    "rank": len(scanner_data) + 1,
+                    "symbol": sym,
+                    "total_score": round(vol * 10 + spread * 0.1, 2),
+                    "volatility_score": round(vol * 10, 2),
+                    "normalized_atr_percent": round(vol, 2),
+                    "trend_score": 1.0 if trend == "ВВЕРХ" else -1.0 if trend == "ВНИЗ" else 0.0,
+                    "liquidity_score": round(100 / max(spread, 1), 2),
+                    "spread_pips": spread,
+                    "bid": f"{bid:.5f}",
+                    "ask": f"{ask:.5f}",
+                    "price": bid,
+                    "change_24h": 0,
+                    "rsi": 50,
+                    "volatility": vol,
+                    "regime": trend,
+                    "trade_mode": "FULL" if info.trade_mode == 0 else "CLOSE" if info.trade_mode == 1 else "FORBIDDEN",
                 })
 
             bridge.market_scan_updated.emit(scanner_data)
@@ -420,34 +431,6 @@ def setup_live_data(main_window):
     thread_timer = QTimer(mw)
     thread_timer.timeout.connect(update_thread_status)
     thread_timer.start(5000)
-
-    # ========================================
-    # 13. Время (каждые 1 сек)
-    # ========================================
-    def update_times():
-        try:
-            pc_time = datetime.now().strftime("%H:%M:%S")
-            server_time_str = "—"
-            try:
-                tick = mt5.symbol_info_tick("EURUSD")
-                if tick:
-                    server_time_str = datetime.fromtimestamp(tick.time).strftime("%H:%M:%S")
-            except Exception:
-                pass
-            bridge.times_updated.emit(pc_time, server_time_str)
-
-            if hasattr(mw, '_start_time'):
-                uptime = datetime.now() - mw._start_time
-                hours, remainder = divmod(int(uptime.total_seconds()), 3600)
-                minutes, seconds = divmod(remainder, 60)
-                bridge.uptime_updated.emit(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
-        except Exception as e:
-            logger.debug(f"Times update: {e}")
-
-    times_timer = QTimer(mw)
-    times_timer.timeout.connect(update_times)
-    times_timer.start(1000)
-    mw._start_time = datetime.now()
 
     # ========================================
     # 14. Лог-сообщения (статус системы)

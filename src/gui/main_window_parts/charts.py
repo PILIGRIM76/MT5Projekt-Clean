@@ -301,10 +301,14 @@ class ChartsMixin:
             logger.error(f"[GUI Error] Ошибка отрисовки Drift Chart: {e}", exc_info=True)
 
     def update_orchestrator_panel(self: MainWindow, allocation_data: dict):
-        logger.info(f"[GUI-Orchestrator] Обновление панели оркестратора: {len(allocation_data)} режимов")
+        # live_data шлёт {"strategies": {...}, "mode": ..., "risk": ...}
+        strategies = allocation_data.get("strategies", allocation_data)
+        if not isinstance(strategies, dict):
+            return
+        logger.info(f"[GUI-Orchestrator] Обновление: {len(strategies)} стратегий")
         try:
-            labels = list(allocation_data.keys())
-            values = [v * 100 for v in allocation_data.values()]
+            labels = list(strategies.keys())
+            values = [float(v) * 100 for v in strategies.values() if isinstance(v, (int, float))]
             x = np.arange(len(labels))
             self.orchestrator_bar_item.setOpts(x=x, height=values)
             ticks = [(i, label) for i, label in enumerate(labels)]

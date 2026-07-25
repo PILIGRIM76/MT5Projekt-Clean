@@ -304,7 +304,7 @@ class ControlCenterWidget(QWidget):
         self.force_retrain_btn.clicked.connect(self._force_retrain_requested)
         retrain_layout.addWidget(self.force_retrain_btn)
 
-        retrain_layout.addWidget(retrain_box)
+        layout.addWidget(retrain_box)
 
         # === ТЕКУЩИЕ ПАРАМЕТРЫ (только для просмотра) ===
         summary_group = QGroupBox("📈 Текущие Параметры (только просмотр)")
@@ -631,33 +631,7 @@ class ControlCenterWidget(QWidget):
             else:
                 self.current_mode_label.setText("🟡 Стандартный")
 
-        # --- Безопасная загрузка стратегий ---
-        if self.trading_system:
-            core = getattr(self.trading_system, "core_system", None)
-            if core:
-                # Проверяем, что strategy_loader уже инициализирован
-                if hasattr(core, "strategy_loader") and core.strategy_loader is not None:
-                    try:
-                        # Перезагружаем стратегии, чтобы получить актуальный список
-                        strategies = core.strategy_loader.load_strategies()
-                        available_strategies += [s.__class__.__name__ for s in strategies]
-                    except Exception as e:
-                        logger.warning(f"GUI Warning: Не удалось загрузить стратегии: {e}")
-        # --------------------------------------------------
-
-        # ОБНОВЛЕНИЕ: Загрузка таблицы стратегий только если она существует
-        if hasattr(self, "regime_table"):
-            self.regime_table.setRowCount(len(regime_mapping))
-            for i, (regime, strategy) in enumerate(regime_mapping.items()):
-                self.regime_table.setItem(i, 0, QTableWidgetItem(regime))
-                combo = QComboBox()
-                combo.addItems(available_strategies)
-                if strategy in available_strategies:
-                    combo.setCurrentText(strategy)
-                self.regime_table.setCellWidget(i, 1, combo)
-                self.regime_table.item(i, 0).setFlags(Qt.ItemIsEnabled)
-        else:
-            logger.debug("[ControlCenter] regime_table не существует (перенесен в другой виджет)")
+        logger.info(f"[ControlCenter] Параметры загружены: risk={risk}%, positions={max_positions}")
 
     def refresh_strategies(self):
         """
