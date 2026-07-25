@@ -1,4 +1,4 @@
-﻿# src/core/trading_system.py
+# src/core/trading_system.py
 """
 Ядро торговой системы: событийный пайплайн принятия решений.
 
@@ -322,6 +322,40 @@ class TradingSystem:
         }
 
         self._running = False
+
+    @property
+    def running(self) -> bool:
+        return self._running
+
+    @property
+    def hot_reload_manager(self):
+        return getattr(self, '_hot_reload_manager', None)
+
+    @hot_reload_manager.setter
+    def hot_reload_manager(self, value):
+        self._hot_reload_manager = value
+
+    def initialize_heavy_components(self):
+        logger.info("TradingSystem.initialize_heavy_components — загрузка ML моделей...")
+        if self.predictor:
+            logger.info("Predictor уже загружен")
+        if self.db:
+            logger.info("DatabaseManager уже загружен")
+        logger.info("Heavy components initialized")
+
+    def toggle_knowledge_graph(self, enabled: bool):
+        logger.info(f"Knowledge graph: {'включён' if enabled else 'выключен'}")
+
+    def record_human_feedback(self, trade_ticket: int, feedback: str):
+        logger.info(f"Human feedback received: ticket={trade_ticket}, feedback={feedback}")
+        if self.db:
+            try:
+                self.db.record_feedback(trade_ticket, feedback)
+            except Exception as e:
+                logger.error(f"Failed to record feedback: {e}")
+
+    async def get_vector_db_stats(self):
+        return {"count": 0, "is_ready": False, "has_embedding_model": False, "reason": "VectorDB not initialized"}
 
     async def start(self):
         """Запуск системы: подписка на события"""

@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTableView,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -868,7 +869,7 @@ class PanelsMixin:
 
     def on_kg_toggle(self: MainWindow):
         is_checked = self.kg_enabled_checkbox.isChecked()
-        if hasattr(self, "trading_system"):
+        if hasattr(self, "trading_system") and hasattr(self.trading_system.core_system, "toggle_knowledge_graph"):
             self.trading_system.core_system.toggle_knowledge_graph(is_checked)
         if hasattr(self, "knowledge_graph_view") and hasattr(self, "kg_disabled_label"):
             self.knowledge_graph_view.setVisible(is_checked)
@@ -908,7 +909,19 @@ class PanelsMixin:
     def _refresh_vector_db_stats(self: MainWindow):
         logger.info("[VectorDB-GUI] Запрос статистики VectorDB")
         if hasattr(self.trading_system, "get_vector_db_stats"):
-            stats = self.trading_system.get_vector_db_stats()
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    future = asyncio.ensure_future(self.trading_system.get_vector_db_stats())
+                    future.add_done_callback(self._on_vector_db_stats)
+                    return
+                else:
+                    stats = loop.run_until_complete(self.trading_system.get_vector_db_stats())
+            except RuntimeError:
+                stats = {}
+            if not stats:
+                stats = {}
             count = stats.get("count", 0)
             ready = stats.get("is_ready", False)
             has_embedding = stats.get("has_embedding_model", False)
@@ -931,6 +944,27 @@ class PanelsMixin:
 
             self.vdb_status_label.setText(f"Статус: {status_text}")
             self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+    def _on_vector_db_stats(self: MainWindow, future):
+        try:
+            stats = future.result()
+            count = stats.get("count", 0)
+            ready = stats.get("is_ready", False)
+            has_embedding = stats.get("has_embedding_model", False)
+            reason = stats.get("reason", "")
+            self.vdb_count_label.setText(f"Документов в индексе: {count}")
+            if ready:
+                status_text, color = "АКТИВНА", "#50fa7b"
+            elif reason:
+                status_text, color = f"ОШИБКА: {reason}", "#ff5555"
+            elif not has_embedding:
+                status_text, color = "НЕТ EMBEDDING МОДЕЛИ", "#ff5555"
+            else:
+                status_text, color = "НЕ ГОТОВА", "#ff5555"
+            self.vdb_status_label.setText(f"Статус: {status_text}")
+            self.vdb_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        except Exception as e:
+            logger.error(f"VectorDB stats error: {e}")
 
     def _run_vector_db_search(self: MainWindow):
         query = self.vdb_query_edit.text().strip()

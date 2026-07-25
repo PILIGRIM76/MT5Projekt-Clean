@@ -228,7 +228,7 @@ class MainWindow(PanelsMixin, ChartsMixin, SignalsMixin, QMainWindow):
         self.config = config
         self.trading_system = trading_system_adapter
         self.bridge = self.trading_system.bridge
-        self.sound_manager = self.trading_system.core_system.sound_manager
+        self.sound_manager = self.trading_system.sound_manager
         self.chart_trade_history = []
         self.temp_html_file = None
 

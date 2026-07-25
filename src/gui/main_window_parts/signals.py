@@ -119,11 +119,13 @@ class SignalsMixin:
                 QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.Yes:
-                self.trading_system.set_observer_mode(False)
+                import asyncio
+                asyncio.ensure_future(self.trading_system.set_observer_mode(False))
             else:
                 self.observer_checkbox.setChecked(True)
         else:
-            self.trading_system.set_observer_mode(True)
+            import asyncio
+            asyncio.ensure_future(self.trading_system.set_observer_mode(True))
 
     def _delete_selected_directive(self: MainWindow):
         selected_indexes = self.directives_table.selectionModel().selectedRows()
@@ -512,7 +514,11 @@ class SignalsMixin:
             self.status_label.setText("Подключение к торговому терминалу и запуск системы...")
             QApplication.processEvents()
 
-            threading.Thread(target=self.trading_system.start_all_threads, daemon=True).start()
+            def _run_async():
+                import asyncio
+                asyncio.run(self.trading_system.start_all_threads())
+
+            threading.Thread(target=_run_async, daemon=True).start()
             logger.info("[GUI-Action] Торговая система запускается в фоновом потоке")
         except Exception as e:
             logger.error(f"[GUI-Action] Ошибка при запуске торговли: {e}", exc_info=True)
