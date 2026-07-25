@@ -153,13 +153,18 @@ def setup_live_data(main_window):
     # ========================================
     def update_chart():
         try:
+            acct = mt5.account_info()
+            if acct is None:
+                return
             rates = mt5.copy_rates_from_pos("EURUSD", mt5.TIMEFRAME_H1, 0, 100)
             if rates is not None and len(rates) > 0:
                 df = pd.DataFrame(rates)
-                df['time'] = pd.to_datetime(df['time'], unit='s')
+                logger.info(f"[Chart] Emitting {len(df)} candles")
                 bridge.candle_chart_updated.emit(df, "EURUSD")
+            else:
+                logger.debug(f"[Chart] No rates from MT5: {rates}")
         except Exception as e:
-            logger.debug(f"Chart update: {e}")
+            logger.error(f"[Chart] Error: {e}", exc_info=True)
 
     chart_timer = QTimer(mw)
     chart_timer.timeout.connect(update_chart)
@@ -505,11 +510,16 @@ def setup_live_data(main_window):
     def update_thread_status():
         try:
             is_running = mw.trading_system.core_system.running
-            # После запуска GUI все сервисы работают
-            bridge.thread_status_updated.emit("Trading", "RUNNING" if is_running else "READY")
-            bridge.thread_status_updated.emit("Monitoring", "RUNNING")
-            bridge.thread_status_updated.emit("Training", "RUNNING")
-            bridge.thread_status_updated.emit("NLP", "RUNNING")
+            bridge.thread_status_updated.emit("Trading", "RUNNING" if is_running else "STOPPED")
+            bridge.thread_status_updated.emit("Monitoring", "RUNNING" if is_running else "STOPPED")
+            bridge.thread_status_updated.emit("Training", "RUNNING" if is_running else "STOPPED")
+            bridge.thread_status_updated.emit("NLP", "RUNNING" if is_running else "STOPPED")
+            bridge.thread_status_updated.emit("Orchestrator", "RUNNING" if is_running else "STOPPED")
+
+            # VectorDB — работает если система запущена и конфиг включён
+            vdb_cfg = getattr(mw.config, 'vector_db', None)
+            vdb_on = is_running and vdb_cfg and getattr(vdb_cfg, 'enabled', False)
+            bridge.thread_status_updated.emit("VectorDB Cleanup", "RUNNING" if vdb_on else "STOPPED")
         except Exception as e:
             logger.debug(f"Thread status update: {e}")
 

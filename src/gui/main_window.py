@@ -114,7 +114,6 @@ class MainWindow(QMainWindow):
         self.scheduler_manager = SchedulerManager()
         self.settings_window = SettingsWindow(self.scheduler_manager, self.config, self)
         self.settings_window.scheduler_status_updated.connect(self.update_thread_status_widget)
-        self.settings_window.theme_preview_requested.connect(self._on_theme_preview_requested)
 
         self.setGeometry(100, 100, 1600, 900)
 
@@ -379,8 +378,4 @@ class MainWindow(QMainWindow):
     # Предпросмотр темы из настроек
     # ========================================================================
 
-    @Slot(str)
-    def _on_theme_preview_requested(self, theme_name: str) -> None:
-        """Применяет выбранную тему в режиме предпросмотра."""
-        logger.info(f"[MainWindow] Предпросмотр темы: {theme_name}")
-        self.apply_style(theme_name)
+    # ========================================================================

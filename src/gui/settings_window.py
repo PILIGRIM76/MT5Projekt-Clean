@@ -435,11 +435,9 @@ class AddKeyDialog(QDialog):
 class SettingsWindow(QDialog):
     settings_saved = Signal()
     scheduler_status_updated = Signal(dict)
-    database_path_changed = Signal(str)  # Сигнал об изменении пути к базе данных
-    theme_preview_requested = Signal(str)  # Сигнал для предпросмотра темы
-    gui_settings_changed = Signal(dict)  # Сигнал для мгновенного применения настроек GUI
-    optimization_applied = Signal(dict)  # Сигнал для применения оптимизаций без перезапуска
-    memory_cleanup_requested = Signal()  # Сигнал для принудительной очистки памяти
+    database_path_changed = Signal(str)
+    optimization_applied = Signal(dict)
+    memory_cleanup_requested = Signal()
 
     def __init__(self, scheduler_manager: SchedulerManager, config: Settings, trading_system=None, parent=None):
 
@@ -506,9 +504,7 @@ class SettingsWindow(QDialog):
         updates_tab = self._create_updates_tab()
 
         self.tab_widget.addTab(mt5_tab, self.create_icon("🔌"), "Подключение MT5")
-        gui_tab = self._create_gui_interface_tab()  # НОВОЕ: Вкладка интерфейса
-        self.tab_widget.addTab(gui_tab, self.create_icon("🎨"), "Интерфейс (GUI)")
-        self.tab_widget.addTab(crypto_tab, self.create_icon("₿"), "Криптовалюты")  # НОВОЕ
+        self.tab_widget.addTab(crypto_tab, self.create_icon("₿"), "Криптовалюты")
         self.tab_widget.addTab(api_tab, self.create_icon("🔑"), "API Ключи")
         self.tab_widget.addTab(trading_tab, self.create_icon("💹"), "Торговля")
         self.tab_widget.addTab(paths_tab, self.create_icon("📁"), "Пути к данным")
@@ -516,7 +512,7 @@ class SettingsWindow(QDialog):
         self.tab_widget.addTab(news_scheduler_tab, self.create_icon("📰"), "Планировщик Новостей")
         self.tab_widget.addTab(notifications_tab, self.create_icon("🔔"), "Уведомления")
         self.tab_widget.addTab(updates_tab, self.create_icon("🔄"), "Обновления")
-        optimization_tab = self._create_optimization_tab()  # НОВОЕ: Вкладка оптимизации
+        optimization_tab = self._create_optimization_tab()
         self.tab_widget.addTab(optimization_tab, self.create_icon("⚡"), "Оптимизация")
 
         # НОВОЕ: Вкладка Копирование Сделок (в самом конце для заметности)
@@ -1623,12 +1619,10 @@ class SettingsWindow(QDialog):
         """Получение HotReloadManager."""
         try:
             # self.trading_system это MainWindow
-            # MainWindow.trading_system это PySideTradingSystem
-            # PySideTradingSystem это адаптер
+            # MainWindow.trading_system это PySideTradingSystem (адаптер)
             if self.trading_system:
-                if hasattr(self.trading_system, "trading_system") and self.trading_system.trading_system:
-                    main_window = self.trading_system
-                    adapter = main_window.trading_system
+                adapter = getattr(self.trading_system, 'trading_system', None)
+                if adapter:
                     return getattr(adapter, "hot_reload_manager", None)
         except Exception as e:
             logger.error(f"[SettingsWindow] Ошибка получения HotReloadManager: {e}")
@@ -1681,15 +1675,15 @@ class SettingsWindow(QDialog):
         content_widget = QWidget()
         self._trading_tab_widget = content_widget
         main_layout = QVBoxLayout(content_widget)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
 
         # === ЗАГОЛОВОК ===
         title_layout = QHBoxLayout()
         title_layout.setSpacing(10)
 
         title_label = QLabel("<h2>⚙️ Торговля и Риск-менеджмент</h2>")
-        title_label.setStyleSheet("color: #f8f8f2; padding: 10px;")
+        title_label.setStyleSheet("color: #f8f8f2; padding: 5px;")
         title_label.setWordWrap(True)
         title_layout.addWidget(title_label)
 
@@ -1769,14 +1763,7 @@ class SettingsWindow(QDialog):
             }
         """)
         modes_layout = QVBoxLayout(modes_group)
-
-        modes_desc = QLabel(
-            "Выберите готовый режим торговли для автоматической настройки риск-менеджмента.\n"
-            "Настройки применяются немедленно и сохраняются в конфигурацию."
-        )
-        modes_desc.setStyleSheet("color: #bdc3c7; padding: 5px;")
-        modes_desc.setWordWrap(True)
-        modes_layout.addWidget(modes_desc)
+        modes_layout.setContentsMargins(5, 5, 5, 5)
 
         # Используем TradingModesWidget (у него есть встроенный скролл)
         self.trading_modes_widget = TradingModesWidget()
@@ -1814,6 +1801,9 @@ class SettingsWindow(QDialog):
             }
         """)
         risk_layout = QGridLayout(self._risk_group)
+        risk_layout.setContentsMargins(5, 5, 5, 5)
+        risk_layout.setHorizontalSpacing(10)
+        risk_layout.setVerticalSpacing(5)
 
         risk_layout.addWidget(QLabel("Риск на сделку (% от капитала):"), 0, 0)
         self.risk_percentage_spinbox = QDoubleSpinBox()
@@ -1848,6 +1838,9 @@ class SettingsWindow(QDialog):
         positions_group = QGroupBox("Управление Позициями")
         positions_group.setToolTip("Настройки управления количеством открытых позиций и торговлей в выходные дни.")
         positions_layout = QGridLayout(positions_group)
+        positions_layout.setContentsMargins(5, 5, 5, 5)
+        positions_layout.setHorizontalSpacing(10)
+        positions_layout.setVerticalSpacing(5)
 
         positions_layout.addWidget(QLabel("Макс. кол-во открытых позиций:"), 0, 0)
         self.max_open_positions_spinbox = QSpinBox()
@@ -1872,11 +1865,13 @@ class SettingsWindow(QDialog):
             "Робот будет анализировать и торговать только выбранные символы."
         )
         symbols_layout = QVBoxLayout(symbols_group)
+        symbols_layout.setContentsMargins(5, 5, 5, 5)
 
         self.symbols_table = QTableWidget()
         self.symbols_table.setColumnCount(1)
         self.symbols_table.setHorizontalHeaderLabels(["Символ"])
         self.symbols_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.symbols_table.setMaximumHeight(150)
         self.symbols_table.setToolTip(
             "Список символов (whitelist), которыми разрешено торговать роботу.\nСистема будет анализировать и открывать сделки только по этим инструментам."
         )
@@ -1932,22 +1927,25 @@ class SettingsWindow(QDialog):
     def load_settings(self):
         # Читаем MT5 из settings.json (основной источник)
         try:
-            with open(self.env_path.parent / "configs" / "settings.json", "r", encoding="utf-8") as f:
+            with open(self.env_path.parent / "settings.json", "r", encoding="utf-8") as f:
                 json_config = json.load(f)
         except Exception:
             json_config = {}
+        self.json_config = json_config
 
         config_values = dotenv_values(self.env_path)
         # Приоритет: settings.json > .env
         for key, widget in self.mt5_entries.items():
-            value = json_config.get(key, config_values.get(key, ""))
+            value = self.json_config.get(key, config_values.get(key, ""))
             widget.setText(value)
         self.api_table.setRowCount(0)
-        api_keys = {
-            k: v
-            for k, v in config_values.items()
-            if k.endswith(("_KEY", "_TOKEN", "_ID", "_HASH")) and not k.startswith("MT5")
-        }
+        # Приоритет: settings.json > .env для API-ключей
+        api_keys = {}
+        for source in [config_values, self.json_config]:
+            for k, v in source.items():
+                if k.endswith(("_KEY", "_TOKEN", "_ID", "_HASH")) and not k.startswith("MT5"):
+                    if v:  # пропускаем пустые значения
+                        api_keys[k] = v
         for key, value in api_keys.items():
             self._add_row_to_api_table(key, value)
 
@@ -2020,9 +2018,6 @@ class SettingsWindow(QDialog):
         self.logs_folder_edit.setText(logs_path)
 
         self._update_scheduler_status()
-
-        # Загрузка настроек GUI
-        self._load_gui_settings()
 
         # Загрузка настроек автообучения
         if hasattr(self.full_config, "auto_retraining"):
@@ -2097,121 +2092,50 @@ class SettingsWindow(QDialog):
 
         # P0: Загрузка настроек уведомлений (Telegram/Email)
         config_values = dotenv_values(self.env_path)
-        logger.info(f"Загрузка настроек уведомлений из {self.env_path}")
-        logger.info(f"config_values keys: {list(config_values.keys())}")
 
         # Получаем SecretsManager для загрузки чувствительных данных
         secrets_mgr = get_secrets_manager()
-        logger.info(f"SecretsManager инициализирован: {secrets_mgr}")
-        logger.info(f"Secrets file exists: {secrets_mgr.secrets_file.exists()}")
-        logger.info(f"Secrets file path: {secrets_mgr.secrets_file}")
 
-        if hasattr(self.full_config, "alerting"):
-            alerting_config = self.full_config.alerting
-            logger.info(f"alerting конфигурация найдена: {alerting_config}")
-
+        # Загружаем alerting из self.json_config (актуальный settings.json), а не из Pydantic модели
+        alerting_config = self.json_config.get("alerting", {})
+        if alerting_config:
             # Telegram
-            telegram_config = (
-                alerting_config.channels.get("telegram", {})
-                if isinstance(alerting_config.channels, dict)
-                else {"enabled": False}
-            )
-            logger.info(f"Telegram config: {telegram_config}")
-
-            telegram_enabled_saved = telegram_config.get("enabled", False)
-            logger.info(f"Telegram enabled из settings.json: {telegram_enabled_saved}")
-            self.telegram_enabled_checkbox.setChecked(telegram_enabled_saved)
+            telegram_config = alerting_config.get("channels", {}).get("telegram", {})
+            self.telegram_enabled_checkbox.setChecked(telegram_config.get("enabled", False))
 
             # Токен загружаем из .env или SecretsManager
             telegram_token = config_values.get("TELEGRAM_BOT_TOKEN", "")
-            logger.info(
-                f"Telegram token из .env: {'есть' if telegram_token else 'нет'} (длина: {len(telegram_token) if telegram_token else 0})"
-            )
-
             if not telegram_token:
-                # Пробуем загрузить из SecretsManager
-                logger.info("Попытка загрузки Telegram token из SecretsManager...")
                 telegram_token = secrets_mgr.get_secret("TELEGRAM_BOT_TOKEN", cache=True) or ""
-                logger.info(
-                    f"Telegram token из SecretsManager: {'есть' if telegram_token else 'нет'} (длина: {len(telegram_token) if telegram_token else 0})"
-                )
-
-            if telegram_token:
-                # Маскируем токен для безопасности (показываем первые 10 символов)
-                masked_token = telegram_token[:10] + "..." if len(telegram_token) > 10 else telegram_token
-                logger.info(f"✅ Telegram token загружен: {masked_token}")
-            else:
-                logger.warning("❌ Telegram token НЕ загружен (пустой)")
             self.telegram_token_edit.setText(telegram_token)
 
             telegram_chat_id = config_values.get("TELEGRAM_CHAT_ID", "")
-            logger.info(f"Telegram chat_id из .env: {'есть' if telegram_chat_id else 'нет'} (значение: {telegram_chat_id})")
             self.telegram_chat_id_edit.setText(telegram_chat_id)
 
             # Email
-            email_config = (
-                alerting_config.channels.get("email", {}) if isinstance(alerting_config.channels, dict) else {"enabled": False}
-            )
-            logger.info(f"Email config: {email_config}")
-
-            email_enabled_saved = email_config.get("enabled", False)
-            logger.info(f"Email enabled из settings.json: {email_enabled_saved}")
-            self.email_enabled_checkbox.setChecked(email_enabled_saved)
-
-            if isinstance(email_config, dict):
-                # Исправление: если smtp_server пустой, используем значение по умолчанию
-                smtp_server = email_config.get("smtp_server", "smtp.gmail.com")
-                if not smtp_server:  # Пустая строка = None
-                    smtp_server = "smtp.gmail.com"
-                self.email_smtp_edit.setText(smtp_server)
-                self.email_port_edit.setValue(email_config.get("smtp_port", 587))
-            else:
-                self.email_smtp_edit.setText("smtp.gmail.com")
-                self.email_port_edit.setValue(587)
+            email_config = alerting_config.get("channels", {}).get("email", {})
+            self.email_enabled_checkbox.setChecked(email_config.get("enabled", False))
+            smtp_server = email_config.get("smtp_server", "smtp.yandex.ru")
+            self.email_smtp_edit.setText(smtp_server or "smtp.yandex.ru")
+            self.email_port_edit.setValue(email_config.get("smtp_port", 587))
 
             # Загружаем Email из .env
-            email_from = config_values.get("ALERT_EMAIL_FROM", "")
-            logger.info(f"Email from из .env: {'есть' if email_from else 'нет'} (значение: {email_from})")
-            self.email_from_edit.setText(email_from)
-
-            email_recipients = config_values.get("ALERT_EMAIL_RECIPIENTS", "")
-            logger.info(f"Email recipients из .env: {'есть' if email_recipients else 'нет'} (значение: {email_recipients})")
-            self.email_recipients_edit.setText(email_recipients)
+            self.email_from_edit.setText(config_values.get("ALERT_EMAIL_FROM", ""))
+            self.email_recipients_edit.setText(config_values.get("ALERT_EMAIL_RECIPIENTS", ""))
 
             # Пароль загружаем из .env или SecretsManager
             email_password = config_values.get("ALERT_EMAIL_PASSWORD", "")
-            logger.info(
-                f"Email password из .env: {'есть' if email_password else 'нет'} (длина: {len(email_password) if email_password else 0})"
-            )
-
             if not email_password:
-                # Пробуем загрузить из SecretsManager
-                logger.info("Попытка загрузки Email password из SecretsManager...")
                 email_password = secrets_mgr.get_secret("ALERT_EMAIL_PASSWORD", cache=True) or ""
-                logger.info(
-                    f"Email password из SecretsManager: {'есть' if email_password else 'нет'} (длина: {len(email_password) if email_password else 0})"
-                )
-
-            if email_password:
-                logger.info("✅ Email password загружен")
-            else:
-                logger.warning("❌ Email password НЕ загружен (пустой)")
             self.email_password_edit.setText(email_password)
 
             # Quiet Hours
-            if isinstance(alerting_config, dict):
-                quiet_hours_config = alerting_config.get("quiet_hours", {})
-            else:
-                quiet_hours_config = alerting_config.quiet_hours if hasattr(alerting_config, "quiet_hours") else {}
-
-            if isinstance(quiet_hours_config, dict):
-                self.quiet_hours_enabled_checkbox.setChecked(quiet_hours_config.get("enabled", False))
-                if quiet_hours_config.get("start"):
-                    self.quiet_hours_start_edit.setTime(QTime.fromString(quiet_hours_config["start"], "HH:mm"))
-                if quiet_hours_config.get("end"):
-                    self.quiet_hours_end_edit.setTime(QTime.fromString(quiet_hours_config["end"], "HH:mm"))
-            else:
-                self.quiet_hours_enabled_checkbox.setChecked(False)
+            quiet_hours_config = alerting_config.get("quiet_hours", {})
+            self.quiet_hours_enabled_checkbox.setChecked(quiet_hours_config.get("enabled", False))
+            if quiet_hours_config.get("start"):
+                self.quiet_hours_start_edit.setTime(QTime.fromString(quiet_hours_config["start"], "HH:mm"))
+            if quiet_hours_config.get("end"):
+                self.quiet_hours_end_edit.setTime(QTime.fromString(quiet_hours_config["end"], "HH:mm"))
 
             # Social Trading Settings
             self._load_social_settings()
@@ -2220,17 +2144,10 @@ class SettingsWindow(QDialog):
             self._load_news_scheduler_settings()
 
             # Daily Digest
-            if isinstance(alerting_config, dict):
-                digest_config = alerting_config.get("daily_digest", {})
-            else:
-                digest_config = alerting_config.daily_digest if hasattr(alerting_config, "daily_digest") else {}
-
-            if isinstance(digest_config, dict):
-                self.digest_enabled_checkbox.setChecked(digest_config.get("enabled", True))
-                if digest_config.get("time"):
-                    self.digest_time_edit.setTime(QTime.fromString(digest_config["time"], "HH:mm"))
-            else:
-                self.digest_enabled_checkbox.setChecked(True)
+            digest_config = alerting_config.get("daily_digest", {})
+            self.digest_enabled_checkbox.setChecked(digest_config.get("enabled", True))
+            if digest_config.get("time"):
+                self.digest_time_edit.setTime(QTime.fromString(digest_config["time"], "HH:mm"))
         else:
             logger.warning("alerting конфигурация не найдена в settings.json")
 
@@ -2270,12 +2187,14 @@ class SettingsWindow(QDialog):
 
         # --- 2. Сохранение API ключей ---
         try:
-            initial_keys = {
-                k
-                for k, v in dotenv_values(self.env_path).items()
-                if k.endswith(("_KEY", "_TOKEN", "_ID", "_HASH")) and not k.startswith("MT5")
-            }
+            # Собираем ключи из .env и settings.json
+            initial_keys = set()
+            for source in [dotenv_values(self.env_path), self.json_config]:
+                for k in source:
+                    if k.endswith(("_KEY", "_TOKEN", "_ID", "_HASH")) and not k.startswith("MT5"):
+                        initial_keys.add(k)
             table_keys = set()
+            api_keys_to_save = {}
             for row in range(self.api_table.rowCount()):
                 key_item = self.api_table.item(row, 0)
                 value_item = self.api_table.item(row, 1)
@@ -2284,6 +2203,7 @@ class SettingsWindow(QDialog):
                     value = value_item.text()
                     table_keys.add(key)
                     set_key(self.env_path, key, value)
+                    api_keys_to_save[key] = value
 
                     # Сохраняем API ключи в Credential Manager
                     if secrets_mgr and key.endswith(("_KEY", "_TOKEN")):
@@ -2294,10 +2214,14 @@ class SettingsWindow(QDialog):
                         except Exception as e:
                             logger.debug(f"Не удалось сохранить {key} в Credential Manager: {e}")
 
+            # Сохраняем также в settings.json
+            if api_keys_to_save:
+                write_config(api_keys_to_save)
+
             keys_to_delete = initial_keys - table_keys
             for key in keys_to_delete:
                 set_key(self.env_path, key, "")
-            logger.info("Настройки API ключей успешно сохранены в .env файл.")
+            logger.info("Настройки API ключей успешно сохранены в .env и settings.json.")
         except Exception as e:
             logger.error(f"Произошла ошибка при сохранении API ключей: {e}")
             QMessageBox.critical(self, "Ошибка сохранения", f"Не удалось сохранить API ключи: {e}")
@@ -2463,8 +2387,6 @@ class SettingsWindow(QDialog):
             }
 
             # Настройки GUI
-            self._save_gui_settings(settings_to_update)
-
             settings_to_update.update(
                 {
                     "GP_POPULATION_SIZE": safe_val(self.gp_pop_spin, self.full_config.GP_POPULATION_SIZE),
@@ -2631,15 +2553,6 @@ class SettingsWindow(QDialog):
     def accept(self):
         # Сначала сохраняем настройки, пока виджеты живы
         self.save_settings()
-
-        # Отправляем новые настройки GUI для мгновенного применения
-        new_gui_settings = {
-            "GUI_THEME": self.gui_theme_combo.currentText(),
-            "ALWAYS_ON_TOP": self.gui_always_on_top_checkbox.isChecked(),
-            "USE_CUSTOM_TITLE_BAR": self.gui_custom_titlebar_checkbox.isChecked(),
-            "ANIMATIONS_ENABLED": self.gui_animations_checkbox.isChecked(),
-        }
-        self.gui_settings_changed.emit(new_gui_settings)
 
         # Останавливаем все активные тестеры перед закрытием
         self._stop_all_testers()
@@ -3106,7 +3019,9 @@ class SettingsWindow(QDialog):
             "4. Нажмите 'Тестировать'"
         )
         telegram_help.setWordWrap(True)
-        telegram_help.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
+        telegram_help.setStyleSheet(
+            "background-color: #282a36; color: #f8f8f2; padding: 10px; border-radius: 5px; border-left: 3px solid #8be9fd;"
+        )
         telegram_help.setToolTip("Следуйте инструкции для быстрой настройки Telegram уведомлений")
         telegram_layout.addWidget(telegram_help, 4, 0, 1, 3)
 
@@ -3217,7 +3132,9 @@ class SettingsWindow(QDialog):
             "4. Нажмите 'Тестировать'"
         )
         email_help.setWordWrap(True)
-        email_help.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
+        email_help.setStyleSheet(
+            "background-color: #282a36; color: #f8f8f2; padding: 10px; border-radius: 5px; border-left: 3px solid #50fa7b;"
+        )
         email_help.setToolTip("Следуйте инструкции для быстрой настройки Email уведомлений")
         email_layout.addWidget(email_help, 7, 0, 1, 3)
 
@@ -3452,7 +3369,7 @@ class SettingsWindow(QDialog):
         env_path = configs_dir / ".env"
         if not env_path.exists():
             env_path.touch()
-        return str(env_path)
+        return env_path
 
     def _create_crypto_tab(self):
         """Создает вкладку для настройки криптовалютных бирж."""
@@ -3691,108 +3608,7 @@ class SettingsWindow(QDialog):
         layout.addLayout(test_layout, 4, 1)
         return self._create_scrollable_widget(content_widget)
 
-    def _create_gui_interface_tab(self):
-        """Создание вкладки настроек интерфейса (GUI)."""
-        content_widget = QWidget()
-        layout = QGridLayout(content_widget)
-        layout.setSpacing(12)
-
-        row = 0
-
-        # --- Тема интерфейса ---
-        layout.addWidget(QLabel("Тема оформления:"), row, 0)
-        self.gui_theme_combo = QComboBox()
-        self.gui_theme_combo.addItems(["Темная", "Светлая", "Стандартная"])
-        # Значение будет установлено при загрузке настроек
-        layout.addWidget(self.gui_theme_combo, row, 1)
-        row += 1
-
-        # --- Always on Top ---
-        layout.addWidget(QLabel("Всегда поверх окон:"), row, 0)
-        self.gui_always_on_top_checkbox = QCheckBox()
-        layout.addWidget(self.gui_always_on_top_checkbox, row, 1)
-        row += 1
-
-        # --- Кастомная рамка окна ---
-        layout.addWidget(QLabel("Кастомная рамка окна:"), row, 0)
-        self.gui_custom_titlebar_checkbox = QCheckBox()
-        layout.addWidget(self.gui_custom_titlebar_checkbox, row, 1)
-        row += 1
-
-        # --- Анимации ---
-        layout.addWidget(QLabel("Анимации интерфейса:"), row, 0)
-        self.gui_animations_checkbox = QCheckBox()
-        layout.addWidget(self.gui_animations_checkbox, row, 1)
-        row += 1
-
-        # --- Разделитель ---
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line, row, 0, 1, 2)
-        row += 1
-
-        # --- Описание ---
-        description_label = QLabel(
-            "💡 <b>Тема оформления:</b> Переключайте между светлой и тёмной темой.\n"
-            "📌 <b>Всегда поверх окон:</b> Окно Genesis будет поверх всех остальных окон.\n"
-            "🖼️ <b>Кастомная рамка:</b> Убирает системные рамки, добавляет кастомную с перетаскиванием.\n"
-            "✨ <b>Анимации:</b> Плавные переходы при переключении вкладок и уведомлениях.\n"
-            "   Отключаются автоматически при высокой нагрузке CPU (>85%)."
-        )
-        description_label.setWordWrap(True)
-        description_label.setStyleSheet(
-            "color: #5F6980; font-size: 9pt; padding: 8px; background: #F7F9FC; border-radius: 6px;"
-        )
-        layout.addWidget(description_label, row, 0, 1, 2)
-
-        # --- Кнопка предпросмотра ---
-        row += 1
-        preview_button = QPushButton("🔄 Применить тему сейчас")
-        preview_button.clicked.connect(self._apply_gui_theme_preview)
-        layout.addWidget(preview_button, row, 0, 1, 2)
-
         return self._create_scrollable_widget(content_widget)
-
-    def _apply_gui_theme_preview(self):
-        """Применяет выбранную тему в режиме предпросмотра."""
-        theme = self.gui_theme_combo.currentText()
-        # Сигнал для MainWindow (подключается извне)
-        self.theme_preview_requested.emit(theme)
-
-    def _load_gui_settings(self):
-        """Загружает настройки GUI из конфига."""
-        try:
-            cfg = self.full_config
-            # Тема
-            theme = getattr(cfg, "GUI_THEME", "Темная")
-            idx = self.gui_theme_combo.findText(theme)
-            if idx >= 0:
-                self.gui_theme_combo.setCurrentIndex(idx)
-
-            # Always on Top
-            self.gui_always_on_top_checkbox.setChecked(getattr(cfg, "ALWAYS_ON_TOP", False))
-
-            # Custom Title Bar
-            self.gui_custom_titlebar_checkbox.setChecked(getattr(cfg, "USE_CUSTOM_TITLE_BAR", False))
-
-            # Animations
-            self.gui_animations_checkbox.setChecked(getattr(cfg, "ANIMATIONS_ENABLED", True))
-
-            logger.info(
-                f"[GUI Settings] Загружены: тема={theme}, on_top={self.gui_always_on_top_checkbox.isChecked()}, "
-                f"custom_tb={self.gui_custom_titlebar_checkbox.isChecked()}, anim={self.gui_animations_checkbox.isChecked()}"
-            )
-        except Exception as e:
-            logger.warning(f"[GUI Settings] Ошибка загрузки настроек: {e}")
-
-    def _save_gui_settings(self, settings_to_update: dict) -> None:
-        """Сохраняет настройки GUI в словарь для последующей записи."""
-        settings_to_update["GUI_THEME"] = self.gui_theme_combo.currentText()
-        settings_to_update["ALWAYS_ON_TOP"] = self.gui_always_on_top_checkbox.isChecked()
-        settings_to_update["USE_CUSTOM_TITLE_BAR"] = self.gui_custom_titlebar_checkbox.isChecked()
-        settings_to_update["ANIMATIONS_ENABLED"] = self.gui_animations_checkbox.isChecked()
-        logger.info(f"[GUI Settings] Подготовлены к сохранению: тема={settings_to_update['GUI_THEME']}")
 
     def _create_api_tab(self):
         content_widget = QWidget()

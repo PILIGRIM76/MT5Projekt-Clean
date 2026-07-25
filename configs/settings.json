@@ -561,5 +561,6 @@
     "quarantine_days": 3,
     "commission_per_trade": 0.0001,
     "slippage_percent": 0.0002
-  }
+  },
+  "TELEGRAM_BOT_TOKEN": "8701867211:AAE4KZZAReVDsyAbYjrlAFmSrwXvOxLA6TU  "
 }

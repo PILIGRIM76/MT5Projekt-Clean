@@ -7,6 +7,7 @@
 import asyncio
 import logging
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import MetaTrader5 as mt5
@@ -19,6 +20,7 @@ from src.core.thread_domains import ThreadDomain
 from src.core.trading_system import TradingSystem
 from src.gui.sound_manager import SoundManager
 from src.gui.widgets.bridges import Bridge, GUIBridge
+from src.monitoring.alert_manager import AlertManager
 from src.utils.worker import Worker
 
 logger = logging.getLogger(__name__)
@@ -35,19 +37,46 @@ class PySideTradingSystem(QObject):
         self.config = config
         self.bridge = bridge
         self.sound_manager = sound_manager
-        self._event_bridge: Optional[GUIBridge] = None  # Будет установлен через set_event_bridge()
+        self._event_bridge: Optional[GUIBridge] = None
 
         # Новая архитектура: TradingSystem принимает только core компоненты
-        # mt5_api, db_manager, predictor инициализируются отдельно
         self.core_system: TradingSystem = TradingSystem(
             config=config.dict() if hasattr(config, "dict") else config,
-            mt5_api=None,  # Будет установлен позже
-            db_manager=None,  # Будет установлен позже
-            predictor=None,  # Будет установлен позже
+            mt5_api=None,
+            db_manager=None,
+            predictor=None,
         )
+
+        # Менеджер уведомлений
+        self.alert_manager = AlertManager(config, trading_system_ref=self)
+
+        # Hot-reload менеджер
+        self._init_hot_reload_manager()
 
         self._connect_core_signals()
         self._proxy_core_methods()
+
+    def _init_hot_reload_manager(self):
+        """Инициализация HotReloadManager для обновления системы."""
+        try:
+            from src.core.hot_reload_manager import HotReloadManager, HotReloadConfig
+            repo_path = str(Path(__file__).parent.parent.parent)
+            config_obj = HotReloadConfig(dry_run=False, auto_apply=False)
+            manager = HotReloadManager(
+                repo_path=repo_path,
+                branch="main",
+                trading_system=self.core_system,
+                config=config_obj,
+            )
+            self.core_system.hot_reload_manager = manager
+            logger.info("[HotReload] HotReloadManager инициализирован")
+        except Exception as e:
+            logger.warning(f"[HotReload] Не удалось инициализировать HotReloadManager: {e}")
+
+    @property
+    def hot_reload_manager(self):
+        """Доступ к HotReloadManager через core_system."""
+        return self.core_system.hot_reload_manager
 
     def set_event_bridge(self, event_bridge: GUIBridge):
         """Установка ссылки на GUIEventBridge для публикации событий"""

@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PySide6.QtCore import Slot
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QBrush
 
 if TYPE_CHECKING:
     from main_pyside import MainWindow
@@ -187,9 +187,7 @@ class ChartsMixin:
             logger.error(f"[GUI-RetrainProgress] Ошибка при обновлении графика: {e}", exc_info=True)
 
     def update_candle_chart(self: MainWindow, df: pd.DataFrame, symbol: str):
-        logger.info(
-            f"[GUI-Chart] update_candle_chart: symbol={symbol}, len={len(df) if df is not None else 0}"
-        )
+        logger.info(f"[GUI-Chart] update_candle_chart called: symbol={symbol}, rows={len(df) if df is not None else 0}")
         if df is None or df.empty or len(df) < 2:
             return
         try:
@@ -199,42 +197,62 @@ class ChartsMixin:
             else:
                 df_chart = df
 
-            # MT5 time уже в Unix seconds — НЕ делим на 1e9
-            if 'time' in df_chart.columns:
-                timestamps = df_chart['time'].to_numpy().astype(np.float64)
-            else:
-                timestamps = (pd.to_datetime(df_chart.index).astype(np.int64) / 1e9).to_numpy().astype(np.float64)
-            open_vals = df_chart["open"].values.astype(np.float64)
-            high_vals = df_chart["high"].values.astype(np.float64)
-            low_vals = df_chart["low"].values.astype(np.float64)
-            close_vals = df_chart["close"].values.astype(np.float64)
+            timestamps = df_chart['time'].to_numpy().astype(np.float64) if 'time' in df_chart.columns else (
+                pd.to_datetime(df_chart.index).astype(np.int64) / 1e9).to_numpy().astype(np.float64)
+            o = df_chart["open"].values.astype(np.float64)
+            h = df_chart["high"].values.astype(np.float64)
+            l = df_chart["low"].values.astype(np.float64)
+            c = df_chart["close"].values.astype(np.float64)
 
-            candlestick_data = np.column_stack((timestamps, open_vals, high_vals, low_vals, close_vals))
-            self.candlestick_item.setData(candlestick_data)
+            # Удаляем старые свечные элементы
+            for item in self._candle_items:
+                try:
+                    self.price_plot.removeItem(item)
+                except Exception:
+                    pass
+            self._candle_items.clear()
 
-            volume_vals = df_chart["tick_volume"].values
-            self.volume_item.setOpts(x=timestamps, height=volume_vals)
+            # Ширина тела
+            hw = float(timestamps[1] - timestamps[0]) * 0.35 if len(timestamps) >= 2 else 1200
 
+            for i in range(len(timestamps)):
+                t = float(timestamps[i])
+                is_bull = c[i] >= o[i]
+                color = "#00C853" if is_bull else "#FF1744"
+                pen = pg.mkPen(color, width=2)
+                body_top = max(float(o[i]), float(c[i]))
+                body_bot = min(float(o[i]), float(c[i]))
+
+                # Фитиль
+                wick = pg.PlotDataItem(x=[t, t], y=[float(l[i]), float(h[i])], pen=pg.mkPen(color, width=1))
+                self.price_plot.addItem(wick)
+                self._candle_items.append(wick)
+
+                # Тело: 4 границы + заливка
+                fill_top = pg.PlotDataItem(x=[t - hw, t + hw], y=[body_top, body_top])
+                fill_bot = pg.PlotDataItem(x=[t - hw, t + hw], y=[body_bot, body_bot])
+                border_top = pg.PlotDataItem(x=[t - hw, t + hw], y=[body_top, body_top], pen=pen)
+                border_bot = pg.PlotDataItem(x=[t - hw, t + hw], y=[body_bot, body_bot], pen=pen)
+                border_left = pg.PlotDataItem(x=[t - hw, t - hw], y=[body_bot, body_top], pen=pen)
+                border_right = pg.PlotDataItem(x=[t + hw, t + hw], y=[body_bot, body_top], pen=pen)
+                fill = pg.FillBetweenItem(fill_top, fill_bot, brush=QBrush(QColor(color)))
+
+                for item in [fill_top, fill_bot, border_top, border_bot, border_left, border_right, fill]:
+                    self.price_plot.addItem(item)
+                    self._candle_items.append(item)
+
+            # Объём
+            self.volume_item.setOpts(x=timestamps, height=df_chart["tick_volume"].values)
+
+            # Диапазон
             if len(timestamps) > 1:
-                time_span = float(timestamps[-1] - timestamps[0])
-                x_padding = max(time_span * 0.1, 3600)
-                x_min = float(timestamps[0]) - x_padding
-                x_max = float(timestamps[-1]) + x_padding
-
-                price_range = max(high_vals) - min(low_vals)
-                y_padding = max(price_range * 0.1, 1.0)
-                y_min = min(low_vals) - y_padding
-                y_max = max(high_vals) + y_padding
-
-                self.price_plot.setXRange(x_min, x_max, padding=0.02)
-                self.price_plot.setYRange(y_min, y_max, padding=0.02)
-                logger.debug(
-                    f"[GUI-Chart] Диапазон установлен: X=[{x_min:.0f}, {x_max:.0f}] ({time_span/3600:.1f}ч), Y=[{y_min:.2f}, {y_max:.2f}] ({price_range:.2f})"
-                )
-
-            logger.info(f"[GUI-Chart] График {symbol} успешно обновлен, {len(candlestick_data)} баров отображено")
+                x_pad = max(float(timestamps[-1] - timestamps[0]) * 0.1, 3600)
+                self.price_plot.setXRange(float(timestamps[0]) - x_pad, float(timestamps[-1]) + x_pad, padding=0.02)
+                y_pad = max(float(np.max(h) - np.min(l)) * 0.1, 0.001)
+                self.price_plot.setYRange(float(np.min(l)) - y_pad, float(np.max(h)) + y_pad, padding=0.02)
+            logger.info(f"[GUI-Chart] Done: {len(self._candle_items)} items drawn")
         except Exception as e:
-            logger.error(f"[GUI-Chart] Ошибка при обновлении графика {symbol}: {e}", exc_info=True)
+            logger.error(f"[GUI-Chart] Ошибка: {e}", exc_info=True)
 
     def update_trade_arrows(self: MainWindow, symbol: str):
         trade_points = []

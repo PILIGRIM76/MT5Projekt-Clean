@@ -77,7 +77,7 @@ TRADING_MODES = {
         "requires_confirmation": True,
         "warning_message": "Вы готовы потерять ВЕСЬ депозит?",
         "description": "YOU ONLY LIVE ONCE - максимальный риск!",
-        "color": "#2c3e50",
+        "color": "#e74c3c",
     },
 }
 
@@ -214,57 +214,62 @@ class ModeCard(QFrame):
     def setup_ui(self):
         self.setFrameStyle(QFrame.StyledPanel)
         self.setCursor(Qt.PointingHandCursor)
-        # Включаем обработку мышиных событий
         self.setAttribute(Qt.WA_Hover)
+        self.setObjectName("ModeCard")
 
-        # Основной layout
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(3)
+        layout.setContentsMargins(8, 4, 8, 4)
 
         # Заголовок с иконкой
         header_layout = QHBoxLayout()
+        header_layout.setSpacing(5)
 
         icon_label = QLabel(self.mode_data["icon"])
-        icon_label.setFont(QFont("Segoe UI Emoji", 24))
+        icon_label.setFont(QFont("Segoe UI Emoji", 14))
+        icon_label.setStyleSheet("background: transparent;")
         header_layout.addWidget(icon_label)
 
-        name_label = QLabel(self.mode_data["name"])
-        name_label.setFont(QFont("Arial", 14, QFont.Bold))
-        name_label.setStyleSheet(f"color: {self.mode_data['color']};")
-        header_layout.addWidget(name_label)
+        self.name_label = QLabel(self.mode_data["name"])
+        self.name_label.setFont(QFont("Arial", 10, QFont.Bold))
+        self.name_label.setStyleSheet(f"background: transparent; color: {self.mode_data['color']};")
+        header_layout.addWidget(self.name_label)
 
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
         # Описание
-        desc_label = QLabel(self.mode_data["description"])
-        desc_label.setFont(QFont("Arial", 10))
-        desc_label.setStyleSheet("color: #7f8c8d;")
-        desc_label.setWordWrap(True)
-        layout.addWidget(desc_label)
+        self.desc_label = QLabel(self.mode_data["description"])
+        self.desc_label.setFont(QFont("Arial", 8))
+        self.desc_label.setStyleSheet("background: transparent; color: #7f8c8d;")
+        self.desc_label.setWordWrap(True)
+        layout.addWidget(self.desc_label)
 
         # Параметры
         params_layout = QGridLayout()
-        params_layout.setSpacing(5)
+        params_layout.setSpacing(2)
 
         params = [
             ("Risk:", f"{self.mode_data['risk_percentage']}%"),
-            ("Max позиций:", str(self.mode_data["max_positions"])),
-            ("Max DD:", f"{self.mode_data['max_daily_drawdown']}%"),
-            ("Stop Loss:", f"{self.mode_data['stop_loss_atr_multiplier']}x ATR"),
-            ("Take Profit:", f"{self.mode_data['risk_reward_ratio']}x RR"),
+            ("Max:", str(self.mode_data["max_positions"])),
+            ("DD:", f"{self.mode_data['max_daily_drawdown']}%"),
+            ("SL:", f"{self.mode_data['stop_loss_atr_multiplier']}x"),
+            ("RR:", f"{self.mode_data['risk_reward_ratio']}x"),
         ]
 
+        self.param_labels = []
+        self.param_values = []
         for i, (label, value) in enumerate(params):
             label_widget = QLabel(label)
-            label_widget.setFont(QFont("Arial", 9))
-            label_widget.setStyleSheet("color: #95a5a6;")
+            label_widget.setFont(QFont("Arial", 8))
+            label_widget.setStyleSheet("background: transparent; color: #95a5a6;")
 
             value_widget = QLabel(value)
-            value_widget.setFont(QFont("Arial", 10, QFont.Bold))
-            value_widget.setStyleSheet(f"color: {self.mode_data['color']};")
+            value_widget.setFont(QFont("Arial", 8, QFont.Bold))
+            value_widget.setStyleSheet(f"background: transparent; color: {self.mode_data['color']};")
 
+            self.param_labels.append(label_widget)
+            self.param_values.append(value_widget)
             params_layout.addWidget(label_widget, i // 2, i % 2 * 2)
             params_layout.addWidget(value_widget, i // 2, i % 2 * 2 + 1)
 
@@ -272,9 +277,9 @@ class ModeCard(QFrame):
 
         # Индикатор выбора
         self.indicator = QLabel("●")
-        self.indicator.setFont(QFont("Arial", 16))
+        self.indicator.setFont(QFont("Arial", 10))
         self.indicator.setAlignment(Qt.AlignRight)
-        self.indicator.setStyleSheet("color: transparent;")
+        self.indicator.setStyleSheet("background: transparent; color: transparent;")
         layout.addWidget(self.indicator)
 
         self.update_style()
@@ -288,43 +293,42 @@ class ModeCard(QFrame):
         """Обновление стиля карточки."""
         if self.selected:
             self.setStyleSheet(f"""
-                QFrame {{
-                    background-color: {self.mode_data['color']}20;
+                #ModeCard {{
+                    background-color: {self.mode_data['color']}30;
                     border: 2px solid {self.mode_data['color']};
-                    border-radius: 10px;
+                    border-radius: 8px;
                 }}
             """)
-            self.indicator.setStyleSheet(f"color: {self.mode_data['color']};")
+            self.indicator.setStyleSheet(f"background: transparent; color: {self.mode_data['color']};")
         else:
             self.setStyleSheet("""
-                QFrame {
-                    background-color: #f8f9fa;
-                    border: 2px solid #e0e0e0;
-                    border-radius: 10px;
+                #ModeCard {
+                    background-color: #3a3c4a;
+                    border: 1px solid #44475a;
+                    border-radius: 8px;
                 }
-                QFrame:hover {
-                    border: 2px solid #bdc3c7;
+                #ModeCard:hover {
+                    border: 1px solid #6272a4;
+                    background-color: #44475a;
                 }
             """)
-            self.indicator.setStyleSheet("color: transparent;")
+            self.indicator.setStyleSheet("background: transparent; color: transparent;")
 
     def mousePressEvent(self, event):
         """Обработка нажатия мыши."""
         if event.button() == Qt.LeftButton:
-            # Находим родительский TradingModesWidget и вызываем on_mode_selected
-            parent = self.parent()
-            while parent:
-                if isinstance(parent, TradingModesWidget):
-                    # Если режимы выключены, сначала включаем их
-                    if not parent.enabled:
-                        parent.enabled = True
-                        parent.modes_container.setEnabled(True)
-                        parent.enabled_changed.emit(True)
+            # Находим родительский TradingModesWidget через цепочку parent()
+            widget = self.parent()
+            while widget:
+                if isinstance(widget, TradingModesWidget):
+                    if not widget.enabled:
+                        widget.enabled = True
+                        widget.modes_container.setEnabled(True)
+                        widget.enabled_changed.emit(True)
                         logger.info("🎯 Режимы торговли автоматически ВКЛЮЧЕНЫ")
-
-                    parent.on_mode_selected(self.mode_id)
-                    break
-                parent = parent.parent()
+                    widget.on_mode_selected(self.mode_id)
+                    return
+                widget = widget.parent()
         super().mousePressEvent(event)
 
 
@@ -348,7 +352,7 @@ class TradingModesWidget(QWidget):
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(5, 3, 5, 3)
 
         # Контейнер для карточек (будет блокироваться при отключении)
         self.modes_container = QWidget()
@@ -360,14 +364,14 @@ class TradingModesWidget(QWidget):
         self.modes_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         # Заголовок
-        header = QLabel("📊 Режимы Торговли")
-        header.setFont(QFont("Arial", 16, QFont.Bold))
-        header.setStyleSheet("color: #2c3e50; padding: 10px;")
+        header = QLabel("Режимы Торговли")
+        header.setFont(QFont("Arial", 12, QFont.Bold))
+        header.setStyleSheet("background: transparent; color: #f8f8f2; padding: 2px;")
         modes_layout.addWidget(header)
 
         # Описание
-        description = QLabel("Выберите режим торговли для автоматической настройки риск-менеджмента")
-        description.setStyleSheet("color: #7f8c8d; padding: 0 10px 10px;")
+        description = QLabel("Выберите режим для автоматической настройки риск-менеджмента")
+        description.setStyleSheet("background: transparent; color: #7f8c8d; padding: 0 0 3px;")
         description.setWordWrap(True)
         modes_layout.addWidget(description)
 
@@ -375,7 +379,7 @@ class TradingModesWidget(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setMinimumHeight(400)  # Минимальная высота для прокрутки
+        scroll.setMinimumHeight(200)  # Уменьшено для компактности
         scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         scroll.setStyleSheet("""
             QScrollArea {
@@ -396,12 +400,12 @@ class TradingModesWidget(QWidget):
         # Контейнер для карточек
         container = QWidget()
         container_layout = QVBoxLayout(container)
-        container_layout.setSpacing(15)
-        container_layout.setContentsMargins(10, 10, 10, 10)
+        container_layout.setSpacing(6)
+        container_layout.setContentsMargins(5, 5, 5, 5)
 
         # Сетка для карточек режимов (2 в ряд)
         grid_layout = QGridLayout()
-        grid_layout.setSpacing(15)
+        grid_layout.setSpacing(6)
 
         # Карточки режимов
         self.mode_cards = {}
@@ -422,34 +426,36 @@ class TradingModesWidget(QWidget):
 
         # Кастомный режим
         custom_frame = QFrame()
+        custom_frame.setObjectName("CustomFrame")
         custom_frame.setStyleSheet("""
-            QFrame {
-                background-color: #ecf0f1;
-                border: 2px dashed #bdc3c7;
-                border-radius: 10px;
+            #CustomFrame {
+                background-color: #3a3c4a;
+                border: 2px dashed #6272a4;
+                border-radius: 8px;
             }
         """)
         custom_layout = QVBoxLayout(custom_frame)
-        custom_layout.setSpacing(10)
-        custom_layout.setContentsMargins(15, 15, 15, 15)
+        custom_layout.setSpacing(5)
+        custom_layout.setContentsMargins(8, 6, 8, 6)
 
         custom_header = QLabel("🔧 Кастомный режим")
-        custom_header.setFont(QFont("Arial", 14, QFont.Bold))
+        custom_header.setFont(QFont("Arial", 10, QFont.Bold))
+        custom_header.setStyleSheet("background: transparent; color: #bd93f9;")
         custom_layout.addWidget(custom_header)
 
-        custom_desc = QLabel("Ручная настройка параметров риск-менеджмента.\n" "Прокрутите вниз для настройки параметров.")
-        custom_desc.setStyleSheet("color: #7f8c8d;")
+        custom_desc = QLabel("Ручная настройка параметров.")
+        custom_desc.setStyleSheet("background: transparent; color: #7f8c8d; font-size: 8px;")
         custom_desc.setWordWrap(True)
         custom_layout.addWidget(custom_desc)
 
-        self.custom_btn = QPushButton("Выбрать кастомный режим ↓")
+        self.custom_btn = QPushButton("Выбрать ↓")
         self.custom_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3498db;
                 color: white;
-                padding: 8px 15px;
-                border-radius: 5px;
-                font-size: 12px;
+                padding: 4px 10px;
+                border-radius: 4px;
+                font-size: 9px;
             }
             QPushButton:hover {
                 background-color: #2980b9;
@@ -473,7 +479,7 @@ class TradingModesWidget(QWidget):
         self.current_mode_label.setStyleSheet("""
             background-color: #f39c1220;
             color: #f39c12;
-            padding: 10px;
+            padding: 6px;
             border-radius: 5px;
             font-weight: bold;
         """)
@@ -530,9 +536,9 @@ class TradingModesWidget(QWidget):
         # Обновление индикатора
         self.current_mode_label.setText(f"Текущий режим: {mode_data['icon']} {mode_data['name']}")
         self.current_mode_label.setStyleSheet(f"""
-            background-color: {mode_data['color']}20;
+            background-color: {mode_data['color']}30;
             color: {mode_data['color']};
-            padding: 10px;
+            padding: 6px;
             border-radius: 5px;
             font-weight: bold;
         """)
@@ -560,9 +566,9 @@ class TradingModesWidget(QWidget):
 
         self.current_mode_label.setText("Текущий режим: 🔧 Кастомный")
         self.current_mode_label.setStyleSheet("""
-            background-color: #3498db20;
+            background-color: #3498db30;
             color: #3498db;
-            padding: 10px;
+            padding: 6px;
             border-radius: 5px;
             font-weight: bold;
         """)

@@ -385,8 +385,8 @@ class PanelsMixin:
         self.volume_plot.getAxis("left").setWidth(60)
         self.volume_plot.setXLink(self.price_plot)
 
-        self.candlestick_item = CustomCandlestickItem()
-        self.price_plot.addItem(self.candlestick_item)
+        # Свечи — элементы создаются динамически в update_candle_chart
+        self._candle_items = []
         self.volume_item = BarGraphItem(x=[], height=[], width=0.8, brush="#50fa7b")
         self.ema50_item = pg.PlotDataItem(pen=pg.mkPen("c", width=2))
         self.ema200_item = pg.PlotDataItem(pen=pg.mkPen("y", width=2))

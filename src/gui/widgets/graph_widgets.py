@@ -5,17 +5,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QObject, QPointF, QRectF, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPen, QBrush
 
 
 class GraphBackend(QObject):
-    """
-    Мост между JavaScript и Python для интерактивных графиков.
-    Обрабатывает запросы от TradingView Lightweight Charts.
-    """
-
+    """Мост между JavaScript и Python для графиков."""
     data_loaded = Signal(object)
     indicators_loaded = Signal(object)
     graphDataUpdated = Signal(dict)
@@ -28,157 +25,115 @@ class GraphBackend(QObject):
         self.data: List[Dict[str, Any]] = []
 
     def load_data(self, candles: List[Dict[str, Any]]) -> None:
-        """Загружает данные свечей в график."""
         self.data = candles
         self.data_loaded.emit(candles)
 
     def clear_data(self) -> None:
-        """Очищает данные графика."""
         self.data = []
         self.data_loaded.emit([])
 
     def add_indicator(self, indicator_data: Dict[str, Any]) -> None:
-        """Добавляет индикатор на график."""
         self.indicators_loaded.emit(indicator_data)
 
 
 class CustomCandlestickItem(pg.GraphicsObject):
     """
-    Пользовательский элемент для отрисовки свечей в стиле MT5.
-
-    Особенности:
-    - Бычьи свечи: зелёный (#00C853) с зелёной границей
-    - Медвежьи свечи: красный (#FF1744) с красной границей
-    - Фитили (high/low) тонкие (1px)
-    - Тело свечи занимает ~70% ширины бара
-    - Doji (open≈close) отображается как тонкая линия
+    Свечной график.
+   paint() получает QPainter с уже настроенной трансформацией ViewBox,
+    поэтому рисуем прямо в координатах данных.
     """
 
     def __init__(self) -> None:
         pg.GraphicsObject.__init__(self)
-        self.data: Optional[List[Tuple[float, float, float, float, float]]] = None
-        # MT5 цвета
-        self.bull_color = QColor("#00C853")  # Зелёный для бычьих
-        self.bear_color = QColor("#FF1744")  # Красный для медвежьих
-        self.wick_width = 1.0  # Ширина фитиля
-        self.body_ratio = 0.7  # Тело занимает 70% бара (как в MT5)
+        self.candle_data: Optional[np.ndarray] = None
+        self.bull_color = QColor("#00C853")
+        self.bear_color = QColor("#FF1744")
 
-    def setData(self, data: Optional[List[Tuple[float, float, float, float, float]]]) -> None:
-        """Устанавливает данные для отрисовки.
-
-        Args:
-            data: Список кортежей (timestamp, open, high, low, close)
-        """
-        self.data = data
+    def setData(self, data: Optional[np.ndarray]) -> None:
+        self.candle_data = data
         self.prepareGeometryChange()
-        self.informViewBoundsChanged()
         self.update()
 
-    def _calculate_bar_width(self) -> float:
-        """Ширина тела свечи = 50% от расстояния между барами."""
-        if self.data is None or len(self.data) < 2:
-            return 0.5
-        step = float(self.data[1][0] - self.data[0][0])
-        return step * 0.5 if step > 0 else 0.5
-
     def paint(self, p: QPainter, *args: Any) -> None:
-        """Отрисовка свечей. Масштабирует X через viewBox transform."""
-        if self.data is None or len(self.data) == 0:
+        if self.candle_data is None or len(self.candle_data) == 0:
             return
-
-        bar_width = self._calculate_bar_width()
-        half_width = bar_width / 2.0
 
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        # Получаем viewBox для конвертации X→пиксели
-        x_scale = 1.0
-        try:
-            vb = self.parentItem().getViewBox()
-            if vb is not None:
-                vr = vb.viewRect()
-                px = vb.viewport().width()
-                if vr.width() > 0 and px > 0:
-                    x_scale = px / vr.width()
-        except Exception:
-            pass
+        n = len(self.candle_data)
+        if n < 2:
+            return
 
-        # Y масштаб — берём из view
-        y_scale = 1.0
-        try:
-            vr2 = vb.viewRect()
-            py2 = vb.viewport().height()
-            if vr2.height() > 0 and py2 > 0:
-                y_scale = py2 / vr2.height()
-        except Exception:
-            pass
+        # Получаем ViewBox через parent chain
+        vb = None
+        item = self.parentItem()
+        while item is not None:
+            if hasattr(item, 'viewRect') and hasattr(item, 'size'):
+                vb = item
+                break
+            item = item.parentItem()
+        if vb is None:
+            return
 
-        for t, o, h, l, c in self.data:
-            is_bullish = c >= o
-            pen_color = self.bull_color if is_bullish else self.bear_color
-            brush_color = pen_color
+        vr = vb.viewRect()  # видимый диапазон в data coords
+        vr_size = vb.size()  # размер viewport в пикселях
+        if vr.width() <= 0 or vr.height() <= 0 or vr_size.width() <= 0 or vr_size.height() <= 0:
+            return
 
-            # Конвертируем координаты X в пиксели
-            px_t = t * x_scale
+        # Масштаб: data units → pixels
+        sx = vr_size.width() / vr.width()
+        sy = vr_size.height() / vr.height()
 
-            # Рисуем фитиль (high→low)
-            wick_pen = pg.mkPen(pen_color, width=self.wick_width)
-            p.setPen(wick_pen)
-            p.drawLine(QPointF(px_t, h * y_scale), QPointF(px_t, l * y_scale))
+        # Ширина свечи
+        step = float(self.candle_data[1, 0] - self.candle_data[0, 0])
+        half_w = max(step * 0.3, 0.1) if step > 0 else 0.1
 
-            # Тело свечи
-            body_top = max(o, c)
-            body_bottom = min(o, c)
-            body_height_px = (body_top - body_bottom) * y_scale
-            half_w_px = half_width * x_scale
+        for i in range(n):
+            t = float(self.candle_data[i, 0])
+            o = float(self.candle_data[i, 1])
+            h = float(self.candle_data[i, 2])
+            l = float(self.candle_data[i, 3])
+            c = float(self.candle_data[i, 4])
 
-            if body_height_px > 1:  # Минимум 1 пиксель
-                body_pen = pg.mkPen(pen_color, width=1)
-                body_brush = pg.mkBrush(brush_color)
-                p.setPen(body_pen)
-                p.setBrush(body_brush)
-                body_rect = QRectF(px_t - half_w_px, body_top * y_scale, half_w_px * 2, body_height_px)
-                p.drawRect(body_rect)
+            is_bull = c >= o
+            color = self.bull_color if is_bull else self.bear_color
+
+            # Конвертируем data coords → pixel coords
+            px_t = (t - vr.left()) * sx
+            px_h = (vr.top() - h) * sy  # Y инвертирован в экранных координатах
+            px_l = (vr.top() - l) * sy
+            px_o = (vr.top() - o) * sy
+            px_c = (vr.top() - c) * sy
+            px_hw = half_w * sx
+
+            # Фитиль
+            p.setPen(QPen(color, 1))
+            p.setBrush(QBrush())
+            p.drawLine(QPointF(px_t, px_h), QPointF(px_t, px_l))
+
+            # Тело
+            body_top_y = min(px_o, px_c)
+            body_bot_y = max(px_o, px_c)
+            body_h = body_bot_y - body_top_y
+
+            if body_h >= 1:
+                p.setPen(QPen(color, 1))
+                p.setBrush(QBrush(color))
+                p.drawRect(QRectF(px_t - px_hw, body_top_y, px_hw * 2, body_h))
             else:
-                # Doji — горизонтальная линия
-                doji_pen = pg.mkPen(pen_color, width=2)
-                p.setPen(doji_pen)
-                y_mid = o * y_scale
-                p.drawLine(QPointF(px_t - half_w_px, y_mid), QPointF(px_t + half_w_px, y_mid))
+                p.setPen(QPen(color, 2))
+                p.setBrush(QBrush())
+                p.drawLine(QPointF(px_t - px_hw, px_o), QPointF(px_t + px_hw, px_o))
 
     def boundingRect(self) -> QRectF:
-        """Ограничивающий прямоугольник для всех свечей."""
-        if self.data is None or len(self.data) == 0:
+        if self.candle_data is None or len(self.candle_data) == 0:
             return QRectF()
 
-        times = [d[0] for d in self.data]
-        highs = [d[2] for d in self.data]
-        lows = [d[3] for d in self.data]
+        x_min = float(self.candle_data[0, 0])
+        x_max = float(self.candle_data[-1, 0])
+        y_min = float(np.min(self.candle_data[:, 3]))
+        y_max = float(np.max(self.candle_data[:, 2]))
 
-        # Конвертируем в пиксели через view scale
-        x_scale = 1.0
-        y_scale = 1.0
-        try:
-            vb = self.parentItem().getViewBox()
-            if vb is not None:
-                vr = vb.viewRect()
-                px = vb.viewport().width()
-                py = vb.viewport().height()
-                if vr.width() > 0 and px > 0:
-                    x_scale = px / vr.width()
-                if vr.height() > 0 and py > 0:
-                    y_scale = py / vr.height()
-        except Exception:
-            pass
-
-        px_times = [t * x_scale for t in times]
-        py_highs = [h * y_scale for h in highs]
-        py_lows = [l * y_scale for l in lows]
-
-        min_x = min(px_times)
-        max_x = max(px_times)
-        min_y = min(py_lows)
-        max_y = max(py_highs)
-
-        bar_w_px = self._calculate_bar_width() * x_scale
-        return QRectF(min_x - bar_w_px, min_y, max_x - min_x + bar_w_px * 2, max_y - min_y)
+        dx = (x_max - x_min) * 0.05 if x_max > x_min else 1.0
+        dy = (y_max - y_min) * 0.05 if y_max > y_min else 0.001
+        return QRectF(x_min - dx, y_min - dy, (x_max - x_min) + 2 * dx, (y_max - y_min) + 2 * dy)
