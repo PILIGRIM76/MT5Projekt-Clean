@@ -1,5 +1,6 @@
 # src/gui/settings_window.py
 
+import json
 import logging
 import os
 import subprocess
@@ -1929,9 +1930,18 @@ class SettingsWindow(QDialog):
             QMessageBox.warning(self, "Внимание", "Пожалуйста, выберите символ для удаления.")
 
     def load_settings(self):
+        # Читаем MT5 из settings.json (основной источник)
+        try:
+            with open(self.env_path.parent / "configs" / "settings.json", "r", encoding="utf-8") as f:
+                json_config = json.load(f)
+        except Exception:
+            json_config = {}
+
         config_values = dotenv_values(self.env_path)
+        # Приоритет: settings.json > .env
         for key, widget in self.mt5_entries.items():
-            widget.setText(config_values.get(key, ""))
+            value = json_config.get(key, config_values.get(key, ""))
+            widget.setText(value)
         self.api_table.setRowCount(0)
         api_keys = {
             k: v

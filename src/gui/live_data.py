@@ -170,6 +170,11 @@ def setup_live_data(main_window):
     # ========================================
     def update_scanner():
         try:
+            # Проверяем подключение MT5
+            acct = mt5.account_info()
+            if acct is None:
+                return
+
             config = mw.config
             symbols = config.SYMBOLS_WHITELIST[:config.TOP_N_SYMBOLS] if hasattr(config, 'SYMBOLS_WHITELIST') else ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
 
@@ -451,6 +456,7 @@ def setup_live_data(main_window):
             if not account:
                 return
             balance = account.balance
+            logger.debug(f"[PnL-KPI] Баланс: {balance}")
             equity = account.equity
 
             # История за периоды
