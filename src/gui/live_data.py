@@ -49,6 +49,9 @@ def setup_live_data(main_window):
                         "ticket": p.ticket,
                         "symbol": p.symbol,
                         "type": "BUY" if p.type == 0 else "SELL",
+                        "strategy_display": "—",
+                        "timeframe_display": "—",
+                        "bars_in_trade_display": "—",
                         "volume": p.volume,
                         "price_open": p.price_open,
                         "price_current": p.price_current,
@@ -77,15 +80,17 @@ def setup_live_data(main_window):
                 for d in deals:
                     if d.entry == 0:
                         continue
-                    history.append({
-                        "ticket": d.ticket,
-                        "symbol": d.symbol,
-                        "type": "BUY" if d.type == 0 else "SELL",
-                        "volume": d.volume,
-                        "price": d.price,
-                        "profit": d.profit,
-                        "time": datetime.fromtimestamp(d.time).strftime("%m-%d %H:%M"),
-                    })
+                    history.append(type('Deal', (), {
+                        'ticket': d.ticket,
+                        'symbol': d.symbol,
+                        'strategy': '—',
+                        'trade_type': "BUY" if d.type == 0 else "SELL",
+                        'volume': d.volume,
+                        'price_close': d.price,
+                        'time_close': datetime.fromtimestamp(d.time),
+                        'profit': d.profit,
+                        'timeframe': '—',
+                    })())
                 bridge.history_updated.emit(history[-50:])
 
                 # P&L для графика
@@ -103,6 +108,37 @@ def setup_live_data(main_window):
     hist_timer = QTimer(mw)
     hist_timer.timeout.connect(update_history)
     hist_timer.start(10000)
+
+    # ========================================
+    # 3.5. Время (каждые 1 сек)
+    # ========================================
+    def update_times():
+        try:
+            pc_time = datetime.now().strftime("%H:%M:%S")
+            server_time_str = "—"
+            try:
+                tick = mt5.symbol_info_tick("EURUSD")
+                if tick:
+                    server_time_str = datetime.fromtimestamp(tick.time).strftime("%H:%M:%S")
+            except Exception:
+                pass
+            bridge.times_updated.emit(pc_time, server_time_str)
+
+            # Uptime
+            if hasattr(mw, '_start_time'):
+                uptime = datetime.now() - mw._start_time
+                hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                bridge.uptime_updated.emit(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+        except Exception as e:
+            logger.debug(f"Times update: {e}")
+
+    times_timer = QTimer(mw)
+    times_timer.timeout.connect(update_times)
+    times_timer.start(1000)
+
+    # Запомнить время запуска
+    mw._start_time = datetime.now()
 
     # ========================================
     # 4. Свечи для графика (каждые 5 сек)
