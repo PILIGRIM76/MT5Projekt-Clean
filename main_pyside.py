@@ -69,7 +69,7 @@ logger.info(f"Путь к скрипту: {Path(__file__).resolve()}")
 
 
 def check_and_run_setup():
-    """Проверка конфигурации и запуск мастера настройки при необходимости"""
+    """Проверка конфигурации. Запускаем мастер только если MT5_LOGIN пуст."""
     if getattr(sys, "frozen", False):
         base_path = Path(sys.executable).parent
     else:
@@ -77,55 +77,24 @@ def check_and_run_setup():
 
     config_path = base_path / "configs" / "settings.json"
 
-    needs_setup = False
-    reason = ""
-
     if not config_path.exists():
-        needs_setup = True
-        reason = "Файл конфигурации не найден"
-    else:
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                content = "".join(line for line in f if not line.strip().startswith("//"))
-                config = json.loads(content)
+        return
 
-            required_fields = ["MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_PATH"]
-            missing_fields = []
-            for field in required_fields:
-                if field not in config or not config[field]:
-                    missing_fields.append(field)
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            content = "".join(line for line in f if not line.strip().startswith("//"))
+            config = json.loads(content)
 
-            if missing_fields:
-                needs_setup = True
-                reason = f"Отсутствуют обязательные параметры: {', '.join(missing_fields)}"
+        # Если MT5_LOGIN есть — конфиг валиден, пропускаем мастер
+        if config.get("MT5_LOGIN"):
+            return
 
-            if "MT5_PATH" in config and config["MT5_PATH"]:
-                mt5_path = Path(config["MT5_PATH"])
-                if not mt5_path.exists():
-                    needs_setup = True
-                    reason = f"MT5 терминал не найден по пути: {config['MT5_PATH']}"
-
-        except Exception as e:
-            needs_setup = True
-            reason = f"Ошибка чтения конфигурации: {e}"
-
-    if needs_setup:
-        print("\n" + "=" * 60)
-        print("  [!] ТРЕБУЕТСЯ НАСТРОЙКА СИСТЕМЫ")
-        print("=" * 60)
-        print(f"\nПричина: {reason}")
-        print("\nЗапуск мастера настройки...\n")
-
+        # MT5_LOGIN пуст — запускаем мастер
         setup_script = base_path / "setup_launcher.py"
         if setup_script.exists():
-            if getattr(sys, "frozen", False):
-                os.execv(sys.executable, [sys.executable, str(setup_script)])
-            else:
-                os.execv(sys.executable, [sys.executable, str(setup_script)])
-        else:
-            print(f"[ERROR] Файл мастера настройки не найден: {setup_script}")
-            print("Запустите setup_launcher.py вручную")
-            sys.exit(1)
+            os.execv(sys.executable, [sys.executable, str(setup_script)])
+    except Exception:
+        pass
 
 
 # Запускаем проверку перед всем остальным
