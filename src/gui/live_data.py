@@ -104,6 +104,12 @@ def setup_live_data(main_window):
                             'time_close': datetime.fromtimestamp(d.time),
                         })())
                 bridge.pnl_updated.emit(trade_history)
+
+                # Observer P&L — накопленная прибыль
+                observer_pnl = [d.profit for d in history if d.profit != 0]
+                if observer_pnl:
+                    bridge.observer_pnl_updated.emit(observer_pnl)
+
         except Exception as e:
             logger.debug(f"History update: {e}")
 
@@ -286,6 +292,25 @@ def setup_live_data(main_window):
     rd_timer = QTimer(mw)
     rd_timer.timeout.connect(update_rd)
     rd_timer.start(60000)
+
+    # ========================================
+    # 7.5. Директивы рефлексии (каждые 60 сек)
+    # ========================================
+    def update_directives():
+        try:
+            directives = [
+                {"type": "Риск", "value": f"{mw.config.RISK_PERCENTAGE}%", "reason": "Из настроек", "expires_at": "—"},
+                {"type": "Лимит позиций", "value": str(mw.config.MAX_OPEN_POSITIONS), "reason": "Из настроек", "expires_at": "—"},
+                {"type": "Режим", "value": getattr(mw.config, 'trading_mode', {}).get('current_mode', 'paper'), "reason": "Текущий режим", "expires_at": "—"},
+                {"type": "Символы", "value": f"{len(mw.config.SYMBOLS_WHITELIST)} инструментов", "reason": "Whitelist", "expires_at": "—"},
+            ]
+            bridge.directives_updated.emit(directives)
+        except Exception as e:
+            logger.debug(f"Directives update: {e}")
+
+    directives_timer = QTimer(mw)
+    directives_timer.timeout.connect(update_directives)
+    directives_timer.start(60000)
 
     # ========================================
     # 8. Менеджер моделей (каждые 60 сек)

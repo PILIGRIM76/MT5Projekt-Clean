@@ -541,7 +541,7 @@
     "defi_enabled": true,
     "defi_interval_hours": 1
   },
-  "MODEL_DIR": "F:/Enjen/database/ai_models",
+  "MODEL_DIR": "F:/MT5Projekt-Clean/ai_models",
   "MODEL_FORMAT": "joblib",
   "ACTIVE_MODEL": "EURUSD_model",
   "BACKUP_MODEL": "GBPUSD_model",
