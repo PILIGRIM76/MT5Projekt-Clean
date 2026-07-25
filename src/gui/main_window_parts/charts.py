@@ -199,9 +199,9 @@ class ChartsMixin:
             else:
                 df_chart = df
 
-            # Используем колонку time как timestamps
+            # MT5 time уже в Unix seconds — НЕ делим на 1e9
             if 'time' in df_chart.columns:
-                timestamps = (df_chart['time'].astype(np.int64) / 1e9).to_numpy().astype(np.float64)
+                timestamps = df_chart['time'].to_numpy().astype(np.float64)
             else:
                 timestamps = (pd.to_datetime(df_chart.index).astype(np.int64) / 1e9).to_numpy().astype(np.float64)
             open_vals = df_chart["open"].values.astype(np.float64)
