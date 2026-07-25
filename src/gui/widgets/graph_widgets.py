@@ -75,75 +75,79 @@ class CustomCandlestickItem(pg.GraphicsObject):
         self.update()
 
     def _calculate_bar_width(self) -> float:
-        """Вычисляет ширину одного бара на основе расстояния между барами.
-
-        Работает как с секундами, так и с миллисекундами.
-        """
+        """Ширина тела свечи = 50% от расстояния между барами."""
         if self.data is None or len(self.data) < 2:
-            return 3600000.0  # 1 час в миллисекундах по умолчанию
-
-        # Расстояние между барами в координатах X (мс или секунды)
+            return 0.5
         step = float(self.data[1][0] - self.data[0][0])
-
-        if step <= 0:
-            return 3600000.0  # 1 час fallback
-
-        # Тело занимает body_ratio (70%) от шага
-        return step * self.body_ratio
+        return step * 0.5 if step > 0 else 0.5
 
     def paint(self, p: QPainter, *args: Any) -> None:
-        """Отрисовка свечей в стиле MT5."""
+        """Отрисовка свечей. Масштабирует X через viewBox transform."""
         if self.data is None or len(self.data) == 0:
             return
 
         bar_width = self._calculate_bar_width()
         half_width = bar_width / 2.0
 
-        # Включаем сглаживание для лучшего качества
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
+        # Получаем viewBox для конвертации X→пиксели
+        x_scale = 1.0
+        try:
+            vb = self.parentItem().getViewBox()
+            if vb is not None:
+                vr = vb.viewRect()
+                px = vb.viewport().width()
+                if vr.width() > 0 and px > 0:
+                    x_scale = px / vr.width()
+        except Exception:
+            pass
+
+        # Y масштаб — берём из view
+        y_scale = 1.0
+        try:
+            vr2 = vb.viewRect()
+            py2 = vb.viewport().height()
+            if vr2.height() > 0 and py2 > 0:
+                y_scale = py2 / vr2.height()
+        except Exception:
+            pass
+
         for t, o, h, l, c in self.data:
-            # Определяем тип свечи
             is_bullish = c >= o
+            pen_color = self.bull_color if is_bullish else self.bear_color
+            brush_color = pen_color
 
-            if is_bullish:
-                # Бычья свеча (цена выросла) - MT5 зелёный
-                pen_color = self.bull_color
-                brush_color = self.bull_color
-            else:
-                # Медвежья свеча (цена упала) - MT5 красный
-                pen_color = self.bear_color
-                brush_color = self.bear_color
+            # Конвертируем координаты X в пиксели
+            px_t = t * x_scale
 
-            # Рисуем фитиль (high-low) - тонкая линия 1px
+            # Рисуем фитиль (high→low)
             wick_pen = pg.mkPen(pen_color, width=self.wick_width)
             p.setPen(wick_pen)
-            p.drawLine(QPointF(t, h), QPointF(t, l))
+            p.drawLine(QPointF(px_t, h * y_scale), QPointF(px_t, l * y_scale))
 
-            # Рисуем тело свечи
+            # Тело свечи
             body_top = max(o, c)
             body_bottom = min(o, c)
-            body_height = body_top - body_bottom
+            body_height_px = (body_top - body_bottom) * y_scale
+            half_w_px = half_width * x_scale
 
-            if body_height > 0.0001:  # Не Doji — есть тело
-                # Граница тела тонкая
+            if body_height_px > 1:  # Минимум 1 пиксель
                 body_pen = pg.mkPen(pen_color, width=1)
                 body_brush = pg.mkBrush(brush_color)
-
                 p.setPen(body_pen)
                 p.setBrush(body_brush)
-
-                # Прямоугольник тела
-                body_rect = QRectF(t - half_width, body_bottom, bar_width, body_height)
+                body_rect = QRectF(px_t - half_w_px, body_top * y_scale, half_w_px * 2, body_height_px)
                 p.drawRect(body_rect)
             else:
-                # Doji (open ≈ close) — горизонтальная линия
+                # Doji — горизонтальная линия
                 doji_pen = pg.mkPen(pen_color, width=2)
                 p.setPen(doji_pen)
-                p.drawLine(QPointF(t - half_width, o), QPointF(t + half_width, o))
+                y_mid = o * y_scale
+                p.drawLine(QPointF(px_t - half_w_px, y_mid), QPointF(px_t + half_w_px, y_mid))
 
     def boundingRect(self) -> QRectF:
-        """Вычисляет ограничивающий прямоугольник для всех свечей."""
+        """Ограничивающий прямоугольник для всех свечей."""
         if self.data is None or len(self.data) == 0:
             return QRectF()
 
@@ -151,13 +155,30 @@ class CustomCandlestickItem(pg.GraphicsObject):
         highs = [d[2] for d in self.data]
         lows = [d[3] for d in self.data]
 
-        min_time = min(times)
-        max_time = max(times)
-        min_price = min(lows)
-        max_price = max(highs)
+        # Конвертируем в пиксели через view scale
+        x_scale = 1.0
+        y_scale = 1.0
+        try:
+            vb = self.parentItem().getViewBox()
+            if vb is not None:
+                vr = vb.viewRect()
+                px = vb.viewport().width()
+                py = vb.viewport().height()
+                if vr.width() > 0 and px > 0:
+                    x_scale = px / vr.width()
+                if vr.height() > 0 and py > 0:
+                    y_scale = py / vr.height()
+        except Exception:
+            pass
 
-        # Добавляем небольшой отступ
-        bar_width = self._calculate_bar_width()
-        padding = bar_width / 2.0
+        px_times = [t * x_scale for t in times]
+        py_highs = [h * y_scale for h in highs]
+        py_lows = [l * y_scale for l in lows]
 
-        return QRectF(min_time - padding, min_price, max_time - min_time + bar_width, max_price - min_price)
+        min_x = min(px_times)
+        max_x = max(px_times)
+        min_y = min(py_lows)
+        max_y = max(py_highs)
+
+        bar_w_px = self._calculate_bar_width() * x_scale
+        return QRectF(min_x - bar_w_px, min_y, max_x - min_x + bar_w_px * 2, max_y - min_y)
