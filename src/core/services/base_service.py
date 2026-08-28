@@ -12,7 +12,7 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, NamedTuple, Optional
+from typing import Any, Awaitable, Callable, Dict, NamedTuple, Optional
 
 from src.core.config_models import Settings
 
@@ -95,7 +95,7 @@ class BaseService(ABC):
         self._db_write_queue = queue
         logger.debug(f"{self.name}: DB write queue установлен")
 
-    async def _safe_execute(self, coro: asyncio.coroutine, operation: str) -> Optional[Any]:
+    async def _safe_execute(self, coro: Awaitable[Any], operation: str) -> Optional[Any]:
         """
         Безопасное выполнение асинхронной операции с обработкой ошибок.
 

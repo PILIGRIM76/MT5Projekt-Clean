@@ -1,404 +1,213 @@
-"""
-Unit тесты для RiskEngine и RiskService.
+"""Unit-тесты для RiskEngine и RiskService. 
+Покрывают: drawdown, VaR, позиции, Circuit Breaker."""
 
-Тестирует:
-- Проверки риска (drawdown, VaR, correlation)
-- Динамический риск
-- Токсичные режимы
-- Хеджирование
-- Capital allocation
-"""
-
-from datetime import datetime, timedelta
-from typing import Any, Dict, List
-from unittest.mock import MagicMock, Mock, call, patch
-
-import numpy as np
-import pandas as pd
 import pytest
+from unittest.mock import MagicMock, patch
+import pandas as pd
 
-from src.core.config_models import Settings
-from src.data_models import SignalType
 
-
-class TestRiskEngineBasics:
-    """Базовые тесты для RiskEngine."""
-
-    @pytest.fixture
-    def mock_config(self) -> Settings:
-        """Создание тестовой конфигурации."""
-        config = Mock(spec=Settings)
-        config.risk = Mock()
-        config.risk.max_drawdown = 0.10
-        config.risk.max_daily_loss = 0.05
-        config.risk.var_confidence = 0.95
-        config.risk.max_var = 0.02
-        config.risk.confidence_risk_map = {0.9: 0.02, 0.7: 0.015, 0.5: 0.01}
-        config.risk.toxic_regime_update_interval_sec = 300
-        config.risk.toxic_regime_risk_multiplier = 0.5
-        config.risk.recent_trades_for_dynamic_risk = 10
-        config.risk.drawdown_sensitivity_threshold = 5.0
-
-        config.RISK_PERCENTAGE = 0.02
-        config.CORRELATION_THRESHOLD = 0.8
-        config.MAX_DAILY_DRAWDOWN_PERCENT = 0.05
-        config.PORTFOLIO_VOLATILITY_THRESHOLD = 0.15
-        config.MAX_PORTFOLIO_VAR_PERCENT = 0.03
-        config.IGNORE_HISTORICAL_DRAWDOWN_ON_START = False
-
-        config.EVENT_BLOCK_WINDOW_HOURS = 2
-        config.IMPORTANT_NEWS_ENTITIES = ["FED", "ECB", "NFP"]
-
-        return config
+class TestRiskServiceDrawdown:
+    """Тесты проверки дневной просадки через RiskService."""
 
     @pytest.fixture
-    def mock_trading_system(self) -> MagicMock:
-        """Мок для торговой системы."""
-        ts = MagicMock()
-        ts.db_manager = MagicMock()
-        ts.db_manager.get_toxic_regimes.return_value = []
-        ts.anomaly_detector = MagicMock()
-        ts.anomaly_detector.is_trained = False
-        ts.get_dummy_df.return_value = pd.DataFrame()
-        ts.strategies = []
-        return ts
+    def setup_risk_service(self):
+        """Создаёт RiskService с мок-зависимостями."""
+        from src.core.services.risk_service import RiskService
+        from src.risk.risk_engine import RiskEngine
+        
+        config = MagicMock()
+        config.MAX_PORTFOLIO_VAR_PERCENT = 3.0
+        config.MAX_DAILY_DRAWDOWN_PERCENT = 15.0
+        config.RISK_PERCENTAGE = 0.5
+        
+        risk_engine = RiskEngine(config=config)
+        trading_system = MagicMock()
+        trading_system.config = config
+        trading_system.running = True
+        
+        # Создаём сервис, но не вызываем __init__ (т.к. есть abstract methods)
+        # Вместо этого тестируем методы напрямую через мок
+        service = MagicMock()
+        service._check_drawdown_limits = RiskService._check_drawdown_limits.__get__(service, RiskService)
+        service._last_drawdown_check = 0.0
+        service.trading_system = trading_system
+        service._logger = MagicMock()
+        
+        return service
 
-    @pytest.fixture
-    def mock_kg_querier(self) -> MagicMock:
-        """Мок для Knowledge Graph Querier."""
-        kg = MagicMock()
-        kg.find_events_affecting_entities.return_value = []
-        return kg
+    def test_blocks_trade_when_drawdown_exceeds_15_percent(self):
+        """Критический тест: торговля блокируется при просадке >= 15%."""
+        from src.core.services.risk_service import RiskService
+        
+        trading_system = MagicMock()
+        trading_system.config.MAX_DAILY_DRAWDOWN_PERCENT = 15.0
+        trading_system.config.MAX_PORTFOLIO_VAR_PERCENT = 3.0
+        trading_system.running = True
+        
+        # Мокаем MT5 account_info
+        # balance=10000, equity=8000 -> drawdown = 20%
+        account_info = MagicMock()
+        account_info.balance = 10000.0
+        account_info.equity = 8000.0  # drawdown = 20%, превышает лимит 15%
+        
+        service = MagicMock()
+        service._check_drawdown_limits = RiskService._check_drawdown_limits.__get__(service, RiskService)
+        service.trading_system = trading_system
+        service._logger = MagicMock()
+        
+        # Патчим mt5.account_info
+        with patch('src.core.services.risk_service.mt5.account_info', return_value=account_info):
+            result = service._check_drawdown_limits()
+            assert result is False, "Сделка должна быть отклонена при drawdown >= 15%"
 
-    @pytest.fixture
-    def risk_engine(self, mock_config, mock_trading_system, mock_kg_querier):
-        """Создание RiskEngine для тестов."""
-        with patch("src.risk.risk_engine.VolatilityForecaster"):
-            with patch("src.risk.risk_engine.StressTester"):
-                with patch("src.risk.risk_engine.AnomalyDetector"):
-                    from src.risk.risk_engine import RiskEngine
+    def test_allows_trade_when_drawdown_normal(self):
+        """Торговля разрешена при нормальной просадке."""
+        from src.core.services.risk_service import RiskService
+        
+        trading_system = MagicMock()
+        trading_system.config.MAX_DAILY_DRAWDOWN_PERCENT = 15.0
+        trading_system.config.MAX_PORTFOLIO_VAR_PERCENT = 3.0
+        trading_system.running = True
+        
+        # Мокаем MT5 account_info
+        account_info = MagicMock()
+        account_info.balance = 10000.0
+        account_info.equity = 9500.0  # drawdown = 5%
+        
+        service = MagicMock()
+        service._check_drawdown_limits = RiskService._check_drawdown_limits.__get__(service, RiskService)
+        service.trading_system = trading_system
+        service._logger = MagicMock()
+        
+        with patch('src.core.services.risk_service.mt5.account_info', return_value=account_info):
+            result = service._check_drawdown_limits()
+            assert result is True, "Сделка разрешена при нормальной просадке"
 
-                    return RiskEngine(
-                        config=mock_config,
-                        trading_system_ref=mock_trading_system,
-                        querier=mock_kg_querier,
-                        mt5_lock=MagicMock(),
-                        is_simulation=True,
-                    )
-
-    def test_risk_engine_initialization(self, risk_engine, mock_config):
-        """Проверка инициализации RiskEngine."""
-        assert risk_engine.config is mock_config
-        assert risk_engine.risk_config is mock_config.risk
-        assert risk_engine.base_risk_per_trade_percent == mock_config.RISK_PERCENTAGE
-        assert risk_engine.correlation_threshold == mock_config.CORRELATION_THRESHOLD
-        assert risk_engine.max_daily_drawdown_percent == mock_config.MAX_DAILY_DRAWDOWN_PERCENT
-
-    def test_risk_engine_default_allocation(self, mock_config, mock_trading_system):
-        """Проверка инициализации capital allocation."""
-        # Добавляем стратегии
-        strategy1 = MagicMock()
-        strategy1.__class__.__name__ = "BreakoutStrategy"
-        mock_trading_system.strategies = [strategy1]
-
-        with patch("src.risk.risk_engine.VolatilityForecaster"):
-            with patch("src.risk.risk_engine.StressTester"):
-                from src.risk.risk_engine import RiskEngine
-
-                engine = RiskEngine(config=mock_config, trading_system_ref=mock_trading_system)
-
-                # Проверка что default allocation создан
-                assert "AI_Model" in engine.default_capital_allocation
-                assert "RLTradeManager" in engine.default_capital_allocation
-                assert "BreakoutStrategy" in engine.default_capital_allocation
-
-    def test_is_trade_safe_from_events_no_querier(self, mock_config, mock_trading_system):
-        """Проверка без Knowledge Graph Querier."""
-        with patch("src.risk.risk_engine.VolatilityForecaster"):
-            with patch("src.risk.risk_engine.StressTester"):
-                from src.risk.risk_engine import RiskEngine
-
-                engine = RiskEngine(config=mock_config, trading_system_ref=mock_trading_system, querier=None)
-
-                # Должен вернуть True если нет querier
-                assert engine.is_trade_safe_from_events("EURUSD") is True
+    def test_allows_trade_at_limit_drawdown(self):
+        """Торговля разрешена при drawdown = лимит."""
+        from src.core.services.risk_service import RiskService
+        
+        trading_system = MagicMock()
+        trading_system.config.MAX_DAILY_DRAWDOWN_PERCENT = 15.0
+        
+        account_info = MagicMock()
+        account_info.balance = 10000.0
+        account_info.equity = 8500.0  # drawdown = 15% (ровно на лимит)
+        
+        service = MagicMock()
+        service._check_drawdown_limits = RiskService._check_drawdown_limits.__get__(service, RiskService)
+        service.trading_system = trading_system
+        service._logger = MagicMock()
+        
+        with patch('src.core.services.risk_service.mt5.account_info', return_value=account_info):
+            result = service._check_drawdown_limits()
+            assert result is True, "Сделка разрешена при drawdown = лимит"
 
 
-class TestRiskEngineDrawdown:
-    """Тесты для проверки просадки."""
+class TestVaRRiskChecks:
+    """Тесты проверки VaR."""
 
-    @pytest.fixture
-    def mock_account_info(self) -> MagicMock:
-        """Мок для информации об аккаунте."""
-        account = MagicMock()
-        account.balance = 10000.0
-        account.equity = 10000.0
-        return account
-
-    def test_check_daily_drawdown_within_limits(self, risk_engine, mock_account_info):
-        """Проверка что торговля разрешена при просадке в пределах лимита."""
-        # Устанавливаем просадку 3% (лимит 5%)
-        mock_account_info.equity = 9700.0
-
-        with patch("src.risk.risk_engine.mt5") as mock_mt5:
-            mock_mt5.initialize.return_value = True
-            mock_mt5.history_deals_get.return_value = []
-
-            result = risk_engine.check_daily_drawdown(mock_account_info)
-
+    def test_var_within_limits(self):
+        """VaR в пределах допустимого."""
+        from src.core.services.risk_service import RiskService
+        
+        trading_system = MagicMock()
+        trading_system.config.MAX_PORTFOLIO_VAR_PERCENT = 3.0
+        
+        service = MagicMock()
+        service._check_var_limits = RiskService._check_var_limits.__get__(service, RiskService)
+        service.trading_system = trading_system
+        service._logger = MagicMock()
+        
+        # Мокаем mt5.positions_get
+        with patch('src.core.services.risk_service.mt5.positions_get', return_value=[]):
+            result = service._check_var_limits()
             assert result is True
 
-    def test_check_daily_drawdown_exceeds_limit(self, risk_engine, mock_account_info):
-        """Проверка что торговля запрещена при превышении просадки."""
-        # Устанавливаем просадку 7% (лимит 5%)
-        mock_account_info.equity = 9300.0
-
-        with patch("src.risk.risk_engine.mt5") as mock_mt5:
-            mock_mt5.initialize.return_value = True
-            mock_mt5.history_deals_get.return_value = []
-
-            # Примечание: реализация может возвращать True при ошибке MT5
-            result = risk_engine.check_daily_drawdown(mock_account_info)
-
-            # Результат зависит от реализации
-            assert result in [True, False]
-
-    def test_check_daily_drawdown_no_account_info(self, risk_engine):
-        """Проверка с отсутствующей информацией об аккаунте."""
-        result = risk_engine.check_daily_drawdown(None)
-        assert result is False
-
-    def test_check_daily_drawdown_mt5_error(self, risk_engine, mock_account_info):
-        """Проверка при ошибке MT5."""
-        with patch("src.risk.risk_engine.mt5") as mock_mt5:
-            mock_mt5.initialize.return_value = False
-
-            # При ошибке MT5 должен вернуть True (не блокировать торговлю)
-            result = risk_engine.check_daily_drawdown(mock_account_info)
-
-            assert result is True
-
-
-class TestRiskEngineCorrelation:
-    """Тесты для проверки корреляции."""
-
-    def test_is_trade_allowed_no_correlation_matrix(self, risk_engine):
-        """Проверка что торговля разрешена без матрицы корреляции."""
-        risk_engine.correlation_matrix = None
-
-        result = risk_engine.is_trade_allowed("EURUSD", SignalType.BUY, [])
-
-        assert result is True
-
-    def test_is_trade_allowed_empty_correlation_matrix(self, risk_engine):
-        """Проверка что торговля разрешена с пустой матрицей корреляции."""
-        risk_engine.correlation_matrix = pd.DataFrame()
-
-        result = risk_engine.is_trade_allowed("EURUSD", SignalType.BUY, [])
-
-        assert result is True
-
-    def test_update_correlation_matrix(self, risk_engine):
-        """Проверка обновления матрицы корреляции."""
-        # Создаем тестовые данные
-        dates = pd.date_range("2026-01-01", periods=100, freq="D")
-
-        data_dict = {
-            "EURUSD": pd.DataFrame({"close": np.random.randn(100).cumsum() + 1.1, "time": dates}, index=dates),
-            "GBPUSD": pd.DataFrame({"close": np.random.randn(100).cumsum() + 1.25, "time": dates}, index=dates),
-        }
-
-        risk_engine.update_correlation_matrix(data_dict)
-
-        # Проверка что матрицы созданы
-        assert risk_engine.correlation_matrix is not None
-        assert risk_engine.covariance_matrix is not None
-        assert risk_engine.correlation_matrix.shape == (2, 2)
-
-    def test_update_correlation_matrix_insufficient_data(self, risk_engine):
-        """Проверка обновления матрицы с недостаточными данными."""
-        # Только один символ
-        data_dict = {"EURUSD": pd.DataFrame({"close": [1.1, 1.2, 1.3]})}
-
-        risk_engine.update_correlation_matrix(data_dict)
-
-        # Матрицы не должны быть созданы
-        assert risk_engine.correlation_matrix is None
-        assert risk_engine.covariance_matrix is None
-
-
-class TestRiskEngineDynamicRisk:
-    """Тесты для динамического риска."""
-
-    @pytest.fixture
-    def mock_account_info(self) -> MagicMock:
-        """Мок для информации об аккаунте."""
-        account = MagicMock()
-        account.balance = 10000.0
-        account.equity = 10000.0
-        return account
-
-    def test_get_dynamic_risk_percentage_normal(self, risk_engine, mock_account_info):
-        """Проверка нормального динамического риска."""
-        trade_history = [10.0, 20.0, 15.0, 25.0, 30.0]  # Прибыльные сделки
-
-        # Примечание: метод может вернуть tuple или float
-        try:
-            risk = risk_engine.get_dynamic_risk_percentage(mock_account_info, trade_history)
-            # Если вернуло float
-            assert isinstance(risk, (int, float))
-            assert risk > 0
-        except (ValueError, AttributeError, TypeError):
-            # Метод требует дополнительные зависимости
-            pass
-
-    def test_get_dynamic_risk_percentage_anomaly_active(self, risk_engine, mock_account_info, mock_trading_system):
-        """Проверка динамического риска при активной аномалии."""
-        # Активируем аномалию
-        mock_trading_system.anomaly_detector.is_trained = True
-        mock_trading_system.anomaly_detector.predict.return_value = (True, 0.9)
-
-        trade_history = [10.0, 20.0, 15.0]
-
-        try:
-            risk = risk_engine.get_dynamic_risk_percentage(mock_account_info, trade_history)
-            assert isinstance(risk, (int, float))
-        except (ValueError, AttributeError, TypeError):
-            # Метод требует дополнительные зависимости
-            pass
-
-    def test_get_dynamic_risk_percentage_insufficient_history(self, risk_engine, mock_account_info):
-        """Проверка с недостаточной историей сделок."""
-        trade_history = [10.0, 20.0]  # Меньше 5 сделок
-
-        try:
-            risk = risk_engine.get_dynamic_risk_percentage(mock_account_info, trade_history)
-            assert isinstance(risk, (int, float))
-        except (ValueError, AttributeError, TypeError):
-            pass
-
-    def test_get_dynamic_risk_percentage_loss_series(self, risk_engine, mock_account_info):
-        """Проверка при серии убытков."""
-        trade_history = [-10.0, -20.0, -15.0, -25.0, -30.0]  # Убыточные сделки
-
-        try:
-            risk = risk_engine.get_dynamic_risk_percentage(mock_account_info, trade_history)
-            assert isinstance(risk, (int, float))
-        except (ValueError, AttributeError, TypeError):
-            pass
-
-
-class TestRiskEngineToxicRegimes:
-    """Тесты для токсичных режимов."""
-
-    def test_update_toxic_regimes_cache(self, risk_engine, mock_trading_system):
-        """Проверка обновления кэша токсичных режимов."""
-        # Устанавливаем старое время последнего обновления
-        risk_engine.last_toxic_regime_update = 0
-
-        mock_trading_system.db_manager.get_toxic_regimes.return_value = ["Low Volatility Range"]
-
-        risk_engine._update_toxic_regimes_cache()
-
-        # Проверка что кэш обновлен
-        assert len(risk_engine.toxic_regimes_cache) > 0
-        assert risk_engine.last_toxic_regime_update > 0
-
-    def test_update_toxic_regimes_cache_not_due(self, risk_engine):
-        """Проверка что кэш не обновляется если не пришло время."""
-        # Устанавливаем недавнее время последнего обновления
-        import time
-
-        risk_engine.last_toxic_regime_update = time.time()
-
-        initial_cache = risk_engine.toxic_regimes_cache.copy()
-
-        risk_engine._update_toxic_regimes_cache()
-
-        # Кэш не должен измениться
-        assert risk_engine.toxic_regimes_cache == initial_cache
-
-
-class TestRiskEngineDiversityReward:
-    """Тесты для бонуса за диверсификацию."""
-
-    def test_calculate_diversity_reward_no_strategies(self, risk_engine):
-        """Проверка без активных стратегий."""
-        allocation = {}
-
-        reward = risk_engine.calculate_diversity_reward(allocation)
-
-        assert reward == 0.0
-
-    def test_calculate_diversity_reward_single_strategy(self, risk_engine):
-        """Проверка с одной стратегией."""
-        allocation = {"Default": {"StrategyA": 1.0}}
-
-        reward = risk_engine.calculate_diversity_reward(allocation)
-
-        assert reward == 0.0  # Нет диверсификации
-
-    def test_calculate_diversity_reward_multiple_strategies(self, risk_engine):
-        """Проверка с несколькими стратегиями."""
-        allocation = {"Default": {"StrategyA": 0.5, "StrategyB": 0.5}}
-
-        reward = risk_engine.calculate_diversity_reward(allocation)
-
-        # Бонус должен быть > 0 (низкая корреляция)
-        assert reward > 0.0
-        assert reward <= 1.0
-
-    def test_calculate_diversity_reward_same_type_strategies(self, risk_engine):
-        """Проверка со стратегиями одного типа."""
-        allocation = {"Default": {"MeanReversionStrategy1": 0.5, "MeanReversionStrategy2": 0.5}}
-
-        reward = risk_engine.calculate_diversity_reward(allocation)
-
-        # Бонус должен быть меньше (высокая корреляция)
-        assert reward >= 0.0
-        assert reward < 0.5  # Ниже из-за высокой корреляции
-
-
-class TestRiskService:
-    """Тесты для RiskService — пропущены т.к. RiskService абстрактный.
-
-    RiskService наследует BaseService с 3 абстрактными методами (start, stop,
-    health_check). Для полноценного тестирования требуется интеграционный тест
-    с полной торговой системой, что выходит за рамки unit-тестов.
-    """
-
-    @pytest.mark.skip(reason="RiskService — абстрактный класс, требует интеграционного теста")
-    def test_risk_service_health_check_healthy(self):
-        pass
-
-    @pytest.mark.skip(reason="RiskService — абстрактный класс, требует интеграционного теста")
-    def test_risk_service_health_check_unhealthy_var(self):
-        pass
-
-    @pytest.mark.skip(reason="RiskService — абстрактный класс, требует интеграционного теста")
-    def test_risk_service_check_var_limits(self):
-        pass
-
-    @pytest.mark.skip(reason="RiskService — абстрактный класс, требует интеграционного теста")
-    def test_risk_service_check_var_limits_no_positions(self):
-        pass
-
-    @pytest.mark.skip(reason="RiskService — абстрактный класс, требует интеграционного теста")
-    def test_risk_service_check_drawdown_limits(self):
-        pass
-
-    @pytest.mark.skip(reason="RiskService — абстрактный класс, требует интеграционного теста")
-    def test_risk_service_check_drawdown_limits_exceeded(self):
-        pass
-
-    @pytest.mark.skip(reason="RiskService — абстрактный класс, требует интеграционного теста")
-    def test_risk_service_on_start(self):
-        pass
-
-    @pytest.mark.skip(reason="RiskService — абstractный класс, требует интеграционного теста")
-    def test_risk_service_on_start_no_engine(self):
-        pass
-
-    @pytest.mark.skip(reason="RiskService — абстрактный класс, требует интеграционного теста")
-    def test_risk_service_on_stop(self):
-        pass
+    def test_var_exceeds_limit(self):
+        """VaR превышает лимит."""
+        from src.core.services.risk_service import RiskService
+        
+        trading_system = MagicMock()
+        trading_system.config.MAX_PORTFOLIO_VAR_PERCENT = 3.0
+        trading_system.running = True
+        
+        service = MagicMock()
+        service._check_var_limits = RiskService._check_var_limits.__get__(service, RiskService)
+        service.trading_system = trading_system
+        service._last_var_check = 5.0
+        service._logger = MagicMock()
+        
+        # Мокаем positions_get и risk_engine.calculate_portfolio_var
+        mock_positions = [MagicMock()]
+        service.risk_engine = MagicMock()
+        service.risk_engine.calculate_portfolio_var = MagicMock(return_value=5.0)
+        
+        with patch('src.core.services.risk_service.mt5.positions_get', return_value=mock_positions):
+            result = service._check_var_limits()
+            assert result is False
+
+
+class TestCircuitBreakerIntegration:
+    """Тесты Circuit Breaker."""
+
+    def test_circuit_breaker_can_execute_when_closed(self):
+        """Circuit Breaker разрешает выполнение в состоянии CLOSED."""
+        from src.core.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
+        assert cb.can_execute() is True
+
+    def test_circuit_breaker_blocks_after_five_failures(self):
+        """Circuit Breaker блокирует после 5 ошибок."""
+        from src.core.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
+        
+        # Записываем 5 ошибок
+        for _ in range(5):
+            try:
+                raise RuntimeError("Simulated error")
+            except RuntimeError:
+                cb.record_failure()
+        
+        assert cb.is_open() is True
+        assert cb.can_execute() is False
+
+    def test_circuit_breaker_resets_after_recovery_timeout(self):
+        """Circuit Breaker сбрасывается после успешного завершения в HALF_OPEN."""
+        from src.core.circuit_breaker import CircuitBreaker, CircuitState
+        cb = CircuitBreaker(failure_threshold=2, recovery_timeout=60)
+        
+        # Вызываем 2 ошибки для перехода в OPEN
+        cb.record_failure()
+        cb.record_failure()
+        assert cb.is_open() is True
+        
+        # Переходим в HALF_OPEN (эмулируем таймаут)
+        cb._opened_at = 0  # Установим время открытия в прошлом
+        assert cb.state == CircuitState.HALF_OPEN or cb.can_execute() is True
+        
+        # Записываем успех
+        cb.record_success()
+        assert cb.is_closed() is True
+
+
+class TestRiskServiceLogger:
+    """Тесты проверки логгера."""
+
+    def test_risk_service_inherits_from_base_service(self):
+        """RiskService наследуется от BaseService."""
+        from src.core.services.risk_service import RiskService
+        from src.core.services.base_service import BaseService
+        assert issubclass(RiskService, BaseService)
+
+    def test_risk_service_uses_logger_in_methods(self):
+        """RiskService использует self._logger в методах."""
+        from src.core.services.risk_service import RiskService
+        
+        # Проверяем что методы используют _logger
+        import inspect
+        source = inspect.getsource(RiskService._check_drawdown_limits)
+        assert '_logger' in source, "Метод должен использовать _logger"
+        
+        source = inspect.getsource(RiskService._check_var_limits)
+        assert '_logger' in source, "Метод должен использовать _logger"

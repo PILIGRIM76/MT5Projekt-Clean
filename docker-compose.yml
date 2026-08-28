@@ -1,329 +1,51 @@
-# Docker Compose для Genesis Trading System
-# Версия: 2.1 (Desktop Application + Multi-Database)
-# Дата: 2 апреля 2026
-#
-# ВАЖНО: Основное приложение PySide6 запускается ЛОКАЛЬНО на ПК (не в Docker)!
-# Docker используется ТОЛЬКО для баз данных и сервисов.
-
 version: '3.8'
 
-# ===========================================
-# Services
-# ===========================================
 services:
-  # -------------------------------------------
-  # Базы данных и сервисы (ТОЛЬКО для локального подключения)
-  # -------------------------------------------
-  # Основное приложение запускается через: python main_pyside.py
-  # или через: start_desktop.bat / ./start_desktop.sh
-
-  # -------------------------------------------
-  # PostgreSQL Database (Relational Data)
-  # -------------------------------------------
-  db:
-    image: postgres:16-alpine
-    container_name: genesis-db
-
+  postgres:
+    image: postgres:15
+    container_name: genesis_postgres
     environment:
-      - POSTGRES_DB=trading
-      - POSTGRES_USER=trading_user
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secure_password_change_me}
-      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --lc-collate=C --lc-ctype=C
-
+      POSTGRES_USER: genesis_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: genesis_trading
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
-
     ports:
-      - "5432:5432"  # Доступ для локального приложения
-
-    networks:
-      - trading-network
-
+      - "5432:5432"
     restart: unless-stopped
 
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trading_user -d trading"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2G
-
-  # -------------------------------------------
-  # TimescaleDB (Time-Series Data)
-  # -------------------------------------------
   timescaledb:
-    image: timescale/timescaledb-ha:pg16
-    container_name: genesis-timescaledb
-
+    image: timescale/timescaledb:latest-pg15
+    container_name: genesis_timescaledb
     environment:
-      - POSTGRES_DB=trading_ts
-      - POSTGRES_USER=trading_user
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secure_password_change_me}
-      - PGDATA=/var/lib/postgresql/data/timescaledb
-
+      POSTGRES_USER: genesis_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: genesis_timescaledb
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
-      - ./scripts/init-timescaledb.sql:/docker-entrypoint-initdb.d/init.sql:ro
-
     ports:
       - "5433:5432"
-
-    networks:
-      - trading-network
-
     restart: unless-stopped
 
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trading_user -d trading_ts"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 4G
-
-  # -------------------------------------------
-  # QuestDB (High-Performance Time-Series)
-  # -------------------------------------------
-  questdb:
-    image: questdb/questdb:latest
-    container_name: genesis-questdb
-
-    environment:
-      - QDB_PG_USERNAME=quest
-      - QDB_PG_PASSWORD=quest
-      - QDB_WEB_CONSOLE_USERNAME=admin
-      - QDB_WEB_CONSOLE_PASSWORD=${QUESTDB_PASSWORD:-quest_admin}
-
-    volumes:
-      - questdb_data:/root/.questdb/db
-
-    ports:
-      - "9000:9000"  # PostgreSQL wire protocol
-      - "9009:9009"  # InfluxDB line protocol
-      - "9001:9001"  # Web console
-
-    networks:
-      - trading-network
-
-    restart: unless-stopped
-
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9001/status || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 4G
-
-  # -------------------------------------------
-  # Qdrant (Vector Database)
-  # -------------------------------------------
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: genesis-qdrant
-
-    environment:
-      - QDRANT__SERVICE__GRPC_PORT=6334
-      - QDRANT__STORAGE__STORAGE_PATH=/qdrant/storage
-
-    volumes:
-      - qdrant_storage:/qdrant/storage
-
-    ports:
-      - "6333:6333"  # REST API
-      - "6334:6334"  # gRPC API
-
-    networks:
-      - trading-network
-
-    restart: unless-stopped
-
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:6333/ || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 4G
-
-  # -------------------------------------------
-  # Redis Cache (In-Memory Data Store)
-  # -------------------------------------------
   redis:
     image: redis:7-alpine
-    container_name: genesis-redis
-
-    command: >
-      redis-server
-      --appendonly yes
-      --maxmemory 1gb
-      --maxmemory-policy allkeys-lru
-      --save 900 1
-      --save 300 10
-      --save 60 10000
-
-    volumes:
-      - redis_data:/data
-      - ./configs/redis.conf:/usr/local/etc/redis/redis.conf:ro
-
+    container_name: genesis_redis
     ports:
       - "6379:6379"
-
-    networks:
-      - trading-network
-
     restart: unless-stopped
+    command: redis-server --appendonly yes
 
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-
-  # -------------------------------------------
-  # Prometheus (Metrics Collection)
-  # -------------------------------------------
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: genesis-prometheus
-
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-      - '--web.enable-lifecycle'
-
+  qdrant:
+    image: qdrant/qdrant:v1.9.0
+    container_name: genesis_qdrant
     ports:
-      - "9090:9090"
-
-    networks:
-      - trading-network
-
-    restart: unless-stopped
-
-    depends_on:
-      - trading-system
-
-  # -------------------------------------------
-  # Grafana (Visualization)
-  # -------------------------------------------
-  grafana:
-    image: grafana/grafana:latest
-    container_name: genesis-grafana
-
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SERVER_ROOT_URL=http://localhost:3000
-
+      - "6333:6333"
+      - "6334:6334"
     volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
-
-    ports:
-      - "3000:3000"
-
-    networks:
-      - trading-network
-
+      - qdrant_storage:/qdrant/storage
     restart: unless-stopped
 
-    depends_on:
-      - prometheus
-
-  # -------------------------------------------
-  # NGINX (Reverse Proxy)
-  # -------------------------------------------
-  nginx:
-    image: nginx:alpine
-    container_name: genesis-nginx
-
-    volumes:
-      - ./monitoring/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./monitoring/ssl:/etc/nginx/ssl:ro
-
-    ports:
-      - "80:80"
-      - "443:443"
-
-    networks:
-      - trading-network
-
-    restart: unless-stopped
-
-    depends_on:
-      - trading-system
-      - grafana
-      - prometheus
-
-  qdrant_storage:
-    driver: local
-  # AI Models Volume — для монтирования внешних моделей
-  models_data:
-    driver: local
-
-# ===========================================
-# Volumes
-# ===========================================
 volumes:
-  trading_data:
-    driver: local
-  trading_logs:
-    driver: local
   postgres_data:
-    driver: local
   timescaledb_data:
-    driver: local
-  questdb_data:
-    driver: local
   qdrant_storage:
-    driver: local
-  redis_data:
-    driver: local
-  prometheus_data:
-    driver: local
-  grafana_data:
-    driver: local
-  vector_db:
-    driver: local
-
-# ===========================================
-# Networks
-# ===========================================
-networks:
-  trading-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16
