@@ -1,0 +1,1990 @@
+Run started:2026-08-23 21:15:59.069830+00:00
+
+Test results:
+>> Issue: [B615:huggingface_unsafe_download] Unsafe Hugging Face Hub download without revision pinning in from_pretrained()
+   Severity: Medium   Confidence: High
+   CWE: CWE-494 (https://cwe.mitre.org/data/definitions/494.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b615_huggingface_unsafe_download.html
+   Location: src/analysis\nlp_processor.py:122:28
+121	
+122	                tokenizer = AutoTokenizer.from_pretrained(
+123	                    model_name,
+124	                    local_files_only=False,
+125	                    trust_remote_code=False,
+126	                )
+127	
+
+--------------------------------------------------
+>> Issue: [B615:huggingface_unsafe_download] Unsafe Hugging Face Hub download without revision pinning in from_pretrained()
+   Severity: Medium   Confidence: High
+   CWE: CWE-494 (https://cwe.mitre.org/data/definitions/494.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b615_huggingface_unsafe_download.html
+   Location: src/analysis\nlp_processor.py:128:24
+127	
+128	                model = T5ForConditionalGeneration.from_pretrained(
+129	                    model_name,
+130	                    local_files_only=False,
+131	                    torch_dtype=torch.float32,
+132	                    device_map="cpu",
+133	                )
+134	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: src/core\auto_updater.py:5:0
+4	import os
+5	import subprocess
+6	import sys
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/core\auto_updater.py:83:21
+82	                check=False,
+83	                shell=False,
+84	                startupinfo=startupinfo,
+85	                encoding="utf-8",
+86	                errors="replace",
+87	                timeout=30,
+88	            )
+89	
+90	            if result.returncode != 0:
+91	                logger.error(f"Ошибка выполнения команды '{' '.join(command)}':\n{result.stderr}")
+92	                return ""
+93	
+
+--------------------------------------------------
+>> Issue: [B606:start_process_with_no_shell] Starting a process without a shell.
+   Severity: Low   Confidence: Medium
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b606_start_process_with_no_shell.html
+   Location: src/core\auto_updater.py:359:8
+358	        logger.critical("Шаг 5: Перезапуск приложения...")
+359	        os.execv(sys.executable, [sys.executable] + sys.argv)
+360	
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: src/core\auto_updater.py:380:51
+379	            # Путь для сохранения установщика
+380	            temp_dir = Path(os.environ.get("TEMP", "/tmp"))
+381	            installer_path = temp_dir / f"GenesisTrading_Setup_v{self.latest_version}.exe"
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/core\auto_updater.py:408:16
+407	                # Windows: запускаем установщик с silent флагами
+408	                subprocess.Popen([str(installer_path), "/SILENT", "/CLOSEAPPLICATIONS"], shell=False)
+409	            else:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/core\auto_updater.py:410:16
+409	            else:
+410	                subprocess.Popen([str(installer_path)], shell=False)
+411	
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: src/core\cache_manager.py:9:0
+8	import logging
+9	import pickle
+10	import sqlite3
+
+--------------------------------------------------
+>> Issue: [B301:blacklist] Pickle and modules that wrap it can be unsafe when used to deserialize untrusted data, possible security issue.
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b301-pickle
+   Location: src/core\cache_manager.py:157:32
+156	                            entry = CacheEntry(
+157	                                pickle.loads(value), created_at, ttl
+158	                            )
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/core\config_loader.py:40:8
+39	            test_file.unlink()
+40	        except Exception:
+41	            pass
+42	        return True
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: ''
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: src/core\config_loader.py:109:8
+108	        "MT5_LOGIN": 0,
+109	        "MT5_PASSWORD": "",
+110	        "MT5_SERVER": "",
+111	        "MT5_PATH": "",
+112	        "DATABASE_FOLDER": "database",
+113	        "vector_db": {"enabled": True, "path": "database/vector_db", "embedding_model": "all-MiniLM-L6-v2"},
+114	        "CONSENSUS_WEIGHTS": {"ai_forecast": 0.5, "classic_strategies": 0.3, "sentiment_kg": 0.1, "on_chain_data": 0.1},
+115	        "strategies": {
+116	            "breakout": {"window": 15},
+117	            "mean_reversion": {"window": 50, "std_dev_multiplier": 1.9, "confirmation_buffer_std_dev_fraction": 0.05},
+118	            "ma_crossover": {
+119	                "timeframe_params": {
+120	                    "default": {"short_window": 15, "long_window": 35},
+121	                    "low": {"short_window": 10, "long_window": 25},
+122	                    "high": {"short_window": 50, "long_window": 200},
+123	                }
+124	            },
+125	        },
+126	    }
+127	
+128	
+129	def load_config() -> Settings:
+130	    """
+131	    Загружает конфигурацию из .env и settings.json,
+132	    валидирует и возвращает строго типизированный объект Settings.
+133	    При первом запуске создает settings.json с настройками по умолчанию.
+134	
+135	    Returns:
+136	        Settings: Валидированная конфигурация
+137	
+138	    Raises:
+139	        ValueError: Если отсутствуют обязательные переменные окружения
+140	        ValidationError: Если конфигурация не прошла валидацию Pydantic
+141	    """
+142	    config_dict = {}
+143	    project_root = Path(__file__).parent.parent.parent
+144	
+145	    # 1. Загрузка из settings.json (только нечувствительные данные)
+146	    settings_path = project_root / "configs" / "settings.json"
+147	    if settings_path.exists():
+148	        try:
+149	            with open(settings_path, "r", encoding="utf-8") as f:
+150	                # Удаляем комментарии перед парсингом
+151	                content = "".join(line for line in f if not line.strip().startswith("//"))
+152	                config_dict.update(json.loads(content))
+153	            logger.info(f"Конфигурация загружена из {settings_path}")
+154	        except Exception as e:
+155	            logger.error(f"Критическая ошибка чтения {settings_path}: {e}")
+156	            raise  # Прерываем выполнение, если основной конфиг не читается
+157	    else:
+158	        # Создаем settings.json с настройками по умолчанию
+159	        logger.warning(f"Файл конфигурации {settings_path} не найден. Создаю с настройками по умолчанию...")
+160	        try:
+161	            default_settings = _get_default_settings_dict()
+162	            # Создаем директорию если не существует
+163	            settings_path.parent.mkdir(parents=True, exist_ok=True)
+164	            with open(settings_path, "w", encoding="utf-8") as f:
+165	                json.dump(default_settings, f, indent=4, ensure_ascii=False)
+166	            logger.info(f"Создан файл настроек: {settings_path}")
+167	            logger.warning("ВНИМАНИЕ: Отредактируйте settings.json и укажите ваш MT5 путь, логин и пароль!")
+168	            config_dict.update(default_settings)
+169	        except Exception as e:
+170	            logger.error(f"Не удалось создать файл настроек: {e}")
+171	            raise
+172	
+173	    # 2. Загрузка и переопределение из .env
+174	    env_path = project_root / "configs" / ".env"
+175	    if env_path.exists():
+176	        load_dotenv(dotenv_path=env_path, override=True)
+177	        logger.info(f"Переменные окружения загружены из {env_path}")
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: src/core\config_models.py:229:30
+228	    enabled: bool = Field(default=True, description="Включить веб-дашборд.")
+229	    host: str = Field(default="0.0.0.0", description="Хост для веб-сервера.")
+230	    port: int = Field(default=8000, description="Порт для веб-сервера.")
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'BINANCE_API_SECRET'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: src/core\config_models.py:366:23
+365	                api_key_env="BINANCE_API_KEY",
+366	                api_secret_env="BINANCE_API_SECRET",
+367	                sandbox=False,
+368	                symbols=["BTC/USDT", "ETH/USDT"],
+369	                default_leverage=1,
+370	                market_type="spot",
+371	            ),
+372	            "bybit": CryptoExchangeConfig(
+373	                enabled=False,
+374	                api_key_env="BYBIT_API_KEY",
+375	                api_secret_env="BYBIT_API_SECRET",
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'BYBIT_API_SECRET'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: src/core\config_models.py:375:21
+374	                api_key_env="BYBIT_API_KEY",
+375	                api_secret_env="BYBIT_API_SECRET",
+376	                sandbox=False,
+377	                symbols=["BTC/USDT", "ETH/USDT"],
+378	                default_leverage=1,
+379	                market_type="spot",
+380	            ),
+381	        },
+382	        description="Конфигурации крипто-бирж",
+383	    )
+384	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: src/core\hot_reload_manager.py:22:0
+21	import os
+22	import subprocess
+23	import sys
+
+--------------------------------------------------
+>> Issue: [B614:pytorch_load] Use of unsafe PyTorch load
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b614_pytorch_load.html
+   Location: src/core\hot_reload_manager.py:517:29
+516	
+517	                state_dict = torch.load(str(file_path), map_location="cpu", weights_only=False)
+518	                if state_dict is None:
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: src/core\hot_reload_manager.py:648:21
+647	        try:
+648	            result = subprocess.run(
+649	                ["git", "rev-parse", "HEAD"],
+650	                cwd=str(self.repo_path),
+651	                capture_output=True,
+652	                text=True,
+653	                timeout=10,
+654	            )
+655	            if result.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/core\hot_reload_manager.py:648:21
+647	        try:
+648	            result = subprocess.run(
+649	                ["git", "rev-parse", "HEAD"],
+650	                cwd=str(self.repo_path),
+651	                capture_output=True,
+652	                text=True,
+653	                timeout=10,
+654	            )
+655	            if result.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: src/core\hot_reload_manager.py:668:12
+667	            # Fetch без merge
+668	            subprocess.run(
+669	                ["git", "fetch", "origin", self.branch],
+670	                cwd=str(self.repo_path),
+671	                capture_output=True,
+672	                timeout=30,
+673	            )
+674	
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/core\hot_reload_manager.py:668:12
+667	            # Fetch без merge
+668	            subprocess.run(
+669	                ["git", "fetch", "origin", self.branch],
+670	                cwd=str(self.repo_path),
+671	                capture_output=True,
+672	                timeout=30,
+673	            )
+674	
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: src/core\hot_reload_manager.py:676:21
+675	            # Получаем хэш удалённого коммита
+676	            result = subprocess.run(
+677	                ["git", "rev-parse", f"origin/{self.branch}"],
+678	                cwd=str(self.repo_path),
+679	                capture_output=True,
+680	                text=True,
+681	                timeout=10,
+682	            )
+683	            if result.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/core\hot_reload_manager.py:676:21
+675	            # Получаем хэш удалённого коммита
+676	            result = subprocess.run(
+677	                ["git", "rev-parse", f"origin/{self.branch}"],
+678	                cwd=str(self.repo_path),
+679	                capture_output=True,
+680	                text=True,
+681	                timeout=10,
+682	            )
+683	            if result.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: src/core\hot_reload_manager.py:696:21
+695	
+696	            result = subprocess.run(
+697	                ["git", "pull", "origin", self.branch],
+698	                cwd=str(self.repo_path),
+699	                capture_output=True,
+700	                text=True,
+701	                timeout=120,
+702	            )
+703	
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/core\hot_reload_manager.py:696:21
+695	
+696	            result = subprocess.run(
+697	                ["git", "pull", "origin", self.branch],
+698	                cwd=str(self.repo_path),
+699	                capture_output=True,
+700	                text=True,
+701	                timeout=120,
+702	            )
+703	
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: src/core\hot_reload_manager.py:757:21
+756	        try:
+757	            result = subprocess.run(
+758	                ["git", "diff", "--name-only", "HEAD@{1}", "HEAD"],
+759	                cwd=str(self.repo_path),
+760	                capture_output=True,
+761	                text=True,
+762	                timeout=10,
+763	            )
+764	            if result.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/core\hot_reload_manager.py:757:21
+756	        try:
+757	            result = subprocess.run(
+758	                ["git", "diff", "--name-only", "HEAD@{1}", "HEAD"],
+759	                cwd=str(self.repo_path),
+760	                capture_output=True,
+761	                text=True,
+762	                timeout=10,
+763	            )
+764	            if result.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B614:pytorch_load] Use of unsafe PyTorch load
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b614_pytorch_load.html
+   Location: src/core\memory_utils.py:149:28
+148	                else:
+149	                    model = torch.load(model_path, map_location="cpu", weights_only=False)
+150	            else:
+
+--------------------------------------------------
+>> Issue: [B614:pytorch_load] Use of unsafe PyTorch load
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b614_pytorch_load.html
+   Location: src/core\model_loader.py:311:24
+310	
+311	                model = torch.load(str(model_path), map_location="cpu", weights_only=False)
+312	                logger.debug(f"🔥 PyTorch модель загружена (fallback): {model_path}")
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/core\mt5_connection_manager.py:273:8
+272	            self.shutdown()
+273	        except Exception:
+274	            pass
+275	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/core\mt5_connection_manager.py:355:12
+354	                manager.shutdown()
+355	            except Exception:
+356	                pass
+357	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/core\secrets_manager.py:249:16
+248	                    keyring.delete_password(self.keyring_service, key)
+249	                except Exception:
+250	                    pass
+251	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/core\secrets_manager.py:286:8
+285	                    keys.update(data.keys())
+286	        except Exception:
+287	            pass
+288	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/core\services\data_service.py:129:8
+128	            mt5_connected = mt5.terminal_info() is not None
+129	        except Exception:
+130	            pass
+131	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/core\services\execution_service.py:159:8
+158	            mt5_connected = mt5.terminal_info() is not None
+159	        except Exception:
+160	            pass
+161	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/core\services\ml_service.py:118:12
+117	                    logger.debug(f"{self.name}: CUDA память очищена")
+118	            except Exception:
+119	                pass  # GPU не доступен или не используется
+120	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: src/core\services\monitoring_service.py:10:0
+9	import os
+10	import subprocess
+11	import threading
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: src/core\services\monitoring_service.py:341:16
+340	            try:
+341	                subprocess.run(["taskkill", "/F", "/IM", "terminal64.exe"], capture_output=True, timeout=10)
+342	                time.sleep(2)  # Ждем завершения
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/core\services\monitoring_service.py:341:16
+340	            try:
+341	                subprocess.run(["taskkill", "/F", "/IM", "terminal64.exe"], capture_output=True, timeout=10)
+342	                time.sleep(2)  # Ждем завершения
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/core\services\monitoring_service.py:349:16
+348	            try:
+349	                subprocess.Popen([mt5_path], creationflags=subprocess.CREATE_NO_WINDOW)
+350	                time.sleep(5)  # Ждем запуска терминала
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/core\services\trade_executor.py:898:12
+897	                    return deals[0].position_id
+898	            except Exception:
+899	                pass
+900	
+
+--------------------------------------------------
+>> Issue: [B615:huggingface_unsafe_download] Unsafe Hugging Face Hub download without revision pinning in from_pretrained()
+   Severity: Medium   Confidence: High
+   CWE: CWE-494 (https://cwe.mitre.org/data/definitions/494.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b615_huggingface_unsafe_download.html
+   Location: src/core\trading\nlp_lazy_loader.py:79:38
+78	                    from transformers import AutoTokenizer, T5ForConditionalGeneration
+79	                    self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+80	                    self._model = T5ForConditionalGeneration.from_pretrained(self.model_name)
+
+--------------------------------------------------
+>> Issue: [B615:huggingface_unsafe_download] Unsafe Hugging Face Hub download without revision pinning in from_pretrained()
+   Severity: Medium   Confidence: High
+   CWE: CWE-494 (https://cwe.mitre.org/data/definitions/494.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b615_huggingface_unsafe_download.html
+   Location: src/core\trading\nlp_lazy_loader.py:80:34
+79	                    self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+80	                    self._model = T5ForConditionalGeneration.from_pretrained(self.model_name)
+81	                elif self.model_type == "sentiment":
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/core\trading_system.py:278:18
+277	
+278	        success = random.random() > 0.05
+279	        return ExecutionResult(
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/core\trading_system.py:284:21
+283	            message="Done" if success else "Requote",
+284	            slippage=random.uniform(0, 0.0002) if success else 0,
+285	        )
+
+--------------------------------------------------
+>> Issue: [B405:blacklist] Using xml.etree.ElementTree to parse untrusted XML data is known to be vulnerable to XML attacks. Replace xml.etree.ElementTree with the equivalent defusedxml package, or make sure defusedxml.defuse_stdlib() is called.
+   Severity: Low   Confidence: High
+   CWE: CWE-20 (https://cwe.mitre.org/data/definitions/20.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b405-import-xml-etree
+   Location: src/data\async_data_provider.py:444:8
+443	        """Парсинг RSS ленты."""
+444	        import xml.etree.ElementTree as ET
+445	
+
+--------------------------------------------------
+>> Issue: [B314:blacklist] Using xml.etree.ElementTree.fromstring to parse untrusted XML data is known to be vulnerable to XML attacks. Replace xml.etree.ElementTree.fromstring with its defusedxml equivalent function or make sure defusedxml.defuse_stdlib() is called
+   Severity: Medium   Confidence: High
+   CWE: CWE-20 (https://cwe.mitre.org/data/definitions/20.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b313-b320-xml-bad-elementtree
+   Location: src/data\async_data_provider.py:448:19
+447	        try:
+448	            root = ET.fromstring(rss_content)
+449	            channel = root.find("channel")
+
+--------------------------------------------------
+>> Issue: [B107:hardcoded_password_default] Possible hardcoded password: ''
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b107_hardcoded_password_default.html
+   Location: src/data\crypto_exchange_provider.py:64:4
+63	
+64	    def __init__(
+65	        self,
+66	        exchange_id: str,
+67	        api_key: str = "",
+68	        api_secret: str = "",
+69	        sandbox: bool = False,
+70	        symbols: Optional[List[str]] = None,
+71	        default_leverage: int = 1,
+72	        market_type: str = "spot",
+73	        options: Optional[Dict[str, Any]] = None,
+74	    ):
+75	        self.exchange_id = exchange_id
+76	        self.api_key = api_key
+77	        self.api_secret = api_secret
+78	        self.sandbox = sandbox
+79	        self.symbols = symbols or []
+80	        self.default_leverage = default_leverage
+81	        self.market_type = market_type  # "spot" или "future"
+82	        self.options = options or {}
+83	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/data\crypto_exchange_provider.py:177:12
+176	                await self._exchange_async.close()
+177	            except Exception:
+178	                pass
+179	            self._exchange_async = None
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/data\data_collector.py:271:20
+270	
+271	            query = f"""
+272	                SELECT MAX(time) as last_time
+273	                FROM {table_name}
+274	                WHERE symbol = ?
+275	            """
+276	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/data\data_collector.py:381:20
+380	
+381	            query = f"""
+382	                SELECT
+383	                    COUNT(*) as total_bars,
+384	                    MIN(time) as first_bar,
+385	                    MAX(time) as last_bar,
+386	                    AVG(tick_volume) as avg_volume
+387	                FROM {table_name}
+388	                WHERE symbol = ?
+389	            """
+390	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/data\data_collector.py:398:16
+397	            df = pd.read_sql_query(
+398	                f"SELECT time FROM {table_name} WHERE symbol = ? ORDER BY time", self.db_manager.engine, params=(symbol,)
+399	            )
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/data\data_provider.py:120:8
+119	            mt5.shutdown()
+120	        except Exception:
+121	            pass
+122	        time.sleep(1.0)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/data\kg_sync_pipeline.py:283:12
+282	                session.rollback()
+283	            except Exception:
+284	                pass
+285	            logger.debug(f"[KG-Sync] SQLite save error: {e}")
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/data\kg_sync_pipeline.py:289:12
+288	                session.close()
+289	            except Exception:
+290	                pass
+291	
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/data\multi_source_aggregator.py:59:11
+58	    """Возвращает случайный User-Agent из пула."""
+59	    return random.choice(USER_AGENTS)
+60	
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/data\news_collector.py:119:26
+118	                news = {
+119	                    "id": hashlib.md5(item["headline"].encode()).hexdigest(),
+120	                    "source": "Finnhub",
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/data\news_collector.py:175:26
+174	                news = {
+175	                    "id": hashlib.md5(item["title"].encode()).hexdigest(),
+176	                    "source": "NewsAPI",
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/data\news_collector.py:218:30
+217	                    news = {
+218	                        "id": hashlib.md5(entry.title.encode()).hexdigest(),
+219	                        "source": feed.feed.get("title", "RSS"),
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: src/db\adapters\qdrant_adapter.py:9:0
+8	import logging
+9	import pickle
+10	from datetime import datetime, timezone
+
+--------------------------------------------------
+>> Issue: [B107:hardcoded_password_default] Possible hardcoded password: 'quest'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b107_hardcoded_password_default.html
+   Location: src/db\adapters\questdb_adapter.py:33:4
+32	
+33	    def __init__(
+34	        self,
+35	        host: str = "localhost",
+36	        port: int = 9000,
+37	        database: str = "questdb",
+38	        user: str = "admin",
+39	        password: str = "quest",
+40	        pool_size: int = 5,
+41	        enabled: bool = True,
+42	    ):
+43	        self.enabled = enabled and QUESTDB_AVAILABLE
+44	        self.host = host
+45	        self.port = port
+46	        self.database = database
+47	        self.user = user
+48	        self.password = password
+49	        self._pool: Optional[pool.SimpleConnectionPool] = None
+50	
+51	        if self.enabled:
+52	            try:
+53	                self._init_pool(pool_size)
+54	                logger.info(f"QuestDBAdapter инициализирован: {host}:{port}")
+55	            except Exception as e:
+56	                logger.error(f"Ошибка подключения к QuestDB: {e}")
+57	                self.enabled = False
+58	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\questdb_adapter.py:163:24
+162	            with conn.cursor() as cur:
+163	                query = f"""
+164	                INSERT INTO {table_name}
+165	                (symbol, timeframe, timestamp, open, high, low, close, volume, tick_volume, spread, created_at)
+166	                VALUES %s
+167	                """
+168	                execute_values(cur, query, records)
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\questdb_adapter.py:202:20
+201	
+202	            query = f"""
+203	            SELECT timestamp, open, high, low, close, volume, tick_volume, spread
+204	            FROM {table_name}
+205	            WHERE symbol = %s
+206	              AND timeframe = %s
+207	              AND timestamp >= %s
+208	              AND timestamp <= %s
+209	            ORDER BY timestamp ASC
+210	            """
+211	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\questdb_adapter.py:253:20
+252	
+253	            query = f"""
+254	            SELECT timestamp, open, high, low, close, volume, tick_volume, spread
+255	            FROM {table_name}
+256	            WHERE symbol = %s AND timeframe = %s
+257	            ORDER BY timestamp DESC
+258	            LIMIT 1
+259	            """
+260	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\questdb_adapter.py:287:20
+286	
+287	            query = f"""
+288	            DELETE FROM {table_name}
+289	            WHERE timestamp < NOW() - INTERVAL '{older_than_days} DAYS'
+290	            """
+291	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\questdb_adapter.py:318:20
+317	
+318	            query = f"""
+319	            SELECT
+320	                COUNT(*) as total_rows,
+321	                MIN(timestamp) as first_timestamp,
+322	                MAX(timestamp) as last_timestamp,
+323	                COUNT(DISTINCT symbol) as unique_symbols
+324	            FROM {table_name}
+325	            """
+326	
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: src/db\adapters\redis_adapter.py:10:0
+9	import logging
+10	import pickle
+11	from datetime import datetime, timedelta
+
+--------------------------------------------------
+>> Issue: [B107:hardcoded_password_default] Possible hardcoded password: 'secure_password'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b107_hardcoded_password_default.html
+   Location: src/db\adapters\timescaledb_adapter.py:25:4
+24	
+25	    def __init__(
+26	        self,
+27	        host: str = "localhost",
+28	        port: int = 5432,
+29	        database: str = "trading",
+30	        user: str = "trading_user",
+31	        password: str = "secure_password",
+32	        enabled: bool = True,
+33	    ):
+34	        self.enabled = enabled
+35	        self.host = host
+36	        self.port = port
+37	        self.database = database
+38	        self.user = user
+39	        self.password = password
+40	
+41	        # Connection URL для SQLAlchemy
+42	        self._connection_url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+43	
+44	        self._engine = None
+45	        self._session_factory = None
+46	
+47	        if self.enabled:
+48	            try:
+49	                self._init_engine()
+50	                logger.info(f"TimescaleDBAdapter инициализирован: {host}:{port}")
+51	            except Exception as e:
+52	                logger.error(f"Ошибка подключения к TimescaleDB: {e}")
+53	                self.enabled = False
+54	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\timescaledb_adapter.py:206:25
+205	        try:
+206	            query = text(f"""
+207	            SELECT timestamp, open, high, low, close, volume, tick_volume, spread
+208	            FROM {table_name}
+209	            WHERE symbol = :symbol
+210	              AND timeframe = :timeframe
+211	              AND timestamp >= :start_time
+212	              AND timestamp <= :end_time
+213	            ORDER BY timestamp ASC
+214	            {'LIMIT :limit' if limit else ''}
+215	            """)
+216	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\timescaledb_adapter.py:258:25
+257	        try:
+258	            query = text(f"""
+259	            SELECT
+260	                time_bucket('{bucket_width}', timestamp) AS bucket,
+261	                first(open, timestamp) AS open,
+262	                max(high) AS high,
+263	                min(low) AS low,
+264	                last(close, timestamp) AS close,
+265	                sum(volume) AS volume,
+266	                sum(tick_volume) AS tick_volume
+267	            FROM {table_name}
+268	            WHERE symbol = :symbol
+269	              AND timeframe = :timeframe
+270	              AND timestamp >= :start_time
+271	              AND timestamp <= :end_time
+272	            GROUP BY bucket
+273	            ORDER BY bucket ASC
+274	            """)
+275	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\timescaledb_adapter.py:310:25
+309	        try:
+310	            query = text(f"""
+311	            SELECT timestamp, open, high, low, close, volume, tick_volume, spread
+312	            FROM {table_name}
+313	            WHERE symbol = :symbol AND timeframe = :timeframe
+314	            ORDER BY timestamp DESC
+315	            LIMIT 1
+316	            """)
+317	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\timescaledb_adapter.py:348:25
+347	        try:
+348	            query = text(f"""
+349	            DELETE FROM {table_name}
+350	            WHERE timestamp < NOW() - INTERVAL '{older_than_days} days'
+351	            """)
+352	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\timescaledb_adapter.py:390:36
+389	
+390	            create_agg_query = text(f"""
+391	            CREATE MATERIALIZED VIEW IF NOT EXISTS {mat_table}
+392	            WITH (timescaledb.continuous) AS
+393	            SELECT
+394	                symbol,
+395	                timeframe,
+396	                time_bucket('{bucket_width}', timestamp) AS bucket,
+397	                first(open, timestamp) AS open,
+398	                max(high) AS high,
+399	                min(low) AS low,
+400	                last(close, timestamp) AS close,
+401	                sum(volume) AS volume
+402	            FROM {table_name}
+403	            GROUP BY symbol, timeframe, bucket
+404	            WITH NO DATA;
+405	            """)
+406	            session.execute(create_agg_query)
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\timescaledb_adapter.py:410:25
+409	            # Запрос к агрегату
+410	            query = text(f"""
+411	            SELECT bucket AS timestamp, open, high, low, close, volume
+412	            FROM {mat_table}
+413	            WHERE symbol = :symbol
+414	              AND timeframe = :timeframe
+415	              AND bucket >= :start_time
+416	              AND bucket <= :end_time
+417	            ORDER BY bucket ASC
+418	            """)
+419	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/db\adapters\timescaledb_adapter.py:450:25
+449	        try:
+450	            query = text(f"""
+451	            SELECT
+452	                COUNT(*) as total_rows,
+453	                MIN(timestamp) as first_timestamp,
+454	                MAX(timestamp) as last_timestamp,
+455	                COUNT(DISTINCT symbol) as unique_symbols
+456	            FROM {table_name}
+457	            """)
+458	
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: src/db\database_manager.py:6:0
+5	import os
+6	import pickle
+7	import queue
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/db\database_manager.py:626:24
+625	                            total_saved += 1
+626	                        except Exception:
+627	                            pass
+628	                    session.commit()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/db\database_manager.py:1963:12
+1962	                session.close()
+1963	            except Exception:
+1964	                pass
+1965	
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: src/db\repositories\model_repository.py:10:0
+9	import logging
+10	import pickle
+11	from datetime import datetime
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: src/db\vector_db_manager.py:3:0
+2	import logging
+3	import pickle
+4	import threading
+
+--------------------------------------------------
+>> Issue: [B301:blacklist] Pickle and modules that wrap it can be unsafe when used to deserialize untrusted data, possible security issue.
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b301-pickle
+   Location: src/db\vector_db_manager.py:187:32
+186	                with open(self.meta_file, "rb") as f:
+187	                    meta_data = pickle.load(f)
+188	                    self.documents = meta_data["documents"]
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/gui\analytics_tab.py:216:42
+215	        for i in range(20):
+216	            train_loss = 0.7 * (0.9**i) + random.uniform(-0.02, 0.02)
+217	            val_loss = 0.75 * (0.88**i) + random.uniform(-0.03, 0.03)
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/gui\analytics_tab.py:217:42
+216	            train_loss = 0.7 * (0.9**i) + random.uniform(-0.02, 0.02)
+217	            val_loss = 0.75 * (0.88**i) + random.uniform(-0.03, 0.03)
+218	            self.update_loss_graph(train_loss, val_loss)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\backtest_process.py:172:8
+171	            mt5.shutdown()
+172	        except Exception:
+173	            pass
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\chart_theme_utils.py:50:16
+49	                        axis.setGrid(grid_color)
+50	                except Exception:
+51	                    pass
+52	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\chart_theme_utils.py:72:16
+71	                        axis.setGrid(grid_color)
+72	                except Exception:
+73	                    pass
+74	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\control_center_widget.py:848:16
+847	                        all_symbols = cfg.SYMBOLS_WHITELIST
+848	                except Exception:
+849	                    pass
+850	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/gui\database_monitor_widget.py:107:43
+106	                        try:
+107	                            cursor.execute(f"SELECT COUNT(*) FROM {table}")
+108	                            count = cursor.fetchone()[0]
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/gui\database_monitor_widget.py:593:43
+592	                        try:
+593	                            cursor.execute(f"SELECT COUNT(*) FROM {table}")
+594	                            count = cursor.fetchone()[0]
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: src/gui\dialogs\documentation_dialog.py:384:12
+383	        if self.doc_path and self.doc_path.exists():
+384	            import subprocess
+385	            import sys
+
+--------------------------------------------------
+>> Issue: [B606:start_process_with_no_shell] Starting a process without a shell.
+   Severity: Low   Confidence: Medium
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b606_start_process_with_no_shell.html
+   Location: src/gui\dialogs\documentation_dialog.py:388:16
+387	            if sys.platform.startswith("win"):
+388	                os.startfile(str(self.doc_path))
+389	            elif sys.platform == "darwin":
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: src/gui\dialogs\documentation_dialog.py:390:16
+389	            elif sys.platform == "darwin":
+390	                subprocess.Popen(["open", str(self.doc_path)])
+391	            else:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/gui\dialogs\documentation_dialog.py:390:16
+389	            elif sys.platform == "darwin":
+390	                subprocess.Popen(["open", str(self.doc_path)])
+391	            else:
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: src/gui\dialogs\documentation_dialog.py:392:16
+391	            else:
+392	                subprocess.Popen(["xdg-open", str(self.doc_path)])
+393	        else:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/gui\dialogs\documentation_dialog.py:392:16
+391	            else:
+392	                subprocess.Popen(["xdg-open", str(self.doc_path)])
+393	        else:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\live_data.py:131:12
+130	                    server_time_str = datetime.fromtimestamp(tick.time).strftime("%H:%M:%S")
+131	            except Exception:
+132	                pass
+133	            bridge.times_updated.emit(pc_time, server_time_str)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\live_data.py:374:20
+373	                        accuracy_data[sym] = acc
+374	                    except Exception:
+375	                        pass
+376	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\log_utils.py:86:8
+85	            pass
+86	        except Exception:
+87	            pass
+88	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\log_utils.py:127:8
+126	            sys.stdout.reconfigure(encoding="utf-8")
+127	        except Exception:
+128	            pass
+129	    root_logger.addHandler(console_handler)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\log_utils.py:158:16
+157	                    test_file.unlink()
+158	                except Exception:
+159	                    pass
+160	                return path
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b112_try_except_continue.html
+   Location: src/gui\log_utils.py:161:12
+160	                return path
+161	            except Exception:
+162	                continue
+163	        return None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\main_window.py:300:12
+299	                    return min(100.0, (load1 / cpu_count) * 100.0)
+300	            except Exception:
+301	                pass
+302	            return 0.0
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\main_window_parts\charts.py:211:16
+210	                    self.price_plot.removeItem(item)
+211	                except Exception:
+212	                    pass
+213	            self._candle_items.clear()
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'Zk*xS7Cc'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: src/gui\main_window_parts\signals.py:547:28
+546	                                path=r"C:\Program Files\Alpari MT5\terminal64.exe",
+547	                                login=53057252, password="Zk*xS7Cc",
+548	                                server="Alpari-MT5-Demo", timeout=30000
+549	                            )
+550	
+551	                            symbols = config.SYMBOLS_WHITELIST[:max_symbols]
+552	                            model_dir = Path(config.MODEL_DIR)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\main_window_parts\signals.py:628:48
+627	                                                    acc_data[s2] = d2.get('accuracy', 0)
+628	                                                except Exception:
+629	                                                    pass
+630	                                        if acc_data:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\main_window_parts\signals.py:632:36
+631	                                            self.bridge.model_accuracy_updated.emit(acc_data)
+632	                                    except Exception:
+633	                                        pass
+634	                                except Exception as e:
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: src/gui\settings_window.py:6:0
+5	import os
+6	import subprocess
+7	import sys
+
+--------------------------------------------------
+>> Issue: [B501:request_with_no_cert_validation] Call to requests with verify=False disabling SSL certificate checks, security issue.
+   Severity: High   Confidence: High
+   CWE: CWE-295 (https://cwe.mitre.org/data/definitions/295.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b501_request_with_no_cert_validation.html
+   Location: src/gui\settings_window.py:144:31
+143	
+144	                    response = requests.get(url, timeout=3, proxies=proxies, verify=False)
+145	                    response.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B501:request_with_no_cert_validation] Call to requests with verify=False disabling SSL certificate checks, security issue.
+   Severity: High   Confidence: High
+   CWE: CWE-295 (https://cwe.mitre.org/data/definitions/295.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b501_request_with_no_cert_validation.html
+   Location: src/gui\settings_window.py:197:31
+196	
+197	                    response = requests.post(url, json=payload, timeout=5, proxies=proxies, verify=False)
+198	                    response.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/gui\settings_window.py:345:28
+344	                                socket.socket = socket._socketobject if hasattr(socket, "_socketobject") else socket.socket
+345	                            except:
+346	                                pass
+347	                            continue
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'BINANCE_API_SECRET'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: src/gui\settings_window.py:2371:24
+2370	                        "api_key_env": "BINANCE_API_KEY",
+2371	                        "api_secret_env": "BINANCE_API_SECRET",
+2372	                        "sandbox": self.binance_sandbox_checkbox.isChecked(),
+2373	                        "symbols": [s.strip() for s in self.binance_symbols_edit.text().split(",") if s.strip()],
+2374	                        "default_leverage": self.binance_leverage_spin.value(),
+2375	                        "market_type": self.binance_market_type_combo.currentText(),
+2376	                    },
+2377	                    "bybit": {
+2378	                        "enabled": self.bybit_enabled_checkbox.isChecked(),
+2379	                        "api_key_env": "BYBIT_API_KEY",
+2380	                        "api_secret_env": "BYBIT_API_SECRET",
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'BYBIT_API_SECRET'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: src/gui\settings_window.py:2380:24
+2379	                        "api_key_env": "BYBIT_API_KEY",
+2380	                        "api_secret_env": "BYBIT_API_SECRET",
+2381	                        "sandbox": self.bybit_sandbox_checkbox.isChecked(),
+2382	                        "symbols": [s.strip() for s in self.bybit_symbols_edit.text().split(",") if s.strip()],
+2383	                        "default_leverage": 1,
+2384	                        "market_type": "spot",
+2385	                    },
+2386	                },
+2387	            }
+2388	
+2389	            # Настройки GUI
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'TELEGRAM_BOT_TOKEN'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: src/gui\settings_window.py:2456:24
+2455	                        "enabled": self.telegram_enabled_checkbox.isChecked(),
+2456	                        "bot_token_env": "TELEGRAM_BOT_TOKEN",
+2457	                        "chat_id_env": "TELEGRAM_CHAT_ID",
+2458	                    },
+2459	                    "email": {
+2460	                        "enabled": self.email_enabled_checkbox.isChecked(),
+2461	                        "smtp_server": self.email_smtp_edit.text(),
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'ALERT_EMAIL_PASSWORD'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: src/gui\settings_window.py:2465:24
+2464	                        "from_email_env": "ALERT_EMAIL_FROM",
+2465	                        "password_env": "ALERT_EMAIL_PASSWORD",
+2466	                        "recipients_env": "ALERT_EMAIL_RECIPIENTS",
+2467	                    },
+2468	                    "push": {"enabled": False, "user_key_env": "PUSHOVER_USER_KEY", "api_token_env": "PUSHOVER_API_TOKEN"},
+2469	                },
+2470	                "rate_limit": {"max_per_minute": 10, "cooldown_seconds": 60},
+2471	                "quiet_hours": {
+2472	                    "enabled": self.quiet_hours_enabled_checkbox.isChecked(),
+2473	                    "start": self.quiet_hours_start_edit.time().toString("HH:mm"),
+2474	                    "end": self.quiet_hours_end_edit.time().toString("HH:mm"),
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'PUSHOVER_API_TOKEN'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: src/gui\settings_window.py:2468:84
+2467	                    },
+2468	                    "push": {"enabled": False, "user_key_env": "PUSHOVER_USER_KEY", "api_token_env": "PUSHOVER_API_TOKEN"},
+2469	                },
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: src/gui\settings_window.py:4007:8
+4006	        """Проверяет доступность GPU."""
+4007	        import subprocess
+4008	
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: src/gui\settings_window.py:4010:21
+4009	        try:
+4010	            result = subprocess.check_output(
+4011	                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+4012	                text=True,
+4013	            )
+4014	            gpu_info = result.strip()
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/gui\settings_window.py:4010:21
+4009	        try:
+4010	            result = subprocess.check_output(
+4011	                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+4012	                text=True,
+4013	            )
+4014	            gpu_info = result.strip()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/ml\championship_retraining.py:415:12
+414	                session.close()
+415	            except Exception:
+416	                pass
+417	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/ml\championship_retraining.py:498:12
+497	                session.close()
+498	            except Exception:
+499	                pass
+500	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: src/ml\feature_engineer.py:126:12
+125	            # Проверяем что типы совпадают
+126	            assert (
+127	                df_sorted.index.dtype == features_sorted.index.dtype
+128	            ), f"Типы индексов не совпадают: {df_sorted.index.dtype} vs {features_sorted.index.dtype}"
+129	
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: src/ml\genetic_programming_core.py:5:0
+4	import operator
+5	import pickle
+6	import random
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:130:33
+129	    def _create_random_tree(self, depth=0, max_depth=4) -> Node:
+130	        if depth >= max_depth or random.random() < 0.5:
+131	            return Node(random.choice(list(TERMINALS.keys())))
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:131:24
+130	        if depth >= max_depth or random.random() < 0.5:
+131	            return Node(random.choice(list(TERMINALS.keys())))
+132	        else:
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:133:34
+132	        else:
+133	            op_name, op_details = random.choice(list(OPERATORS.items()))
+134	            arity = op_details[1]
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:242:20
+241	    def _tournament_selection(self, fitness_scores: list) -> dict:
+242	        selection = random.sample(fitness_scores, self.tournament_size)
+243	        return max(selection, key=lambda x: x[0])[1]
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:252:31
+251	        if nodes1_buy and nodes2_buy:
+252	            crossover_point1 = random.choice(nodes1_buy)
+253	            crossover_point2 = random.choice(nodes2_buy)
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:253:31
+252	            crossover_point1 = random.choice(nodes1_buy)
+253	            crossover_point2 = random.choice(nodes2_buy)
+254	            crossover_point1.value, crossover_point2.value = crossover_point2.value, crossover_point1.value
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:260:31
+259	        if nodes1_sell and nodes2_sell:
+260	            crossover_point1 = random.choice(nodes1_sell)
+261	            crossover_point2 = random.choice(nodes2_sell)
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:261:31
+260	            crossover_point1 = random.choice(nodes1_sell)
+261	            crossover_point2 = random.choice(nodes2_sell)
+262	            crossover_point1.value, crossover_point2.value = crossover_point2.value, crossover_point1.value
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:268:25
+267	    def _mutate(self, individual: dict) -> dict:
+268	        tree_to_mutate = random.choice(["buy_tree", "sell_tree"])
+269	        nodes = self._get_all_nodes(individual[tree_to_mutate])
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:272:25
+271	            return individual
+272	        mutation_point = random.choice(nodes)
+273	        new_subtree = self._create_random_tree()
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:307:19
+306	                parent2 = self._tournament_selection(fitness_scores)
+307	                if random.random() < self.crossover_rate:
+308	                    child1, child2 = self._crossover(parent1, parent2)
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:311:19
+310	                    child1, child2 = copy.deepcopy(parent1), copy.deepcopy(parent2)
+311	                if random.random() < self.mutation_rate:
+312	                    child1 = self._mutate(child1)
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: src/ml\genetic_programming_core.py:313:19
+312	                    child1 = self._mutate(child1)
+313	                if random.random() < self.mutation_rate:
+314	                    child2 = self._mutate(child2)
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: src/ml\model_versioning.py:31:0
+30	import logging
+31	import pickle
+32	from dataclasses import dataclass, field
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: src/ml\news_enrichment.py:262:47
+261	            elif hasattr(self.kg_querier, "query"):
+262	                result = self.kg_querier.query(f"SELECT sentiment, causality FROM asset_sentiment WHERE symbol = '{symbol}'")
+263	                if result:
+
+--------------------------------------------------
+>> Issue: [B614:pytorch_load] Use of unsafe PyTorch load
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b614_pytorch_load.html
+   Location: src/ml\predictors\lstm_predictor.py:63:21
+62	
+63	        checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=False)
+64	
+
+--------------------------------------------------
+>> Issue: [B614:pytorch_load] Use of unsafe PyTorch load
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b614_pytorch_load.html
+   Location: src/ml\predictors\transformer_predictor.py:64:21
+63	
+64	        checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=False)
+65	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/monitoring\alert_manager.py:368:20
+367	                        socket.socket = socket._socketobject if hasattr(socket, "_socketobject") else socket.socket
+368	                    except:
+369	                        pass
+370	                    continue
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: src/social\network_transport.py:29:35
+28	    
+29	    def __init__(self, host: str = "0.0.0.0", port: int = 5555):
+30	        self.host = host
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: src/social\publisher.py:18:35
+17	
+18	def init_zmq_publisher(host: str = "0.0.0.0", port: int = 5555):
+19	    """Инициализация сетевого издателя."""
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: src/strategies\strategy_loader.py:6:0
+5	import os
+6	import pickle
+7	import sys  # <--- Добавлен sys
+
+--------------------------------------------------
+>> Issue: [B301:blacklist] Pickle and modules that wrap it can be unsafe when used to deserialize untrusted data, possible security issue.
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b301-pickle
+   Location: src/strategies\strategy_loader.py:62:50
+61	                        with open(file_path, "rb") as f:
+62	                            strategy_individual = pickle.load(f)
+63	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/strategies\strategy_loader.py:97:32
+96	                                            return TradeSignal(type=SignalType.SELL, confidence=1.0, symbol=symbol)
+97	                                except Exception:
+98	                                    pass
+99	                                return None
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: src/utils\cache_manager.py:388:15
+387	    # MD5 хэш
+388	    key_hash = hashlib.md5(key_str.encode()).hexdigest()
+389	
+
+--------------------------------------------------
+>> Issue: [B614:pytorch_load] Use of unsafe PyTorch load
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b614_pytorch_load.html
+   Location: src/utils\device_manager.py:99:25
+98	            # Загрузка с диска
+99	            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+100	            model = checkpoint["model"]
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/utils\gui_thread_safety.py:172:8
+171	                return None
+172	        except Exception:
+173	            pass
+174	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: src/utils\scheduler_manager.py:5:0
+4	import os
+5	import subprocess
+6	import sys
+
+--------------------------------------------------
+>> Issue: [B405:blacklist] Using xml.etree.ElementTree to parse untrusted XML data is known to be vulnerable to XML attacks. Replace xml.etree.ElementTree with the equivalent defusedxml package, or make sure defusedxml.defuse_stdlib() is called.
+   Severity: Low   Confidence: High
+   CWE: CWE-20 (https://cwe.mitre.org/data/definitions/20.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b405-import-xml-etree
+   Location: src/utils\scheduler_manager.py:7:0
+6	import sys
+7	import xml.etree.ElementTree as ET
+8	from typing import Optional
+
+--------------------------------------------------
+>> Issue: [B314:blacklist] Using xml.etree.ElementTree.fromstring to parse untrusted XML data is known to be vulnerable to XML attacks. Replace xml.etree.ElementTree.fromstring with its defusedxml equivalent function or make sure defusedxml.defuse_stdlib() is called
+   Severity: Medium   Confidence: High
+   CWE: CWE-20 (https://cwe.mitre.org/data/definitions/20.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b313-b320-xml-bad-elementtree
+   Location: src/utils\scheduler_manager.py:37:19
+36	
+37	            root = ET.fromstring(xml_output)
+38	            # Ищем время в элементе StartBoundary
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: src/utils\scheduler_manager.py:58:21
+57	            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+58	            result = subprocess.run(
+59	                command,
+60	                capture_output=True,
+61	                text=True,
+62	                check=False,
+63	                startupinfo=startupinfo,
+64	                encoding="cp866",
+65	                errors="replace",
+66	            )
+67	            if result.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/web\server.py:121:8
+120	            pass
+121	        except Exception:
+122	            # Игнорируем прочие ошибки логирования, чтобы не крашить сервер
+123	            pass
+124	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/web\server.py:142:16
+141	                    app_state.latest_status = SystemStatus(**update_data["payload"])
+142	                except:
+143	                    pass
+144	            elif update_data["type"] == "positions_update":
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: src/web\server.py:147:16
+146	                    app_state.latest_positions = [Position(**pos) for pos in update_data["payload"]]
+147	                except:
+148	                    pass
+149	
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 53395
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 112
+		Medium: 37
+		High: 6
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 16
+		Medium: 20
+		High: 119
+Files skipped (0):
