@@ -138,4 +138,34 @@ logs_monitor_report.json
 .qoder/
 .qwen/
 __pycache__/  
+# --- IDE директории ---
+.kilocode/
+.kiro/
+.qoder/
+.llama/
+__pycache__/  
+*.pyc
+
+# --- Virtual environments (НЕ коммитим) ---
+venv311/
+venv310/
+
+# --- PySide6/Qt ресурсы (НЕ коммитим, занимают ~100MB) ---
+**/qtwebengine_devtools_resources*.pak
+**/PySide6/*.pak
+**/PySide6/*.dll
+**/PySide6/*.so
+**/PySide6/*.dylib
+**/PySide6/*.lib
+**/PySide6/*.exe
+**/PySide6/qml/
+**/PySide6/translations/
+**/PySide6/optional/
+
+# --- Отчёты анализаторов ---
+bandit_report.*
+ruff_report.*
+
+# --- Дополнительные логи ---
+*.log
 *.pyc 
